@@ -1,0 +1,11 @@
+[indi]
+host = "127.0.0.1"
+port = 7624
+
+[solver]
+binary = "astap"
+
+[site]
+latitude_deg = -34.93
+longitude_deg = 138.60
+elevation_m = 50
