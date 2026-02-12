@@ -74,3 +74,72 @@ astrolabe polar
 
 # Start guiding
 astrolabe guide start
+
+## Development Setup (Ubuntu)
+
+Astrolabe currently targets Linux (Ubuntu/Debian).
+
+------------------------------------------------------------------------
+
+### 1. System Dependencies
+
+#### Install INDI
+
+Add the official INDI PPA:
+
+    sudo add-apt-repository ppa:mutlaqja/ppa
+    sudo apt update
+
+Install INDI:
+
+    sudo apt install indi-full
+
+Verify installation:
+
+    indiserver --version
+
+------------------------------------------------------------------------
+
+#### Install ASTAP
+
+Download the Linux `.deb` package from:
+
+https://www.hnsky.org/astap.htm
+
+Then install it:
+
+    sudo apt install ./astap_*.deb
+
+Verify installation:
+
+    astap -h
+
+------------------------------------------------------------------------
+
+### 2. Python Environment
+
+From the repository root:
+
+    python -m venv .venv --prompt astrolabe
+    source .venv/bin/activate
+    pip install -e .
+
+------------------------------------------------------------------------
+
+### 3. Test Installation
+
+Copy astrolabe/config.toml to ~/.config/astrolabe/config.toml
+
+Start INDI server (example using simulator driver):
+
+    indiserver indi_simulator_telescope
+
+In another terminal:
+
+    astrolabe doctor
+
+Expected results:
+
+-   config: OK
+-   indi_server: OK
+-   solver_astap: OK
