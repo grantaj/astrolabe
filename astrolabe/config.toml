@@ -3,7 +3,7 @@ host = "127.0.0.1"
 port = 7624
 
 [solver]
-binary = "astap"
+binary = "astap_cli"
 
 [site]
 latitude_deg = -34.93
