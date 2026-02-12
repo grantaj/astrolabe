@@ -1,0 +1,14 @@
+[project]
+name = "astrolabe"
+version = "0.0.1"
+description = "Minimal CLI telescope control tool"
+authors = [{name = "Astrolabe Contributors"}]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+astrolabe = "astrolabe.cli.main:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
