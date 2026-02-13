@@ -3,6 +3,7 @@ host = "127.0.0.1"
 port = 7624
 
 [solver]
+name = "astap"
 binary = "astap_cli"
 
 [site]

@@ -3,39 +3,22 @@ import sys
 from datetime import datetime
 import socket
 from astrolabe import __version__
-import socket
-import subprocess
 from astrolabe.config import load_config
+from astrolabe.solver import get_solver_backend
 
 def run_doctor():
     config = load_config()
+    solver_backend = get_solver_backend(config)
 
     def check_indi_server():
-    
         try:
             with socket.create_connection((config.indi_host, config.indi_port), timeout=2):
                 return {"ok": True, "detail": "reachable"}
         except (ConnectionRefusedError, socket.timeout, OSError):
             return {"ok": False, "detail": "not reachable"}
-        
-    def check_solver():
-        solver_binary = config.solver_binary
 
-        try:
-            result = subprocess.run(
-                [solver_binary, "-h"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=3,
-            )
-            if result.returncode == 0:
-                return {"ok": True, "detail": "responds to -h"}
-            else:
-                return {"ok": False, "detail": "returned non-zero"}
-        except FileNotFoundError:
-            return {"ok": False, "detail": "not found in PATH"}
-        except subprocess.TimeoutExpired:
-            return {"ok": False, "detail": "timeout"}
+    def check_solver():
+        return solver_backend.is_available()
 
     def check_config():
         try:
@@ -48,7 +31,7 @@ def run_doctor():
     checks = {
         "config": check_config(),
         "indi_server": check_indi_server(),
-        "solver": check_solver(),
+        f"solver ({config.solver_name})": check_solver(),
         "camera_backend": {"ok": False, "detail": "not implemented"},
         "mount_backend": {"ok": False, "detail": "not implemented"},
     }

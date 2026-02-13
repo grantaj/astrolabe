@@ -17,6 +17,10 @@ class Config:
 
 
     @property
+    def solver_name(self):
+        return self._data.get("solver", {}).get("name", "astap")
+
+    @property
     def solver_binary(self):
         return self._data.get("solver", {}).get("binary", "astap")
 
