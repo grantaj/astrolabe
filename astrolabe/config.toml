@@ -6,6 +6,7 @@ port = 7624
 name = "astap"
 binary = "astap_cli"
 database_path = "/home/alex/.astap"
+search_radius_deg = 5.0
 
 [site]
 latitude_deg = -34.93

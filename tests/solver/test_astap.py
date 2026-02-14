@@ -9,6 +9,7 @@ import subprocess
 import sys
 import shutil
 import io
+import math
 
 @pytest.fixture
 def sample_fits_path():
@@ -71,6 +72,45 @@ def test_astap_solve_placeholder(sample_image):
         assert result.success is True
         assert result.message.startswith("ASTAP solve succeeded")
 
+
+def test_astap_hint_units():
+    image = Image(
+        data="testdata/raw/sample1.fits",
+        width_px=1024,
+        height_px=1024,
+        timestamp_utc=datetime.datetime.now(datetime.timezone.utc),
+        exposure_s=2.0,
+        metadata={},
+    )
+    request = SolveRequest(
+        image=image,
+        ra_hint_rad=math.radians(15.0),
+        dec_hint_rad=math.radians(0.0),
+        search_radius_rad=math.radians(5.0),
+    )
+    backend = AstapSolverBackend(binary="astap_cli")
+
+    def fake_exists(path):
+        return str(path).endswith(".ini")
+
+    def fake_open(path, *args, **kwargs):
+        return io.StringIO(
+            "CRVAL1=10\nCRVAL2=20\nCDELT1=0.0002777778\nCDELT2=0.0002777778\nCROTA1=0\n"
+        )
+
+    with patch("subprocess.run") as mock_run, patch("os.path.exists", side_effect=fake_exists), patch(
+        "builtins.open", new=fake_open
+    ):
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
+        backend.solve(request)
+        cmd = mock_run.call_args[0][0]
+        assert "-ra" in cmd and "-spd" in cmd
+        ra_value = float(cmd[cmd.index("-ra") + 1])
+        spd_value = float(cmd[cmd.index("-spd") + 1])
+        assert ra_value == pytest.approx(1.0, rel=0, abs=1e-9)
+        assert spd_value == pytest.approx(90.0, rel=0, abs=1e-9)
+        assert "-radius" in cmd
 
 @pytest.fixture(scope="session")
 def synthetic_fits_path(tmp_path_factory):

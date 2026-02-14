@@ -26,7 +26,8 @@ class AstapSolverBackend(SolverBackend):
             if self.database_path:
                 cmd += ["-d", self.database_path]
             if request.ra_hint_rad is not None and request.dec_hint_rad is not None:
-                ra_hours = (math.degrees(request.ra_hint_rad) / 15.0) % 24.0
+                ra_rad = request.ra_hint_rad % (2.0 * math.pi)
+                ra_hours = math.degrees(ra_rad) / 15.0
                 dec_deg = math.degrees(request.dec_hint_rad)
                 spd_deg = 90.0 - dec_deg
                 cmd += ["-ra", str(ra_hours), "-spd", str(spd_deg)]
@@ -53,6 +54,7 @@ class AstapSolverBackend(SolverBackend):
                                        message="ASTAP did not produce .ini file.")
                 # Parse .ini file
                 ra_rad = dec_rad = pixel_scale_arcsec = rotation_rad = rms_arcsec = num_stars = None
+                scale1 = scale2 = None
                 with open(ini_path, "r") as f:
                     for line in f:
                         if line.startswith("CRVAL1="):
@@ -73,7 +75,20 @@ class AstapSolverBackend(SolverBackend):
                             pass  # can add to message
                         elif line.startswith("CMDLINE="):
                             pass  # can add to message
-                pixel_scale_arcsec = (scale1 + scale2) / 2 if 'scale1' in locals() and 'scale2' in locals() else None
+                if scale1 is not None and scale2 is not None:
+                    pixel_scale_arcsec = (scale1 + scale2) / 2
+
+                if ra_rad is None or dec_rad is None:
+                    return SolveResult(
+                        success=False,
+                        ra_rad=None,
+                        dec_rad=None,
+                        pixel_scale_arcsec=pixel_scale_arcsec,
+                        rotation_rad=rotation_rad,
+                        rms_arcsec=rms_arcsec,
+                        num_stars=num_stars,
+                        message="ASTAP .ini missing CRVAL1/CRVAL2.",
+                    )
                 # Optionally parse .wcs or .ini for RMS and num_stars
                 wcs_path = str(base) + ".wcs"
                 if os.path.exists(wcs_path):

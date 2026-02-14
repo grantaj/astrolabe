@@ -14,6 +14,11 @@ def main():
     solve_parser = subparsers.add_parser("solve", help="Plate solve a FITS image")
     solve_parser.add_argument("input_fits", nargs="?", help="Input FITS file path")
     solve_parser.add_argument("--in", dest="input_fits_opt", help="Input FITS file path")
+    solve_parser.add_argument(
+        "--search-radius-deg",
+        type=float,
+        help="Search radius in degrees (overrides config)",
+    )
     solve_parser.add_argument("--json", action="store_true", help="Output result as JSON")
     # Future: add more arguments for hints
 

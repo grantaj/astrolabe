@@ -2,6 +2,7 @@ import datetime
 import os
 import socket
 import sys
+import math
 
 from astrolabe.config import load_config
 from astrolabe.solver import get_solver_backend
@@ -96,7 +97,17 @@ def run_solve(args) -> int:
         exposure_s=0.0,  # Placeholder
         metadata={},
     )
-    request = SolveRequest(image=image)
+    search_radius_deg = None
+    if hasattr(args, "search_radius_deg") and args.search_radius_deg is not None:
+        search_radius_deg = args.search_radius_deg
+    elif config.solver_search_radius_deg is not None:
+        search_radius_deg = config.solver_search_radius_deg
+
+    search_radius_rad = None
+    if search_radius_deg is not None:
+        search_radius_rad = math.radians(search_radius_deg)
+
+    request = SolveRequest(image=image, search_radius_rad=search_radius_rad)
     result = solver_backend.solve(request)
     if args.json:
         import json

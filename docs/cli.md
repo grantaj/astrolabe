@@ -100,6 +100,7 @@ astrolabe solve [<path>] [--in <path>]
 Options:
 - `<path>`             Input image path (optional)
 - `--in <path>`        Input image path (optional, overrides positional)
+- `--search-radius-deg <deg>`   Search radius in degrees (overrides config)
 
 JSON data:
 - `success`
