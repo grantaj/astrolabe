@@ -31,3 +31,4 @@ class SolveResult:
     rms_arcsec: Optional[float]
     num_stars: Optional[int]
     message: Optional[str] = None
+    raw_output: Optional[str] = None

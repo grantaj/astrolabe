@@ -101,6 +101,7 @@ Options:
 - `<path>`             Input image path (optional)
 - `--in <path>`        Input image path (optional, overrides positional)
 - `--search-radius-deg <deg>`   Search radius in degrees (overrides config)
+- `--verbose`          Include solver output on failure
 
 JSON data:
 - `success`

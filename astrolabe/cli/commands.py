@@ -107,7 +107,15 @@ def run_solve(args) -> int:
     if search_radius_deg is not None:
         search_radius_rad = math.radians(search_radius_deg)
 
-    request = SolveRequest(image=image, search_radius_rad=search_radius_rad)
+    extra_options = None
+    if hasattr(args, "verbose") and args.verbose:
+        extra_options = {"verbose": True}
+
+    request = SolveRequest(
+        image=image,
+        search_radius_rad=search_radius_rad,
+        extra_options=extra_options,
+    )
     result = solver_backend.solve(request)
     if args.json:
         import json
@@ -120,6 +128,9 @@ def run_solve(args) -> int:
                 error=None,
             )
         else:
+            details = None
+            if getattr(args, "verbose", False) and result.raw_output:
+                details = {"raw_output": result.raw_output}
             payload = _json_envelope(
                 command="solve",
                 ok=False,
@@ -127,7 +138,7 @@ def run_solve(args) -> int:
                 error={
                     "code": "solve_failed",
                     "message": result.message or "solve failed",
-                    "details": None,
+                    "details": details,
                 },
             )
         print(json.dumps(payload, indent=2))
@@ -149,6 +160,9 @@ def run_solve(args) -> int:
         print(f"RMS: {result.rms_arcsec}")
         print(f"Stars: {result.num_stars}")
         print(f"Message: {result.message}")
+        if not result.success and getattr(args, "verbose", False) and result.raw_output:
+            print("\n--- ASTAP output ---")
+            print(result.raw_output)
     if not result.success:
         return 1
     return 0

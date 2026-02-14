@@ -8,6 +8,26 @@ from .base import SolverBackend
 import tempfile
 import os
 
+
+def _summarize_astap_failure(stdout: str, stderr: str) -> str:
+    text = stdout.strip() or stderr.strip()
+    if not text:
+        return "Unknown error"
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    priority = [
+        "Only 0 stars found",
+        "No solution found",
+        "Old database",
+        "not enough stars",
+        "Error",
+    ]
+    for p in priority:
+        for line in lines:
+            if p in line:
+                return line
+    return lines[-1]
+
+
 class AstapSolverBackend(SolverBackend):
     def __init__(self, binary: str = "astap_cli", database_path: Optional[str] = None):
         self.binary = binary
@@ -43,10 +63,11 @@ class AstapSolverBackend(SolverBackend):
             try:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 if result.returncode != 0:
-                    reason = result.stdout.strip() or result.stderr.strip() or "Unknown error"
+                    reason = _summarize_astap_failure(result.stdout, result.stderr)
+                    raw_output = (result.stdout or "").strip() or (result.stderr or "").strip() or None
                     return SolveResult(success=False, ra_rad=None, dec_rad=None, pixel_scale_arcsec=None,
                                        rotation_rad=None, rms_arcsec=None, num_stars=None,
-                                       message=f"ASTAP failed: {reason}")
+                                       message=f"ASTAP failed: {reason}", raw_output=raw_output)
                 ini_path = str(base) + ".ini"
                 if not os.path.exists(ini_path):
                     return SolveResult(success=False, ra_rad=None, dec_rad=None, pixel_scale_arcsec=None,

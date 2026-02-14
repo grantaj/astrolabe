@@ -19,6 +19,11 @@ def main():
         type=float,
         help="Search radius in degrees (overrides config)",
     )
+    solve_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Include solver output on failure",
+    )
     solve_parser.add_argument("--json", action="store_true", help="Output result as JSON")
     # Future: add more arguments for hints
 
