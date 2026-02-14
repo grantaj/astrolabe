@@ -4,7 +4,10 @@ version = "0.0.1"
 description = "Minimal CLI telescope control tool"
 authors = [{name = "Astrolabe Contributors"}]
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "astropy",
+    "matplotlib"
+]
 
 [project.optional-dependencies]
 dev = [

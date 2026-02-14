@@ -1,5 +1,10 @@
 # Test images for plate solving
 testdata/raw/
+*.ini
+*.wcs
+tycho2/
+hyg4.2/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -24,6 +24,10 @@ class Config:
     def solver_binary(self):
         return self._data.get("solver", {}).get("binary", "astap")
 
+    @property
+    def solver_database_path(self):
+        return self._data.get("solver", {}).get("database_path", None)
+
 def load_config(path: Path | None = None) -> Config:
     path = path or DEFAULT_CONFIG_PATH
 

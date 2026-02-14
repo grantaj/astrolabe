@@ -5,6 +5,7 @@ port = 7624
 [solver]
 name = "astap"
 binary = "astap_cli"
+database_path = "/home/alex/.astap"
 
 [site]
 latitude_deg = -34.93
