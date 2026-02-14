@@ -119,6 +119,9 @@ System diagnostics for local dependencies and configuration.
 astrolabe doctor
 ```
 
+Options:
+- `--json`           Emit machine-readable JSON output
+
 Human output:
 - A status report of config, INDI server connectivity, solver availability, and backend presence.
 

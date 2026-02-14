@@ -8,7 +8,17 @@ from astrolabe.solver import get_solver_backend
 from astrolabe.solver.types import Image, SolveRequest
 
 
-def run_doctor() -> int:
+def _json_envelope(command: str, ok: bool, data=None, error=None) -> dict:
+    return {
+        "ok": ok,
+        "command": command,
+        "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "data": data,
+        "error": error,
+    }
+
+
+def run_doctor(args=None) -> int:
     config = load_config()
     solver_backend = get_solver_backend(config)
 
@@ -39,19 +49,30 @@ def run_doctor() -> int:
 
     ok = all(c["ok"] for c in checks.values())
 
-    print("Astrolabe Doctor Report")
-    print("=======================")
+    if args is not None and getattr(args, "json", False):
+        import json
 
-    for name, result in checks.items():
-        status = "OK" if result["ok"] else "MISSING"
-        print(f"{name:20} : {status} ({result['detail']})")
-
-    if ok:
-        print("\nSystem ready.")
-        return 0
+        payload = _json_envelope(
+            command="doctor",
+            ok=ok,
+            data={"checks": checks},
+            error=None if ok else {"code": "doctor_failed", "message": "one or more checks failed", "details": None},
+        )
+        print(json.dumps(payload, indent=2))
     else:
-        print("\nSome components are missing or not configured.")
-        return 1
+        print("Astrolabe Doctor Report")
+        print("=======================")
+
+        for name, result in checks.items():
+            status = "OK" if result["ok"] else "MISSING"
+            print(f"{name:20} : {status} ({result['detail']})")
+
+        if ok:
+            print("\nSystem ready.")
+        else:
+            print("\nSome components are missing or not configured.")
+
+    return 0 if ok else 1
 
 
 def run_solve(args) -> int:
@@ -79,7 +100,25 @@ def run_solve(args) -> int:
     if args.json:
         import json
 
-        print(json.dumps(result.__dict__, indent=2))
+        if result.success:
+            payload = _json_envelope(
+                command="solve",
+                ok=True,
+                data=result.__dict__,
+                error=None,
+            )
+        else:
+            payload = _json_envelope(
+                command="solve",
+                ok=False,
+                data=None,
+                error={
+                    "code": "solve_failed",
+                    "message": result.message or "solve failed",
+                    "details": None,
+                },
+            )
+        print(json.dumps(payload, indent=2))
     else:
         print(f"Success: {result.success}")
         print(f"RA: {result.ra_rad}")

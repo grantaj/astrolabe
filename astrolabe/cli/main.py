@@ -8,7 +8,8 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command")
 
-    subparsers.add_parser("doctor", help="Run system diagnostics")
+    doctor_parser = subparsers.add_parser("doctor", help="Run system diagnostics")
+    doctor_parser.add_argument("--json", action="store_true", help="Output result as JSON")
 
     solve_parser = subparsers.add_parser("solve", help="Plate solve a FITS image")
     solve_parser.add_argument("input_fits", nargs="?", help="Input FITS file path")
@@ -27,7 +28,7 @@ def main():
         return 0
 
     if args.command == "doctor":
-        return run_doctor()
+        return run_doctor(args)
 
     if args.command == "solve":
         return run_solve(args)
