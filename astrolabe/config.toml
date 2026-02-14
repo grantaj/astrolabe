@@ -5,7 +5,7 @@ port = 7624
 [solver]
 name = "astap"
 binary = "astap_cli"
-database_path = "/home/alex/.astap"
+database_path = "~/.astap"
 search_radius_deg = 5.0
 
 [site]

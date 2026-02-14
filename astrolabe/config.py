@@ -29,7 +29,10 @@ class Config:
 
     @property
     def solver_database_path(self):
-        return self._data.get("solver", {}).get("database_path", None)
+        path = self._data.get("solver", {}).get("database_path", None)
+        if not path:
+            return None
+        return str(Path(path).expanduser())
 
     @property
     def solver_search_radius_deg(self):
