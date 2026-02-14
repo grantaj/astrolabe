@@ -11,6 +11,8 @@ import shutil
 import io
 import math
 
+TEST_TIMEOUT_S = 1.0
+
 @pytest.fixture
 def sample_fits_path():
     # Path to a sample FITS file in testdata/raw/
@@ -87,6 +89,7 @@ def test_astap_hint_units():
         ra_hint_rad=math.radians(15.0),
         dec_hint_rad=math.radians(0.0),
         search_radius_rad=math.radians(5.0),
+        timeout_s=TEST_TIMEOUT_S,
     )
     backend = AstapSolverBackend(binary="astap_cli")
 

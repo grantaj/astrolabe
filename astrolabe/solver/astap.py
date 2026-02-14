@@ -8,6 +8,8 @@ from .base import SolverBackend
 import tempfile
 import os
 
+DEFAULT_ASTAP_TIMEOUT_S = 60
+
 
 def _summarize_astap_failure(stdout: str, stderr: str) -> str:
     text = stdout.strip() or stderr.strip()
@@ -61,7 +63,8 @@ class AstapSolverBackend(SolverBackend):
                     cmd += [f"--{k}", str(v)]
 
             try:
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                timeout_s = request.timeout_s if request.timeout_s is not None else DEFAULT_ASTAP_TIMEOUT_S
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
                 if result.returncode != 0:
                     reason = _summarize_astap_failure(result.stdout, result.stderr)
                     raw_output = (result.stdout or "").strip() or (result.stderr or "").strip() or None

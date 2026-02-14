@@ -26,6 +26,7 @@ Global options (available on all commands):
 - `--log-level <level>`    debug|info|warn|error
 - `--timeout <seconds>`    Operation timeout (best-effort)
 - `--dry-run`              Do not move mount; simulate actions where possible
+  (currently a no-op for `solve`, `doctor`, and `view`)
 
 ---
 

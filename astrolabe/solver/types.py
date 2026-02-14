@@ -19,6 +19,7 @@ class SolveRequest:
     scale_hint_arcsec: Optional[float] = None
     parity_hint: Optional[int] = None
     search_radius_rad: Optional[float] = None
+    timeout_s: Optional[float] = None
     extra_options: Optional[Dict[str, Any]] = None
 
 @dataclass

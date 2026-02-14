@@ -5,6 +5,23 @@ from astrolabe.cli.commands import run_doctor, run_solve, run_view
 def main():
     parser = argparse.ArgumentParser(prog="astrolabe")
     parser.add_argument("--version", action="store_true", help="Show version and exit")
+    parser.add_argument("--config", help="Path to config file")
+    parser.add_argument(
+        "--log-level",
+        default="info",
+        choices=["debug", "info", "warn", "error"],
+        help="Logging level",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        help="Operation timeout in seconds (best-effort)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Do not move mount; simulate actions where possible",
+    )
 
     subparsers = parser.add_subparsers(dest="command")
 

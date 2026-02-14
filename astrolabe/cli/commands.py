@@ -3,6 +3,8 @@ import os
 import socket
 import sys
 import math
+import logging
+from pathlib import Path
 
 from astrolabe.config import load_config
 from astrolabe.solver import get_solver_backend
@@ -20,8 +22,30 @@ def _json_envelope(command: str, ok: bool, data=None, error=None) -> dict:
     }
 
 
+def _init_logging(level: str | None) -> None:
+    if not level:
+        return
+    level_map = {
+        "debug": logging.DEBUG,
+        "info": logging.INFO,
+        "warn": logging.WARNING,
+        "error": logging.ERROR,
+    }
+    logging.basicConfig(level=level_map.get(level, logging.INFO))
+
+
+def _config_path_from_args(args) -> Path | None:
+    if args is None:
+        return None
+    path = getattr(args, "config", None)
+    return Path(path) if path else None
+
+
 def run_doctor(args=None) -> int:
-    config = load_config()
+    _init_logging(getattr(args, "log_level", None))
+    config = load_config(_config_path_from_args(args))
+    if getattr(args, "dry_run", False):
+        print("--dry-run has no effect for doctor.", file=sys.stderr)
     solver_backend = get_solver_backend(config)
 
     def check_indi_server():
@@ -36,7 +60,7 @@ def run_doctor(args=None) -> int:
 
     def check_config():
         try:
-            load_config()
+            load_config(_config_path_from_args(args))
             return {"ok": True, "detail": "loaded (defaults applied if missing)"}
         except Exception as e:
             return {"ok": False, "detail": f"invalid config: {e}"}
@@ -78,7 +102,11 @@ def run_doctor(args=None) -> int:
 
 
 def run_solve(args) -> int:
-    config = load_config()
+    _init_logging(getattr(args, "log_level", None))
+    config = load_config(_config_path_from_args(args))
+
+    if getattr(args, "dry_run", False):
+        print("--dry-run has no effect for solve.", file=sys.stderr)
     solver_backend = get_solver_backend(config)
 
     fits_path = args.input_fits_opt or args.input_fits
@@ -114,6 +142,7 @@ def run_solve(args) -> int:
     request = SolveRequest(
         image=image,
         search_radius_rad=search_radius_rad,
+        timeout_s=getattr(args, "timeout", None),
         extra_options=extra_options,
     )
     result = solver_backend.solve(request)
@@ -177,6 +206,8 @@ def run_view(args) -> int:
             file=sys.stderr,
         )
         return 2
+    if getattr(args, "dry_run", False):
+        print("--dry-run has no effect for view.", file=sys.stderr)
 
     fits_path = args.input_fits
     if not os.path.isfile(fits_path):
