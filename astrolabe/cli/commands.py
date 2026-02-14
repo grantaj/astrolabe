@@ -6,6 +6,7 @@ import sys
 from astrolabe.config import load_config
 from astrolabe.solver import get_solver_backend
 from astrolabe.solver.types import Image, SolveRequest
+from astrolabe.util.format import rad_to_hms, rad_to_dms, rad_to_deg
 
 
 def _json_envelope(command: str, ok: bool, data=None, error=None) -> dict:
@@ -121,10 +122,19 @@ def run_solve(args) -> int:
         print(json.dumps(payload, indent=2))
     else:
         print(f"Success: {result.success}")
-        print(f"RA: {result.ra_rad}")
-        print(f"Dec: {result.dec_rad}")
+        if result.ra_rad is not None:
+            print(f"RA: {rad_to_hms(result.ra_rad)}")
+        else:
+            print("RA: None")
+        if result.dec_rad is not None:
+            print(f"Dec: {rad_to_dms(result.dec_rad)}")
+        else:
+            print("Dec: None")
         print(f"Pixel scale: {result.pixel_scale_arcsec}")
-        print(f"Rotation: {result.rotation_rad}")
+        if result.rotation_rad is not None:
+            print(f"Rotation: {rad_to_deg(result.rotation_rad):.3f}°")
+        else:
+            print("Rotation: None")
         print(f"RMS: {result.rms_arcsec}")
         print(f"Stars: {result.num_stars}")
         print(f"Message: {result.message}")
@@ -134,7 +144,14 @@ def run_solve(args) -> int:
 
 
 def run_view(args) -> int:
-    from astropy.io import fits
+    try:
+        from astropy.io import fits
+    except ModuleNotFoundError:
+        print(
+            "astropy is required for 'astrolabe view'. Install with: pip install -e .[tools]",
+            file=sys.stderr,
+        )
+        return 2
 
     fits_path = args.input_fits
     if not os.path.isfile(fits_path):

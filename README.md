@@ -124,6 +124,10 @@ From the repository root:
     source .venv/bin/activate
     pip install -e .
 
+Optional tools (FITS inspection and synthetic starfield generation):
+
+    pip install -e .[tools]
+
 ------------------------------------------------------------------------
 
 ### 3. Install Tycho-2 (for synthetic test data)

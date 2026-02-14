@@ -5,6 +5,8 @@ Generate a synthetic FITS star field using Gaia catalog for a QHY5III462 guide c
 - Pixel scale: ~5.0 arcsec/pixel
 - FOV: ~2.66° x 1.50°
 - Centered on RA=270°, Dec=0° (Milky Way region)
+
+Requires the optional tools dependencies (install with `pip install -e .[tools]`).
 """
 import csv
 import gzip
