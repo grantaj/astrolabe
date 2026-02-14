@@ -6,6 +6,12 @@ authors = [{name = "Astrolabe Contributors"}]
 requires-python = ">=3.10"
 dependencies = []
 
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    # add other dev/test tools here
+]
+
 [project.scripts]
 astrolabe = "astrolabe.cli.main:main"
 
