@@ -111,6 +111,9 @@ solve(image: Image) -> SolveResult
 
 Solver must return results in ICRS (J2000-equivalent) coordinates.
 
+Solver backends handle unit conversions required by external tools (e.g., degrees/hours),
+but must expose and accept radians at the interface boundary.
+
 Solver must not perform mount logic.
 
 ---

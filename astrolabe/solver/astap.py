@@ -26,11 +26,15 @@ class AstapSolverBackend(SolverBackend):
             if self.database_path:
                 cmd += ["-d", self.database_path]
             if request.ra_hint_rad is not None and request.dec_hint_rad is not None:
-                cmd += ["-ra", str(request.ra_hint_rad), "-dec", str(request.dec_hint_rad)]
+                ra_hours = (math.degrees(request.ra_hint_rad) / 15.0) % 24.0
+                dec_deg = math.degrees(request.dec_hint_rad)
+                spd_deg = 90.0 - dec_deg
+                cmd += ["-ra", str(ra_hours), "-spd", str(spd_deg)]
             if request.scale_hint_arcsec is not None:
                 cmd += ["-scale", str(request.scale_hint_arcsec)]
-            if request.search_radius_deg is not None:
-                cmd += ["-radius", str(request.search_radius_deg)]
+            if request.search_radius_rad is not None:
+                radius_deg = math.degrees(request.search_radius_rad)
+                cmd += ["-radius", str(radius_deg)]
             if request.extra_options:
                 for k, v in request.extra_options.items():
                     cmd += [f"--{k}", str(v)]

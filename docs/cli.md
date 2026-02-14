@@ -94,11 +94,12 @@ JSON data (example fields):
 Plate-solve a frame (default: last captured, or provided path).
 
 ```
-astrolabe solve [--in <path>]
+astrolabe solve [<path>] [--in <path>]
 ```
 
 Options:
-- `--in <path>`        Input image path (optional)
+- `<path>`             Input image path (optional)
+- `--in <path>`        Input image path (optional, overrides positional)
 
 JSON data:
 - `success`
@@ -110,7 +111,24 @@ JSON data:
 
 ---
 
-## 4.3 `mount`
+## 4.3 `doctor`
+
+System diagnostics for local dependencies and configuration.
+
+```
+astrolabe doctor
+```
+
+Human output:
+- A status report of config, INDI server connectivity, solver availability, and backend presence.
+
+Exit codes:
+- `0` when all checks pass
+- `1` when any check fails
+
+---
+
+## 4.4 `mount`
 
 Mount management and primitives.
 
@@ -158,7 +176,7 @@ astrolabe mount guide --ra-ms <ms> --dec-ms <ms>
 
 ---
 
-## 4.4 `goto`
+## 4.5 `goto`
 
 Closed-loop centering of a target.
 
@@ -182,7 +200,7 @@ JSON data:
 
 ---
 
-## 4.5 `polar`
+## 4.6 `polar`
 
 Run polar alignment routine and output mechanical adjustment guidance.
 
@@ -204,7 +222,7 @@ based on configured hemisphere/site conventions.
 
 ---
 
-## 4.6 `guide`
+## 4.7 `guide`
 
 Guiding control.
 
@@ -245,6 +263,18 @@ astrolabe guide stop
 ```
 
 ---
+
+## 4.8 `view`
+
+Display FITS header and optionally render the image for inspection.
+
+```
+astrolabe view <path> [--show]
+```
+
+Options:
+- `<path>`           Input FITS file path
+- `--show`           Display image window (requires matplotlib)
 
 # 5. Stability rules
 

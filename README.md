@@ -57,8 +57,8 @@ Support for additional hardware depends on backend compatibility.
 # Capture an image
 astrolabe capture --exposure 2.0
 
-# Plate solve last image
-astrolabe solve
+# Plate solve a specific image
+astrolabe solve testdata/raw/sample1.fits
 
 # Connect to mount
 astrolabe mount connect
@@ -126,7 +126,18 @@ From the repository root:
 
 ------------------------------------------------------------------------
 
-### 3. Test Installation
+### 3. Install Tycho-2 (for synthetic test data)
+
+The synthetic starfield generator `scripts/gen_catalog_starfield.py` uses the Tycho-2 catalog.
+To install it locally into `tycho2/`:
+
+    bash scripts/install-tycho2.sh
+
+This is required for the integration test that generates synthetic FITS files.
+
+------------------------------------------------------------------------
+
+### 4. Test Installation
 
 Copy astrolabe/config.toml to ~/.config/astrolabe/config.toml
 

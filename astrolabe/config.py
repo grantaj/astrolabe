@@ -1,5 +1,8 @@
 from pathlib import Path
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    import tomli as tomllib
 
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "astrolabe" / "config.toml"
 
