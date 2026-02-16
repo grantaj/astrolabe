@@ -32,6 +32,17 @@ def _getprop_value(host: str, port: int, query: str, *, timeout_s: float = 2.0) 
     return cp.stdout.strip()
 
 
+def _has_prop(host: str, port: int, query: str, *, timeout_s: float = 2.0) -> bool:
+    cp = subprocess.run(
+        ["indi_getprop", "-h", host, "-p", str(port), "-t", str(timeout_s), "-1", query],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return cp.returncode == 0 and bool(cp.stdout.strip())
+
+
 def _setprop(host: str, port: int, prop: str, value: str, *, soft: bool = True) -> None:
     try:
         _run_indi("indi_setprop", host, port, [f"{prop}={value}"], check=True, capture=False)
@@ -84,11 +95,16 @@ class IndiCameraBackend(CameraBackend):
         self.output_prefix = output_prefix or "astrolabe_capture_"
         self.use_guider_exposure = use_guider_exposure
         self._connected = False
+        self._gain_prop: str | None = None
 
     def connect(self) -> None:
         _wait_for_device(self.host, self.port, self.device)
         _setprop(self.host, self.port, f"{self.device}.CONNECTION.CONNECT", "On", soft=False)
         time.sleep(0.2)
+        if _has_prop(self.host, self.port, f"{self.device}.CCD_GAIN.GAIN"):
+            self._gain_prop = "CCD_GAIN.GAIN"
+        elif _has_prop(self.host, self.port, f"{self.device}.CCD_GAIN.VALUE"):
+            self._gain_prop = "CCD_GAIN.VALUE"
         if self.output_dir is not None:
             _setprop(self.host, self.port, f"{self.device}.UPLOAD_MODE.UPLOAD_LOCAL", "On", soft=True)
             _setprop(self.host, self.port, f"{self.device}.UPLOAD_MODE.UPLOAD_CLIENT", "Off", soft=True)
@@ -129,8 +145,13 @@ class IndiCameraBackend(CameraBackend):
             self.connect()
 
         if gain is not None:
-            _setprop(self.host, self.port, f"{self.device}.CCD_GAIN.GAIN", str(gain), soft=True)
-            _setprop(self.host, self.port, f"{self.device}.CCD_GAIN.VALUE", str(gain), soft=True)
+            if self._gain_prop is None:
+                if _has_prop(self.host, self.port, f"{self.device}.CCD_GAIN.GAIN"):
+                    self._gain_prop = "CCD_GAIN.GAIN"
+                elif _has_prop(self.host, self.port, f"{self.device}.CCD_GAIN.VALUE"):
+                    self._gain_prop = "CCD_GAIN.VALUE"
+            if self._gain_prop is not None:
+                _setprop(self.host, self.port, f"{self.device}.{self._gain_prop}", str(gain), soft=True)
 
         if binning is not None:
             _setprop(self.host, self.port, f"{self.device}.CCD_BINNING.HOR_BIN", str(binning), soft=True)

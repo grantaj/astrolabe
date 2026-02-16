@@ -29,6 +29,7 @@ def test_connect_sets_upload_options(camera):
 
 
 def test_capture_sets_gain_bin_roi_and_exposure(camera, tmp_path):
+    camera._gain_prop = "CCD_GAIN.GAIN"
     base_path = tmp_path / "astrolabe_capture_.fits"
     base_path.write_text("dummy")
 
@@ -66,6 +67,7 @@ def test_capture_sets_gain_bin_roi_and_exposure(camera, tmp_path):
 
 def test_capture_uses_guider_exposure(camera, tmp_path):
     camera.use_guider_exposure = True
+    camera._gain_prop = "CCD_GAIN.GAIN"
     base_path = tmp_path / "astrolabe_capture_.fits"
     base_path.write_text("dummy")
 

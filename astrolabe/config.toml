@@ -11,7 +11,8 @@ search_radius_deg = 5.0
 [camera]
 backend = "indi"
 # Update to your INDI device name (e.g., "QHY CCD QHY5III462C")
-device = "CCD Simulator"
+#device = "CCD Simulator"
+device = "QHY CCD QHY5III462C"
 output_dir = "testdata/raw"
 output_prefix = "astrolabe_capture_"
 use_guider_exposure = false
