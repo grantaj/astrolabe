@@ -5,9 +5,11 @@ import sys
 import math
 import logging
 from pathlib import Path
+import shutil
 
 from astrolabe.config import load_config
 from astrolabe.solver import get_solver_backend
+from astrolabe.camera import get_camera_backend
 from astrolabe.solver.types import Image, SolveRequest
 from astrolabe.util.format import rad_to_hms, rad_to_dms, rad_to_deg
 
@@ -58,6 +60,22 @@ def run_doctor(args=None) -> int:
     def check_solver():
         return solver_backend.is_available()
 
+    def check_camera():
+        try:
+            camera = get_camera_backend(config)
+        except Exception as e:
+            return {"ok": False, "detail": f"invalid camera config: {e}"}
+        try:
+            camera.connect()
+        except Exception as e:
+            return {"ok": False, "detail": f"connect failed: {e}"}
+        finally:
+            try:
+                camera.disconnect()
+            except Exception:
+                pass
+        return {"ok": True, "detail": "connected"}
+
     def check_config():
         try:
             load_config(_config_path_from_args(args))
@@ -69,7 +87,7 @@ def run_doctor(args=None) -> int:
         "config": check_config(),
         "indi_server": check_indi_server(),
         f"solver ({config.solver_name})": check_solver(),
-        "camera_backend": {"ok": False, "detail": "not implemented"},
+        f"camera ({config.camera_backend})": check_camera(),
         "mount_backend": {"ok": False, "detail": "not implemented"},
     }
 
@@ -194,6 +212,70 @@ def run_solve(args) -> int:
             print(result.raw_output)
     if not result.success:
         return 1
+    return 0
+
+
+def _parse_roi(value: str | None) -> tuple[int, int, int, int] | None:
+    if not value:
+        return None
+    parts = [p.strip() for p in value.split(",")]
+    if len(parts) != 4:
+        raise ValueError("ROI must be in x,y,w,h format")
+    return tuple(int(p) for p in parts)  # type: ignore[return-value]
+
+
+def run_capture(args) -> int:
+    _init_logging(getattr(args, "log_level", None))
+    config = load_config(_config_path_from_args(args))
+    if getattr(args, "dry_run", False):
+        print("--dry-run has no effect for capture.", file=sys.stderr)
+
+    exposure = args.exposure if args.exposure is not None else config.camera_default_exposure_s
+    if exposure is None:
+        print("Exposure is required (use --exposure or set camera.default_exposure_s).", file=sys.stderr)
+        return 2
+
+    try:
+        roi = _parse_roi(args.roi)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+    camera = get_camera_backend(config)
+    image = camera.capture(
+        exposure_s=exposure,
+        gain=args.gain,
+        binning=args.binning,
+        roi=roi,
+    )
+
+    saved_path = None
+    if args.out:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(image.data, (str, Path)):
+            shutil.copy2(Path(image.data), out_path)
+            saved_path = str(out_path)
+
+    if args.json:
+        import json
+
+        payload = _json_envelope(
+            command="capture",
+            ok=True,
+            data={
+                "path": saved_path or image.data,
+                "exposure_s": image.exposure_s,
+                "timestamp_utc": image.timestamp_utc.isoformat(),
+                "width_px": image.width_px,
+                "height_px": image.height_px,
+            },
+            error=None,
+        )
+        print(json.dumps(payload, indent=2))
+    else:
+        print(f"Saved: {saved_path or image.data}")
+        print(f"Exposure: {image.exposure_s}s")
     return 0
 
 

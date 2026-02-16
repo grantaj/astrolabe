@@ -81,6 +81,7 @@ Options:
 - `--bin <n>`
 - `--roi <x,y,w,h>`
 - `--out <path>`   Save image to disk (optional)
+- `--json`          Emit machine-readable JSON output
 
 JSON data (example fields):
 - `path` (if saved)
