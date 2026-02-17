@@ -51,7 +51,24 @@ If success == False, other fields may be None.
 
 ---
 
-## 1.3 MountState
+## 1.3 SolveRequest
+
+Represents inputs to the solver.
+
+Fields (conceptual):
+
+- image: Image
+- ra_hint_rad: optional float
+- dec_hint_rad: optional float
+- scale_hint_arcsec: optional float
+- parity_hint: optional int
+- search_radius_rad: optional float
+- timeout_s: optional float
+- extra_options: optional dict
+
+---
+
+## 1.4 MountState
 
 Represents mount state in internal frame (ICRS).
 
@@ -113,7 +130,7 @@ Responsibilities:
 
 Interface:
 
-solve(image: Image) -> SolveResult
+solve(request: SolveRequest) -> SolveResult
 
 Solver must return results in ICRS (J2000-equivalent) coordinates.
 
@@ -142,6 +159,7 @@ get_state() -> MountState
 slew_to(ra_rad: float, dec_rad: float) -> None
 sync(ra_rad: float, dec_rad: float) -> None
 stop() -> None
+park() -> None
 
 pulse_guide(ra_ms: float, dec_ms: float) -> None
 
@@ -149,6 +167,7 @@ Notes:
 
 - slew_to and sync expect ICRS inputs.
 - Backend performs ICRS → apparent conversion internally.
+- Backend may require site latitude/longitude/elevation for frame conversion.
 - pulse_guide uses milliseconds duration convention.
 - Positive RA pulse increases RA tracking rate temporarily.
 - Positive DEC pulse increases declination.
@@ -210,7 +229,39 @@ All corrections are relative mechanical adjustments.
 
 ---
 
-## 3.3 GuidingService
+## 3.3 AlignmentService
+
+Responsibilities:
+- Plate-solve-based alignment and sync
+- Initial multi-point alignment modeling
+
+Interface:
+
+sync_current(
+    exposure_s: optional float
+) -> AlignmentResult
+
+solve_current(
+    exposure_s: optional float
+) -> SolveResult
+
+initial_alignment(
+    target_count: int,
+    exposure_s: optional float,
+    max_attempts: optional int
+) -> AlignmentResult
+
+AlignmentResult (conceptual):
+
+- success: bool
+- solves_attempted: int
+- solves_succeeded: int
+- rms_arcsec: optional float
+- message: optional string
+
+---
+
+## 3.4 GuidingService
 
 Responsibilities:
 - Star detection
@@ -228,6 +279,8 @@ start(
 
 stop() -> None
 
+status() -> GuidingStatus
+
 GuidingStatus:
 
 - running: bool
@@ -239,7 +292,52 @@ Guiding loop must use radians internally and report arcseconds externally.
 
 ---
 
-# 4. Error Model
+# 4. Planner
+
+Responsibilities:
+- Provide a curated, feasible, actionable list of targets for a time window + location
+- Apply feasibility constraints (sun, altitude, moon separation)
+- Provide sectioned output (showpieces, seasonal highlights, solar system, bonus/challenge)
+
+Interface:
+
+plan(
+    window_start_utc: optional datetime,
+    window_end_utc: optional datetime,
+    location: optional ObserverLocation,
+    constraints: optional PlannerConstraints
+) -> PlannerResult
+
+Planner defaults:
+- window: now → +3h
+- sun_altitude_max_deg: -12
+- min_altitude_deg: 30
+- min_duration_min: 30
+- moon_separation_min_deg: 35
+- moon_separation_strict_deg: 45 (when moon illumination > 50%)
+
+PlannerResult (conceptual):
+
+- window_start_utc: datetime
+- window_end_utc: datetime
+- location: ObserverLocation
+- sections: list of PlannerSection
+- message: optional string
+
+PlannerEntry (conceptual):
+
+- name: str
+- target_type: str
+- best_time_utc: datetime
+- peak_altitude_deg: float
+- time_above_min_alt_min: float
+- moon_separation_deg: float
+- moon_illumination: float
+- difficulty: str (easy / medium / hard)
+
+---
+
+# 5. Error Model
 
 Backends should raise structured exceptions or return error objects.
 
@@ -251,9 +349,16 @@ Services decide:
 
 No backend should print directly to stdout.
 
+Preferred exception hierarchy (conceptual):
+
+- AstrolabeError
+  - BackendError
+  - ServiceError
+  - NotImplementedFeature
+
 ---
 
-# 5. Invariants
+# 6. Invariants
 
 - All internal angles are radians.
 - All internal coordinates are ICRS.
