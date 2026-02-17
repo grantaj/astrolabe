@@ -95,6 +95,12 @@ capture(
     roi: optional tuple
 ) -> Image
 
+Notes:
+
+- `capture` returns an `Image` with `data` set to an on-disk path when the backend
+  uses local file capture (e.g., INDI upload-to-local).
+- Backends should populate `timestamp_utc` and `exposure_s` reliably.
+
 No plate solving logic permitted here.
 
 ---

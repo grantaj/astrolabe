@@ -38,11 +38,41 @@ class Config:
     def solver_search_radius_deg(self):
         return self._data.get("solver", {}).get("search_radius_deg", None)
 
+    @property
+    def camera_backend(self):
+        return self._data.get("camera", {}).get("backend", "indi")
+
+    @property
+    def camera_device(self):
+        return self._data.get("camera", {}).get("device", "CCD Simulator")
+
+    @property
+    def camera_output_dir(self):
+        path = self._data.get("camera", {}).get("output_dir", None)
+        if not path:
+            return None
+        return Path(path).expanduser()
+
+    @property
+    def camera_output_prefix(self):
+        return self._data.get("camera", {}).get("output_prefix", "astrolabe_capture_")
+
+    @property
+    def camera_use_guider_exposure(self):
+        return self._data.get("camera", {}).get("use_guider_exposure", False)
+
+    @property
+    def camera_default_exposure_s(self):
+        return self._data.get("camera", {}).get("default_exposure_s", None)
+
 def load_config(path: Path | None = None) -> Config:
+    explicit_path = path
     path = path or DEFAULT_CONFIG_PATH
 
     if not path.exists():
-        # Return default config if file missing
+        if explicit_path is not None:
+            raise FileNotFoundError(f"Config file not found: {path}")
+        # Return default config if default file missing
         return Config({})
 
     with open(path, "rb") as f:

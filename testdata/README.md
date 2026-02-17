@@ -8,15 +8,19 @@ Large FITS files are **not committed to the repository**.
 
 ## Workflow
 
-1. **Start INDI server with simulator:**
+1. **Start INDI simulator server and configure telescope + CCD settings:**
 
-       indiserver indi_simulator_ccd
+       bash scripts/setup_indi_simulators.sh
 
 2. **Generate simulated FITS files:**
 
        python scripts/gen_sim_fits.py --count 5 --exposure 2.0 --outdir testdata/raw
 
    This script will create star field FITS files for testing.
+
+3. **Alternative: capture FITS via Astrolabe (INDI):**
+
+       astrolabe capture --exposure 2.0
 
 3. (Optional) Download additional sample images into:
 

@@ -98,6 +98,10 @@ Verify installation:
 
     indiserver --version
 
+Install GSC (needed for CCD Simulator star fields):
+
+    sudo apt install gsc gsc-data
+
 ------------------------------------------------------------------------
 
 #### Install ASTAP
@@ -145,11 +149,15 @@ This is required for the integration test that generates synthetic FITS files.
 
 Copy astrolabe/config.toml to ~/.config/astrolabe/config.toml
 
-Start INDI server (example using simulator driver):
+Start INDI simulator server and configure telescope + CCD settings:
 
-    indiserver indi_simulator_telescope
+    bash scripts/setup_indi_simulators.sh
 
-In another terminal:
+In another terminal, capture a frame:
+
+    astrolabe capture --exposure 2.0
+
+Then run diagnostics:
 
     astrolabe doctor
 
@@ -158,3 +166,13 @@ Expected results:
 -   config: OK
 -   indi_server: OK
 -   solver_astap: OK
+
+---
+
+### QHY Camera Testing
+
+To test with a QHY camera (hardware or INDI driver), start the QHY INDI server in a separate terminal:
+
+    indiserver indi_qhy_ccd
+
+This allows Astrolabe to connect to the QHY camera via INDI for capture and plate solving. No changes to the simulator setup script are required.

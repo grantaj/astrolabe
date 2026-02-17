@@ -8,6 +8,16 @@ binary = "astap_cli"
 database_path = "~/.astap"
 search_radius_deg = 5.0
 
+[camera]
+backend = "indi"
+# INDI device name. Default to simulator; set to your actual camera if different.
+# Example hardware device: "QHY CCD QHY5III462C"
+device = "CCD Simulator"
+output_dir = "testdata/raw"
+output_prefix = "astrolabe_capture_"
+use_guider_exposure = false
+default_exposure_s = 2.0
+
 [site]
 latitude_deg = -34.93
 longitude_deg = 138.60
