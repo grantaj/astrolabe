@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "[info] Starting INDI simulators (telescope + ccd)..."
-indiserver indi_simulator_telescope indi_simulator_ccd indi_qhy_ccd &
+indiserver indi_simulator_telescope indi_simulator_ccd &
 INDI_PID=$!
 
 cleanup() {

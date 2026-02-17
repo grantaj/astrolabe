@@ -264,7 +264,7 @@ def run_capture(args) -> int:
             command="capture",
             ok=True,
             data={
-                "path": saved_path or image.data,
+                "path": str(saved_path or image.data),
                 "exposure_s": image.exposure_s,
                 "timestamp_utc": image.timestamp_utc.isoformat(),
                 "width_px": image.width_px,

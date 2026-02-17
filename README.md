@@ -166,3 +166,13 @@ Expected results:
 -   config: OK
 -   indi_server: OK
 -   solver_astap: OK
+
+---
+
+### QHY Camera Testing
+
+To test with a QHY camera (hardware or INDI driver), start the QHY INDI server in a separate terminal:
+
+    indiserver indi_qhy_ccd
+
+This allows Astrolabe to connect to the QHY camera via INDI for capture and plate solving. No changes to the simulator setup script are required.

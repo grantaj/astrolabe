@@ -66,10 +66,13 @@ class Config:
         return self._data.get("camera", {}).get("default_exposure_s", None)
 
 def load_config(path: Path | None = None) -> Config:
+    explicit_path = path
     path = path or DEFAULT_CONFIG_PATH
 
     if not path.exists():
-        # Return default config if file missing
+        if explicit_path is not None:
+            raise FileNotFoundError(f"Config file not found: {path}")
+        # Return default config if default file missing
         return Config({})
 
     with open(path, "rb") as f:

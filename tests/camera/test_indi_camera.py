@@ -18,9 +18,9 @@ def camera(tmp_path):
 
 
 def test_connect_sets_upload_options(camera):
-    with patch("astrolabe.camera.indi._run_indi") as mock_run, patch(
-        "astrolabe.camera.indi._wait_for_device"
-    ):
+    with patch("astrolabe.camera.indi._run_indi") as mock_run, \
+         patch("astrolabe.camera.indi._wait_for_device"), \
+         patch("astrolabe.camera.indi._has_prop", return_value=True):
         camera.connect()
         calls = [c.args[3][0] for c in mock_run.call_args_list]
         assert any("UPLOAD_MODE.UPLOAD_LOCAL=On" in c for c in calls)
@@ -30,14 +30,14 @@ def test_connect_sets_upload_options(camera):
 
 def test_capture_sets_gain_bin_roi_and_exposure(camera, tmp_path):
     camera._gain_prop = "CCD_GAIN.GAIN"
+    camera._connected = True  # Prevents connect() and unpatched _has_prop
     base_path = tmp_path / "astrolabe_capture_.fits"
     base_path.write_text("dummy")
 
-    with patch("astrolabe.camera.indi._getprop_value") as mock_getprop, patch(
-        "astrolabe.camera.indi._setprop"
-    ) as mock_setprop, patch("astrolabe.camera.indi._wait_for_mtime_increase") as mock_wait, patch(
-        "astrolabe.camera.indi._wait_for_device"
-    ):
+    with patch("astrolabe.camera.indi._getprop_value") as mock_getprop, \
+         patch("astrolabe.camera.indi._setprop") as mock_setprop, \
+         patch("astrolabe.camera.indi._wait_for_mtime_increase") as mock_wait, \
+         patch("astrolabe.camera.indi._wait_for_device"):
         mock_getprop.return_value = str(base_path)
         mock_wait.return_value = base_path.stat().st_mtime
 
@@ -68,14 +68,14 @@ def test_capture_sets_gain_bin_roi_and_exposure(camera, tmp_path):
 def test_capture_uses_guider_exposure(camera, tmp_path):
     camera.use_guider_exposure = True
     camera._gain_prop = "CCD_GAIN.GAIN"
+    camera._connected = True  # Prevents connect() and unpatched _has_prop
     base_path = tmp_path / "astrolabe_capture_.fits"
     base_path.write_text("dummy")
 
-    with patch("astrolabe.camera.indi._getprop_value") as mock_getprop, patch(
-        "astrolabe.camera.indi._setprop"
-    ) as mock_setprop, patch("astrolabe.camera.indi._wait_for_mtime_increase") as mock_wait, patch(
-        "astrolabe.camera.indi._wait_for_device"
-    ):
+    with patch("astrolabe.camera.indi._getprop_value") as mock_getprop, \
+         patch("astrolabe.camera.indi._setprop") as mock_setprop, \
+         patch("astrolabe.camera.indi._wait_for_mtime_increase") as mock_wait, \
+         patch("astrolabe.camera.indi._wait_for_device"):
         mock_getprop.return_value = str(base_path)
         mock_wait.return_value = base_path.stat().st_mtime
 

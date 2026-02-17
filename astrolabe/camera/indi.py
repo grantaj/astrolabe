@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import subprocess
 import time
 from pathlib import Path
@@ -12,6 +13,7 @@ from .base import CameraBackend
 DEFAULT_CAPTURE_TIMEOUT_S = 60.0
 CCD_FILE_PATH_RETRY_COUNT = 10
 CCD_FILE_PATH_RETRY_SLEEP_S = 0.2
+DEVICE_POLL_TIMEOUT_S = 1.0
 
 
 def _run_indi(tool: str, host: str, port: int, args: list[str], *, check: bool = True, capture: bool = False):
@@ -49,14 +51,20 @@ def _setprop(host: str, port: int, prop: str, value: str, *, soft: bool = True) 
     except subprocess.CalledProcessError as e:
         if not soft:
             raise
-        print(f"[warn] Could not set {prop}={value} (may be unavailable): {e}")
+        logging.warning(f"Could not set {prop}={value} (may be unavailable): {e}")
 
 
 def _wait_for_device(host: str, port: int, device: str, timeout_s: float = 10.0) -> None:
     deadline = time.time() + timeout_s
     last = None
     while time.time() < deadline:
-        last = _run_indi("indi_getprop", host, port, [], check=False, capture=True)
+        last = subprocess.run(
+            ["indi_getprop", "-h", host, "-p", str(port), "-t", str(DEVICE_POLL_TIMEOUT_S), "-1"],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         if last.returncode in (0, 1) and f"{device}." in (last.stdout or ""):
             return
         time.sleep(0.2)
@@ -106,6 +114,7 @@ class IndiCameraBackend(CameraBackend):
         elif _has_prop(self.host, self.port, f"{self.device}.CCD_GAIN.VALUE"):
             self._gain_prop = "CCD_GAIN.VALUE"
         if self.output_dir is not None:
+            self.output_dir.mkdir(parents=True, exist_ok=True)
             _setprop(self.host, self.port, f"{self.device}.UPLOAD_MODE.UPLOAD_LOCAL", "On", soft=True)
             _setprop(self.host, self.port, f"{self.device}.UPLOAD_MODE.UPLOAD_CLIENT", "Off", soft=True)
             _setprop(self.host, self.port, f"{self.device}.UPLOAD_MODE.UPLOAD_BOTH", "Off", soft=True)
@@ -166,7 +175,13 @@ class IndiCameraBackend(CameraBackend):
 
         base_path_str = ""
         for _ in range(CCD_FILE_PATH_RETRY_COUNT):
-            base_path_str = _getprop_value(self.host, self.port, f"{self.device}.CCD_FILE_PATH.FILE_PATH")
+            if _has_prop(self.host, self.port, f"{self.device}.CCD_FILE_PATH.FILE_PATH"):
+                try:
+                    base_path_str = _getprop_value(self.host, self.port, f"{self.device}.CCD_FILE_PATH.FILE_PATH")
+                except subprocess.CalledProcessError:
+                    base_path_str = ""
+            else:
+                base_path_str = ""
             if base_path_str:
                 break
             time.sleep(CCD_FILE_PATH_RETRY_SLEEP_S)
