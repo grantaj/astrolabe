@@ -5,6 +5,8 @@ testdata/raw/
 tycho2/
 hyg4.2/
 
+# PR comments etc
+docs/dev/reviews/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
