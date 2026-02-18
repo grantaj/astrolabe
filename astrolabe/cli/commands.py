@@ -330,22 +330,42 @@ def run_view(args) -> int:
     try:
         from astropy.io import fits
     except ModuleNotFoundError:
-        print(
-            "astropy is required for 'astrolabe view'. Install with: pip install -e .[tools]",
-            file=sys.stderr,
-        )
+        message = "astropy is required for 'astrolabe view'. Install with: pip install -e .[tools]"
+        if getattr(args, "json", False):
+            import json
+
+            payload = _json_envelope(
+                command="view",
+                ok=False,
+                data=None,
+                error={"code": "dependency_missing", "message": message, "details": None},
+            )
+            print(json.dumps(payload, indent=2))
+        else:
+            print(message, file=sys.stderr)
         return 2
     if getattr(args, "dry_run", False):
         print("--dry-run has no effect for view.", file=sys.stderr)
 
     fits_path = args.input_fits
     if not os.path.isfile(fits_path):
-        print(f"Input file not found: {fits_path}", file=sys.stderr)
+        message = f"Input file not found: {fits_path}"
+        if getattr(args, "json", False):
+            import json
+
+            payload = _json_envelope(
+                command="view",
+                ok=False,
+                data=None,
+                error={"code": "file_not_found", "message": message, "details": None},
+            )
+            print(json.dumps(payload, indent=2))
+        else:
+            print(message, file=sys.stderr)
         return 1
     try:
         hdul = fits.open(fits_path)
-        print("FITS Header:")
-        print(hdul[0].header.tostring(sep="\n"))
+        header_text = hdul[0].header.tostring(sep="\n")
         data = hdul[0].data
         if args.show:
             import matplotlib.pyplot as plt
@@ -355,9 +375,34 @@ def run_view(args) -> int:
             plt.colorbar()
             plt.show()
         hdul.close()
+        if getattr(args, "json", False):
+            import json
+
+            payload = _json_envelope(
+                command="view",
+                ok=True,
+                data={"path": fits_path, "header": header_text, "show": args.show},
+                error=None,
+            )
+            print(json.dumps(payload, indent=2))
+        else:
+            print("FITS Header:")
+            print(header_text)
         return 0
     except Exception as e:
-        print(f"Error viewing FITS file: {e}", file=sys.stderr)
+        message = f"Error viewing FITS file: {e}"
+        if getattr(args, "json", False):
+            import json
+
+            payload = _json_envelope(
+                command="view",
+                ok=False,
+                data=None,
+                error={"code": "view_failed", "message": message, "details": None},
+            )
+            print(json.dumps(payload, indent=2))
+        else:
+            print(message, file=sys.stderr)
         return 1
 
 
@@ -377,7 +422,14 @@ def run_mount(args) -> int:
                 payload = _json_envelope(
                     command=f"mount.{args.action}",
                     ok=True,
-                    data=state.__dict__,
+                    data={
+                        "connected": state.connected,
+                        "tracking": state.tracking,
+                        "slewing": state.slewing,
+                        "ra_rad": state.ra_rad,
+                        "dec_rad": state.dec_rad,
+                        "timestamp_utc": state.timestamp_utc.isoformat() if state.timestamp_utc else None,
+                    },
                     error=None,
                 )
                 print(json.dumps(payload, indent=2))
@@ -394,14 +446,44 @@ def run_mount(args) -> int:
             ra_rad = math.radians(args.ra_deg)
             dec_rad = math.radians(args.dec_deg)
             mount.slew_to(ra_rad=ra_rad, dec_rad=dec_rad)
+            if getattr(args, "json", False):
+                import json
+
+                payload = _json_envelope(
+                    command="mount.slew",
+                    ok=True,
+                    data=None,
+                    error=None,
+                )
+                print(json.dumps(payload, indent=2))
             return 0
 
         if args.action == "park":
             mount.park()
+            if getattr(args, "json", False):
+                import json
+
+                payload = _json_envelope(
+                    command="mount.park",
+                    ok=True,
+                    data=None,
+                    error=None,
+                )
+                print(json.dumps(payload, indent=2))
             return 0
 
         if args.action == "stop":
             mount.stop()
+            if getattr(args, "json", False):
+                import json
+
+                payload = _json_envelope(
+                    command="mount.stop",
+                    ok=True,
+                    data=None,
+                    error=None,
+                )
+                print(json.dumps(payload, indent=2))
             return 0
 
         print("Unknown mount action.", file=sys.stderr)
@@ -434,7 +516,13 @@ def run_goto(args) -> int:
                 command="goto",
                 ok=result.success,
                 data=result.__dict__,
-                error=None if result.success else {"code": "goto_failed", "message": result.message, "details": None},
+                error=None
+                if result.success
+                else {
+                    "code": "goto_failed",
+                    "message": result.message or "goto failed",
+                    "details": None,
+                },
             )
             print(json.dumps(payload, indent=2))
         else:
@@ -467,7 +555,13 @@ def run_align(args) -> int:
                     command="align.solve",
                     ok=result.success,
                     data=result.__dict__,
-                    error=None if result.success else {"code": "align_failed", "message": result.message, "details": None},
+                    error=None
+                    if result.success
+                    else {
+                        "code": "align_failed",
+                        "message": result.message or "align solve failed",
+                        "details": None,
+                    },
                 )
                 print(json.dumps(payload, indent=2))
             else:
@@ -508,7 +602,13 @@ def run_align(args) -> int:
                 command=f"align.{args.mode}",
                 ok=result.success,
                 data=result.__dict__,
-                error=None if result.success else {"code": "align_failed", "message": result.message, "details": None},
+                error=None
+                if result.success
+                else {
+                    "code": "align_failed",
+                    "message": result.message or f"align {args.mode} failed",
+                    "details": None,
+                },
             )
             print(json.dumps(payload, indent=2))
         else:
@@ -574,7 +674,13 @@ def run_guide(args) -> int:
                     command="guide",
                     ok=result.success,
                     data=result.__dict__,
-                    error=None if result.success else {"code": "guide_failed", "message": result.message, "details": None},
+                    error=None
+                    if result.success
+                    else {
+                        "code": "guide_failed",
+                        "message": result.message or "guide calibration failed",
+                        "details": None,
+                    },
                 )
                 print(json.dumps(payload, indent=2))
             else:
@@ -584,10 +690,30 @@ def run_guide(args) -> int:
 
         if args.action == "start":
             service.start(aggression=args.aggression, min_move_arcsec=args.min_move_arcsec)
+            if getattr(args, "json", False):
+                import json
+
+                payload = _json_envelope(
+                    command="guide.start",
+                    ok=True,
+                    data=None,
+                    error=None,
+                )
+                print(json.dumps(payload, indent=2))
             return 0
 
         if args.action == "stop":
             service.stop()
+            if getattr(args, "json", False):
+                import json
+
+                payload = _json_envelope(
+                    command="guide.stop",
+                    ok=True,
+                    data=None,
+                    error=None,
+                )
+                print(json.dumps(payload, indent=2))
             return 0
 
         if args.action == "status":
@@ -596,7 +722,7 @@ def run_guide(args) -> int:
                 import json
 
                 payload = _json_envelope(
-                    command="guide",
+                    command="guide.status",
                     ok=True,
                     data=status.__dict__,
                     error=None,

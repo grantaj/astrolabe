@@ -22,7 +22,7 @@ astrolabe <command> [<subcommand>] [options]
 Global options (available on all commands):
 
 - `--config <path>`        Path to config file
-- `--json`                 Emit machine-readable JSON output (where supported)
+- `--json`                 Emit machine-readable JSON output
 - `--log-level <level>`    debug|info|warn|error
 - `--timeout <seconds>`    Operation timeout (best-effort)
 - `--dry-run`              Do not move mount; simulate actions where possible

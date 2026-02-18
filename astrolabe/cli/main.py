@@ -17,6 +17,7 @@ def main():
     parser = argparse.ArgumentParser(prog="astrolabe")
     parser.add_argument("--version", action="store_true", help="Show version and exit")
     parser.add_argument("--config", help="Path to config file")
+    parser.add_argument("--json", action="store_true", help="Output result as JSON")
     parser.add_argument(
         "--log-level",
         default="info",
@@ -37,7 +38,6 @@ def main():
     subparsers = parser.add_subparsers(dest="command")
 
     doctor_parser = subparsers.add_parser("doctor", help="Run system diagnostics")
-    doctor_parser.add_argument("--json", action="store_true", help="Output result as JSON")
 
     solve_parser = subparsers.add_parser("solve", help="Plate solve a FITS image")
     solve_parser.add_argument("input_fits", nargs="?", help="Input FITS file path")
@@ -59,8 +59,6 @@ def main():
     capture_parser.add_argument("--bin", dest="binning", type=int, help="Binning factor")
     capture_parser.add_argument("--roi", type=str, help="ROI as x,y,w,h")
     capture_parser.add_argument("--out", type=str, help="Save image to path")
-    capture_parser.add_argument("--json", action="store_true", help="Output result as JSON")
-    solve_parser.add_argument("--json", action="store_true", help="Output result as JSON")
     # Future: add more arguments for hints
 
     view_parser = subparsers.add_parser("view", help="View FITS header and image")
@@ -71,64 +69,51 @@ def main():
     mount_subparsers = mount_parser.add_subparsers(dest="action", required=True)
 
     mount_status = mount_subparsers.add_parser("status", help="Show mount status")
-    mount_status.add_argument("--json", action="store_true", help="Output result as JSON")
 
     mount_slew = mount_subparsers.add_parser("slew", help="Slew mount to coordinates")
     mount_slew.add_argument("--ra-deg", type=float, required=True, help="Right ascension in degrees")
     mount_slew.add_argument("--dec-deg", type=float, required=True, help="Declination in degrees")
-    mount_slew.add_argument("--json", action="store_true", help="Output result as JSON")
 
     mount_park = mount_subparsers.add_parser("park", help="Park the mount")
-    mount_park.add_argument("--json", action="store_true", help="Output result as JSON")
 
     mount_stop = mount_subparsers.add_parser("stop", help="Stop mount motion")
-    mount_stop.add_argument("--json", action="store_true", help="Output result as JSON")
 
     goto_parser = subparsers.add_parser("goto", help="Closed-loop goto centering")
     goto_parser.add_argument("--ra-deg", type=float, required=True, help="Target right ascension in degrees")
     goto_parser.add_argument("--dec-deg", type=float, required=True, help="Target declination in degrees")
     goto_parser.add_argument("--tolerance-arcsec", type=float, default=30.0, help="Tolerance in arcseconds")
     goto_parser.add_argument("--max-iterations", type=int, default=5, help="Maximum iterations")
-    goto_parser.add_argument("--json", action="store_true", help="Output result as JSON")
 
     align_parser = subparsers.add_parser("align", help="Plate-solve alignment")
     align_subparsers = align_parser.add_subparsers(dest="mode", required=True)
 
     align_solve = align_subparsers.add_parser("solve", help="Solve current pointing")
     align_solve.add_argument("--exposure", type=float, help="Exposure time in seconds")
-    align_solve.add_argument("--json", action="store_true", help="Output result as JSON")
 
     align_sync = align_subparsers.add_parser("sync", help="Solve and sync current pointing")
     align_sync.add_argument("--exposure", type=float, help="Exposure time in seconds")
-    align_sync.add_argument("--json", action="store_true", help="Output result as JSON")
 
     align_init = align_subparsers.add_parser("init", help="Initial multi-point alignment")
     align_init.add_argument("--targets", dest="target_count", type=int, default=3, help="Target count")
     align_init.add_argument("--exposure", type=float, help="Exposure time in seconds")
     align_init.add_argument("--max-attempts", type=int, help="Max attempts")
-    align_init.add_argument("--json", action="store_true", help="Output result as JSON")
 
     polar_parser = subparsers.add_parser("polar", help="Polar alignment routine")
     polar_parser.add_argument("--ra-rotation-deg", type=float, required=True, help="RA rotation in degrees")
-    polar_parser.add_argument("--json", action="store_true", help="Output result as JSON")
 
     guide_parser = subparsers.add_parser("guide", help="Guiding control")
     guide_subparsers = guide_parser.add_subparsers(dest="action", required=True)
 
     guide_calibrate = guide_subparsers.add_parser("calibrate", help="Calibrate guiding")
     guide_calibrate.add_argument("--duration", type=float, required=True, help="Calibration duration in seconds")
-    guide_calibrate.add_argument("--json", action="store_true", help="Output result as JSON")
 
     guide_start = guide_subparsers.add_parser("start", help="Start guiding")
     guide_start.add_argument("--aggression", type=float, required=True, help="Aggression (0-1)")
     guide_start.add_argument("--min-move-arcsec", type=float, required=True, help="Minimum move arcsec")
-    guide_start.add_argument("--json", action="store_true", help="Output result as JSON")
 
     guide_stop = guide_subparsers.add_parser("stop", help="Stop guiding")
-    guide_stop.add_argument("--json", action="store_true", help="Output result as JSON")
 
     guide_status = guide_subparsers.add_parser("status", help="Guiding status")
-    guide_status.add_argument("--json", action="store_true", help="Output result as JSON")
 
     plan_parser = subparsers.add_parser("plan", help="Plan observing targets")
     plan_parser.add_argument("--start-utc", dest="window_start_utc", help="Window start (ISO-8601)")
@@ -136,7 +121,6 @@ def main():
     plan_parser.add_argument("--lat", dest="latitude_deg", type=float, help="Observer latitude degrees")
     plan_parser.add_argument("--lon", dest="longitude_deg", type=float, help="Observer longitude degrees")
     plan_parser.add_argument("--elev", dest="elevation_m", type=float, help="Observer elevation meters")
-    plan_parser.add_argument("--json", action="store_true", help="Output result as JSON")
 
     args = parser.parse_args()
 
