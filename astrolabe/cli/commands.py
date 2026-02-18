@@ -52,7 +52,9 @@ def run_doctor(args=None) -> int:
 
     def check_indi_server():
         try:
-            with socket.create_connection((config.indi_host, config.indi_port), timeout=2):
+            with socket.create_connection(
+                (config.indi_host, config.indi_port), timeout=2
+            ):
                 return {"ok": True, "detail": "reachable"}
         except (ConnectionRefusedError, socket.timeout, OSError):
             return {"ok": False, "detail": "not reachable"}
@@ -100,7 +102,13 @@ def run_doctor(args=None) -> int:
             command="doctor",
             ok=ok,
             data={"checks": checks},
-            error=None if ok else {"code": "doctor_failed", "message": "one or more checks failed", "details": None},
+            error=None
+            if ok
+            else {
+                "code": "doctor_failed",
+                "message": "one or more checks failed",
+                "details": None,
+            },
         )
         print(json.dumps(payload, indent=2))
     else:
@@ -230,9 +238,14 @@ def run_capture(args) -> int:
     if getattr(args, "dry_run", False):
         print("--dry-run has no effect for capture.", file=sys.stderr)
 
-    exposure = args.exposure if args.exposure is not None else config.camera_default_exposure_s
+    exposure = (
+        args.exposure if args.exposure is not None else config.camera_default_exposure_s
+    )
     if exposure is None:
-        print("Exposure is required (use --exposure or set camera.default_exposure_s).", file=sys.stderr)
+        print(
+            "Exposure is required (use --exposure or set camera.default_exposure_s).",
+            file=sys.stderr,
+        )
         return 2
 
     try:

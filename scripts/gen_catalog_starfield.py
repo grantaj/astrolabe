@@ -8,6 +8,7 @@ Generate a synthetic FITS star field using Gaia catalog for a QHY5III462 guide c
 
 Requires the optional tools dependencies (install with `uv pip install -e .[tools]`).
 """
+
 import csv
 import gzip
 import numpy as np
@@ -35,7 +36,7 @@ print(f"DEBUG: fov_x = {fov_x:.6f} deg, fov_y = {fov_y:.6f} deg")
 
 # Center of field (Galactic center region)
 ra_center = 266.4  # deg (Galactic center)
-dec_center = -29.0   # deg (Galactic center)
+dec_center = -29.0  # deg (Galactic center)
 
 # Calculate radius for cone search (half the diagonal of the FOV)
 diag_deg = sqrt(fov_x**2 + fov_y**2)
@@ -53,7 +54,9 @@ tycho_dir = Path("tycho2")
 hyg_path = Path("hyg4.2/hygdata_v42.csv")
 cache_dir = Path("testdata")
 cache_dir.mkdir(parents=True, exist_ok=True)
-cache_name = f"gaia_cache_ra{ra_center}_dec{dec_center}_rad{radius_deg:.3f}_g{mag_limit}.npz"
+cache_name = (
+    f"gaia_cache_ra{ra_center}_dec{dec_center}_rad{radius_deg:.3f}_g{mag_limit}.npz"
+)
 cache_path = cache_dir / cache_name
 
 # Load Tycho-2 if available; fallback to HYG, then Gaia/VizieR.
@@ -97,10 +100,9 @@ if tycho_files:
                 # Cone filter inline to avoid huge arrays.
                 ra_rad = np.deg2rad(ra)
                 dec_rad = np.deg2rad(dec)
-                cos_sep = (
-                    np.sin(dec0) * np.sin(dec_rad)
-                    + np.cos(dec0) * np.cos(dec_rad) * np.cos(ra_rad - ra0)
-                )
+                cos_sep = np.sin(dec0) * np.sin(dec_rad) + np.cos(dec0) * np.cos(
+                    dec_rad
+                ) * np.cos(ra_rad - ra0)
                 sep_deg = np.rad2deg(np.arccos(np.clip(cos_sep, -1.0, 1.0)))
                 if sep_deg > r_deg:
                     continue
@@ -146,7 +148,9 @@ elif hyg_path.exists():
     dec0 = np.deg2rad(dec_center)
     ra_rad = np.deg2rad(ra_arr)
     dec_rad = np.deg2rad(dec_arr)
-    cos_sep = np.sin(dec0) * np.sin(dec_rad) + np.cos(dec0) * np.cos(dec_rad) * np.cos(ra_rad - ra0)
+    cos_sep = np.sin(dec0) * np.sin(dec_rad) + np.cos(dec0) * np.cos(dec_rad) * np.cos(
+        ra_rad - ra0
+    )
     sep_deg = np.rad2deg(np.arccos(np.clip(cos_sep, -1.0, 1.0)))
     mask = sep_deg <= radius_deg
     ra_arr = ra_arr[mask]
@@ -174,13 +178,16 @@ else:
                 vizier_server=VizierConf.server,
             ).query_region(
                 SkyCoord(ra_center, dec_center, unit="deg"),
-                radius=radius_deg * u.deg, catalog="I/355/gaiadr3"
+                radius=radius_deg * u.deg,
+                catalog="I/355/gaiadr3",
             )
         except Exception as e:
             print(f"Catalog query failed (possible network issue): {e}")
             exit(2)
         if not result:
-            print("Catalog query succeeded, but no stars found in the region. Try increasing FOV or Gmag limit.")
+            print(
+                "Catalog query succeeded, but no stars found in the region. Try increasing FOV or Gmag limit."
+            )
             exit(1)
         stars = result[0]
         print(f"Catalog returned {len(stars)} stars (row_limit={row_limit}).")
@@ -210,8 +217,8 @@ image = np.zeros((height, width), dtype=np.float32)
 
 # WCS setup
 w = WCS(naxis=2)
-w.wcs.crpix = [width/2, height/2]
-w.wcs.cdelt = np.array([-pixel_scale/3600, pixel_scale/3600])  # deg/pix
+w.wcs.crpix = [width / 2, height / 2]
+w.wcs.cdelt = np.array([-pixel_scale / 3600, pixel_scale / 3600])  # deg/pix
 w.wcs.crval = [ra_center, dec_center]
 w.wcs.ctype = ["RA---TAN", "DEC--TAN"]
 
@@ -227,7 +234,9 @@ for ra, dec, mag in zip(ra_arr, dec_arr, mag_arr):
     if 0 <= x < width and 0 <= y < height:
         flux = flux_at_mag0 * 10 ** (-0.4 * (mag - mag_zero_point))
         sigma = base_sigma + 0.15 * max(mag - mag_zero_point, 0)
-        image += flux * np.exp(-((x_grid - x) ** 2 + (y_grid - y) ** 2) / (2 * sigma**2))
+        image += flux * np.exp(
+            -((x_grid - x) ** 2 + (y_grid - y) ** 2) / (2 * sigma**2)
+        )
 
 # Add background + noise
 background_level = 800.0

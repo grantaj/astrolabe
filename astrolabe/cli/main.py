@@ -2,6 +2,8 @@ import argparse
 import sys
 from astrolabe import __version__
 from astrolabe.cli.commands import run_doctor, run_solve, run_view, run_capture
+
+
 def main():
     parser = argparse.ArgumentParser(prog="astrolabe")
     parser.add_argument("--version", action="store_true", help="Show version and exit")
@@ -26,11 +28,15 @@ def main():
     subparsers = parser.add_subparsers(dest="command")
 
     doctor_parser = subparsers.add_parser("doctor", help="Run system diagnostics")
-    doctor_parser.add_argument("--json", action="store_true", help="Output result as JSON")
+    doctor_parser.add_argument(
+        "--json", action="store_true", help="Output result as JSON"
+    )
 
     solve_parser = subparsers.add_parser("solve", help="Plate solve a FITS image")
     solve_parser.add_argument("input_fits", nargs="?", help="Input FITS file path")
-    solve_parser.add_argument("--in", dest="input_fits_opt", help="Input FITS file path")
+    solve_parser.add_argument(
+        "--in", dest="input_fits_opt", help="Input FITS file path"
+    )
     solve_parser.add_argument(
         "--search-radius-deg",
         type=float,
@@ -42,19 +48,33 @@ def main():
         help="Include solver output on failure",
     )
 
-    capture_parser = subparsers.add_parser("capture", help="Capture a FITS image from camera")
-    capture_parser.add_argument("--exposure", type=float, help="Exposure time in seconds")
+    capture_parser = subparsers.add_parser(
+        "capture", help="Capture a FITS image from camera"
+    )
+    capture_parser.add_argument(
+        "--exposure", type=float, help="Exposure time in seconds"
+    )
     capture_parser.add_argument("--gain", type=float, help="Camera gain")
-    capture_parser.add_argument("--bin", dest="binning", type=int, help="Binning factor")
+    capture_parser.add_argument(
+        "--bin", dest="binning", type=int, help="Binning factor"
+    )
     capture_parser.add_argument("--roi", type=str, help="ROI as x,y,w,h")
     capture_parser.add_argument("--out", type=str, help="Save image to path")
-    capture_parser.add_argument("--json", action="store_true", help="Output result as JSON")
-    solve_parser.add_argument("--json", action="store_true", help="Output result as JSON")
+    capture_parser.add_argument(
+        "--json", action="store_true", help="Output result as JSON"
+    )
+    solve_parser.add_argument(
+        "--json", action="store_true", help="Output result as JSON"
+    )
     # Future: add more arguments for hints
 
     view_parser = subparsers.add_parser("view", help="View FITS header and image")
-    view_parser.add_argument("--in", dest="input_fits", required=True, help="Input FITS file path")
-    view_parser.add_argument("--show", action="store_true", help="Display image window (requires matplotlib)")
+    view_parser.add_argument(
+        "--in", dest="input_fits", required=True, help="Input FITS file path"
+    )
+    view_parser.add_argument(
+        "--show", action="store_true", help="Display image window (requires matplotlib)"
+    )
 
     args = parser.parse_args()
 
