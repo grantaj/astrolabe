@@ -61,11 +61,18 @@ Error object (when ok=false):
 - `details` (object|null)    optional structured fields
 
 The CLI must not emit other text to stdout in `--json` mode.
+
+Note: For subcommands, `command` may include a dotted suffix (e.g., `align.solve`, `mount.status`).
 Logs may go to stderr.
 
 ---
 
 # 4. Commands
+
+Note: The commands below exist in the CLI, but several are currently stubs and return
+`not_implemented` errors until the underlying services are implemented.
+
+Note: `--dry-run` is currently a no-op for commands added in the skeleton (mount/goto/align/polar/guide/plan).
 
 ## 4.1 `capture`
 
@@ -139,11 +146,6 @@ Exit codes:
 
 Mount management and primitives.
 
-### `mount connect`
-```
-astrolabe mount connect
-```
-
 ### `mount status`
 ```
 astrolabe mount status
@@ -155,30 +157,25 @@ JSON data:
 - `tracking`, `slewing`
 - `timestamp_utc`
 
+Note: `mount status` may require a live backend connection depending on the backend implementation.
+
 ### `mount slew`
 ```
-astrolabe mount slew --ra <hh:mm:ss|deg> --dec <dd:mm:ss|deg>
+astrolabe mount slew --ra-deg <deg> --dec-deg <deg>
 ```
 
 Options:
-- `--ra <value>`   Sexagesimal or degrees
-- `--dec <value>`  Sexagesimal or degrees
+- `--ra-deg <value>`   Degrees
+- `--dec-deg <value>`  Degrees
 
 ### `mount stop`
 ```
 astrolabe mount stop
 ```
 
-### `mount sync`
+### `mount park`
 ```
-astrolabe mount sync --ra <...> --dec <...>
-```
-
-### `mount guide`
-Pulse guide primitives (debug/useful for calibration).
-
-```
-astrolabe mount guide --ra-ms <ms> --dec-ms <ms>
+astrolabe mount park
 ```
 
 ---
@@ -188,17 +185,14 @@ astrolabe mount guide --ra-ms <ms> --dec-ms <ms>
 Closed-loop centering of a target.
 
 ```
-astrolabe goto <target> [options]
+astrolabe goto [options]
 ```
 
-Target forms:
-- object name (catalog lookup, if enabled)
-- explicit coordinates via `--ra/--dec`
-
 Options:
-- `--ra <...>` / `--dec <...>`    Explicit coordinates (bypass lookup)
-- `--tolerance <arcsec>`          Default from config if omitted
-- `--max-iter <n>`                Default from config if omitted
+- `--ra-deg <value>`              Target RA in degrees
+- `--dec-deg <value>`             Target Dec in degrees
+- `--tolerance-arcsec <value>`    Default 30.0
+- `--max-iterations <n>`          Default 5
 
 JSON data:
 - `success`
@@ -207,16 +201,63 @@ JSON data:
 
 ---
 
-## 4.6 `polar`
+## 4.6 `align`
+
+Plate-solve alignment actions.
+
+### `align solve`
+```
+astrolabe align solve [options]
+```
+
+Options:
+- `--exposure <seconds>`
+
+JSON data:
+- Same fields as `solve` (SolveResult)
+
+### `align sync`
+```
+astrolabe align sync [options]
+```
+
+Options:
+- `--exposure <seconds>`
+
+JSON data:
+- `success`
+- `solves_attempted`
+- `solves_succeeded`
+- `rms_arcsec`
+
+### `align init`
+```
+astrolabe align init [options]
+```
+
+Options:
+- `--targets <n>`
+- `--exposure <seconds>`
+- `--max-attempts <n>`
+
+JSON data:
+- `success`
+- `solves_attempted`
+- `solves_succeeded`
+- `rms_arcsec`
+
+---
+
+## 4.7 `polar`
 
 Run polar alignment routine and output mechanical adjustment guidance.
 
 ```
-astrolabe polar [options]
+astrolabe polar --ra-rotation-deg <deg>
 ```
 
 Options:
-- `--ra-rotate-deg <deg>`   RA rotation amount for solving (default configured)
+- `--ra-rotation-deg <deg>`   RA rotation amount for solving
 
 JSON data:
 - `alt_correction_arcsec`
@@ -229,7 +270,7 @@ based on configured hemisphere/site conventions.
 
 ---
 
-## 4.7 `guide`
+## 4.8 `guide`
 
 Guiding control.
 
@@ -251,7 +292,7 @@ astrolabe guide start [options]
 
 Options:
 - `--aggression <0..1>`
-- `--min-move <arcsec>`
+- `--min-move-arcsec <arcsec>`
 
 ### `guide status`
 ```
@@ -271,7 +312,25 @@ astrolabe guide stop
 
 ---
 
-## 4.8 `view`
+## 4.9 `plan`
+
+Plan observing targets.
+
+```
+astrolabe plan [options]
+```
+
+Options:
+- `--start-utc <iso>`    Window start (ISO-8601, accepts `Z`)
+- `--end-utc <iso>`      Window end (ISO-8601, accepts `Z`)
+- `--lat <deg>`          Observer latitude degrees
+- `--lon <deg>`          Observer longitude degrees
+- `--elev <m>`           Observer elevation meters
+- `--json`
+
+---
+
+## 4.10 `view`
 
 Display FITS header and optionally render the image for inspection.
 

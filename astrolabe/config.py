@@ -65,6 +65,32 @@ class Config:
     def camera_default_exposure_s(self):
         return self._data.get("camera", {}).get("default_exposure_s", None)
 
+    @property
+    def mount_backend(self):
+        return self._data.get("mount", {}).get("backend", "indi")
+
+    @property
+    def mount_device(self):
+        return self._data.get("mount", {}).get("device", "Telescope Simulator")
+
+    def _site_data(self) -> dict:
+        mount_site = self._data.get("mount", {}).get("site", None)
+        if mount_site is not None:
+            return mount_site
+        return self._data.get("site", {})
+
+    @property
+    def mount_site_latitude_deg(self):
+        return self._site_data().get("latitude_deg", None)
+
+    @property
+    def mount_site_longitude_deg(self):
+        return self._site_data().get("longitude_deg", None)
+
+    @property
+    def mount_site_elevation_m(self):
+        return self._site_data().get("elevation_m", None)
+
 def load_config(path: Path | None = None) -> Config:
     explicit_path = path
     path = path or DEFAULT_CONFIG_PATH

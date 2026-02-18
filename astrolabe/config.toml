@@ -18,7 +18,13 @@ output_prefix = "astrolabe_capture_"
 use_guider_exposure = false
 default_exposure_s = 2.0
 
-[site]
+[mount]
+backend = "indi"
+# INDI device name. Default to simulator; set to your actual mount if different.
+# Example hardware device: "EQMod Mount"
+device = "Telescope Simulator"
+
+[mount.site]
 latitude_deg = -34.93
 longitude_deg = 138.60
 elevation_m = 50

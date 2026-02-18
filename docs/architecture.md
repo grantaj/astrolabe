@@ -28,8 +28,10 @@ astrolabe/
   mount/         # mount backends + mount boundary conversions
   services/
     goto/        # closed-loop centering
+    alignment/   # solve-based sync + multi-point alignment
     polar/       # polar alignment routine + guidance
     guide/       # guiding loop + calibration + controller
+  planner/       # target planning (catalogs + filters + scoring)
   cli/           # command handlers, formatting, exit codes
   config/        # config parsing + validation
   util/          # shared math/utilities (no backend deps)
