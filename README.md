@@ -130,11 +130,33 @@ From the repository root:
 
     python -m venv .venv --prompt astrolabe
     source .venv/bin/activate
-    pip install -e .
+    uv sync --extra dev --extra tools
 
-Optional tools (FITS inspection and synthetic starfield generation):
+Optional tools (FITS inspection and synthetic starfield generation) are included in the command above.
 
-    pip install -e .[tools]
+This uses `uv.lock` as the source of truth for reproducible installs. CI enforces this with `uv sync --frozen`.
+
+------------------------------------------------------------------------
+
+### 2.1. Lint and Format
+
+    uv run ruff check .
+    uv run ruff format .
+
+------------------------------------------------------------------------
+
+### 2.2. Tests
+
+    uv run pytest
+
+Note: the test configuration enables the `--ty` plugin. If you remove `pytest-ty`, also remove `--ty` from pytest options in `pyproject.toml`.
+
+------------------------------------------------------------------------
+
+### 2.3. Pre-commit Hooks
+
+    uv run pre-commit install
+    uv run pre-commit run --all-files
 
 ------------------------------------------------------------------------
 

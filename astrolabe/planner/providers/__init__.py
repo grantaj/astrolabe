@@ -11,6 +11,7 @@ def get_catalog_providers():
         SolarSystemProvider(),
     ]
 
+
 __all__ = [
     "CatalogProvider",
     "MessierProvider",

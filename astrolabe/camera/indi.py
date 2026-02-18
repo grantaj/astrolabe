@@ -16,16 +16,36 @@ CCD_FILE_PATH_RETRY_SLEEP_S = 0.2
 DEVICE_POLL_TIMEOUT_S = 1.0
 
 
-def _run_indi(tool: str, host: str, port: int, args: list[str], *, check: bool = True, capture: bool = False):
+def _run_indi(
+    tool: str,
+    host: str,
+    port: int,
+    args: list[str],
+    *,
+    check: bool = True,
+    capture: bool = False,
+):
     cmd = [tool, "-h", host, "-p", str(port)] + args
     if capture:
-        return subprocess.run(cmd, check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return subprocess.run(
+            cmd, check=check, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
     return subprocess.run(cmd, check=check)
 
 
 def _getprop_value(host: str, port: int, query: str, *, timeout_s: float = 2.0) -> str:
     cp = subprocess.run(
-        ["indi_getprop", "-h", host, "-p", str(port), "-t", str(timeout_s), "-1", query],
+        [
+            "indi_getprop",
+            "-h",
+            host,
+            "-p",
+            str(port),
+            "-t",
+            str(timeout_s),
+            "-1",
+            query,
+        ],
         check=True,
         text=True,
         stdout=subprocess.PIPE,
@@ -36,7 +56,17 @@ def _getprop_value(host: str, port: int, query: str, *, timeout_s: float = 2.0) 
 
 def _has_prop(host: str, port: int, query: str, *, timeout_s: float = 2.0) -> bool:
     cp = subprocess.run(
-        ["indi_getprop", "-h", host, "-p", str(port), "-t", str(timeout_s), "-1", query],
+        [
+            "indi_getprop",
+            "-h",
+            host,
+            "-p",
+            str(port),
+            "-t",
+            str(timeout_s),
+            "-1",
+            query,
+        ],
         check=False,
         text=True,
         stdout=subprocess.PIPE,
@@ -47,19 +77,32 @@ def _has_prop(host: str, port: int, query: str, *, timeout_s: float = 2.0) -> bo
 
 def _setprop(host: str, port: int, prop: str, value: str, *, soft: bool = True) -> None:
     try:
-        _run_indi("indi_setprop", host, port, [f"{prop}={value}"], check=True, capture=False)
+        _run_indi(
+            "indi_setprop", host, port, [f"{prop}={value}"], check=True, capture=False
+        )
     except subprocess.CalledProcessError as e:
         if not soft:
             raise
         logging.warning(f"Could not set {prop}={value} (may be unavailable): {e}")
 
 
-def _wait_for_device(host: str, port: int, device: str, timeout_s: float = 10.0) -> None:
+def _wait_for_device(
+    host: str, port: int, device: str, timeout_s: float = 10.0
+) -> None:
     deadline = time.time() + timeout_s
     last = None
     while time.time() < deadline:
         last = subprocess.run(
-            ["indi_getprop", "-h", host, "-p", str(port), "-t", str(DEVICE_POLL_TIMEOUT_S), "-1"],
+            [
+                "indi_getprop",
+                "-h",
+                host,
+                "-p",
+                str(port),
+                "-t",
+                str(DEVICE_POLL_TIMEOUT_S),
+                "-1",
+            ],
             check=False,
             text=True,
             stdout=subprocess.PIPE,
@@ -69,13 +112,15 @@ def _wait_for_device(host: str, port: int, device: str, timeout_s: float = 10.0)
             return
         time.sleep(0.2)
 
-    stderr = (last.stderr.strip() if last else "")
+    stderr = last.stderr.strip() if last else ""
     raise RuntimeError(
         f"Timed out waiting for INDI device '{device}' on {host}:{port}. stderr={stderr!r}"
     )
 
 
-def _wait_for_mtime_increase(path: Path, prev_mtime: Optional[float], timeout_s: float) -> float:
+def _wait_for_mtime_increase(
+    path: Path, prev_mtime: Optional[float], timeout_s: float
+) -> float:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         if path.exists():
@@ -107,7 +152,9 @@ class IndiCameraBackend(CameraBackend):
 
     def connect(self) -> None:
         _wait_for_device(self.host, self.port, self.device)
-        _setprop(self.host, self.port, f"{self.device}.CONNECTION.CONNECT", "On", soft=False)
+        _setprop(
+            self.host, self.port, f"{self.device}.CONNECTION.CONNECT", "On", soft=False
+        )
         time.sleep(0.2)
         if _has_prop(self.host, self.port, f"{self.device}.CCD_GAIN.GAIN"):
             self._gain_prop = "CCD_GAIN.GAIN"
@@ -115,9 +162,27 @@ class IndiCameraBackend(CameraBackend):
             self._gain_prop = "CCD_GAIN.VALUE"
         if self.output_dir is not None:
             self.output_dir.mkdir(parents=True, exist_ok=True)
-            _setprop(self.host, self.port, f"{self.device}.UPLOAD_MODE.UPLOAD_LOCAL", "On", soft=True)
-            _setprop(self.host, self.port, f"{self.device}.UPLOAD_MODE.UPLOAD_CLIENT", "Off", soft=True)
-            _setprop(self.host, self.port, f"{self.device}.UPLOAD_MODE.UPLOAD_BOTH", "Off", soft=True)
+            _setprop(
+                self.host,
+                self.port,
+                f"{self.device}.UPLOAD_MODE.UPLOAD_LOCAL",
+                "On",
+                soft=True,
+            )
+            _setprop(
+                self.host,
+                self.port,
+                f"{self.device}.UPLOAD_MODE.UPLOAD_CLIENT",
+                "Off",
+                soft=True,
+            )
+            _setprop(
+                self.host,
+                self.port,
+                f"{self.device}.UPLOAD_MODE.UPLOAD_BOTH",
+                "Off",
+                soft=True,
+            )
             _setprop(
                 self.host,
                 self.port,
@@ -137,7 +202,13 @@ class IndiCameraBackend(CameraBackend):
     def disconnect(self) -> None:
         if not self._connected:
             return
-        _setprop(self.host, self.port, f"{self.device}.CONNECTION.DISCONNECT", "On", soft=True)
+        _setprop(
+            self.host,
+            self.port,
+            f"{self.device}.CONNECTION.DISCONNECT",
+            "On",
+            soft=True,
+        )
         self._connected = False
 
     def is_connected(self) -> bool:
@@ -160,24 +231,62 @@ class IndiCameraBackend(CameraBackend):
                 elif _has_prop(self.host, self.port, f"{self.device}.CCD_GAIN.VALUE"):
                     self._gain_prop = "CCD_GAIN.VALUE"
             if self._gain_prop is not None:
-                _setprop(self.host, self.port, f"{self.device}.{self._gain_prop}", str(gain), soft=True)
+                _setprop(
+                    self.host,
+                    self.port,
+                    f"{self.device}.{self._gain_prop}",
+                    str(gain),
+                    soft=True,
+                )
 
         if binning is not None:
-            _setprop(self.host, self.port, f"{self.device}.CCD_BINNING.HOR_BIN", str(binning), soft=True)
-            _setprop(self.host, self.port, f"{self.device}.CCD_BINNING.VERT_BIN", str(binning), soft=True)
+            _setprop(
+                self.host,
+                self.port,
+                f"{self.device}.CCD_BINNING.HOR_BIN",
+                str(binning),
+                soft=True,
+            )
+            _setprop(
+                self.host,
+                self.port,
+                f"{self.device}.CCD_BINNING.VERT_BIN",
+                str(binning),
+                soft=True,
+            )
 
         if roi is not None:
             x, y, w, h = roi
-            _setprop(self.host, self.port, f"{self.device}.CCD_FRAME.X", str(x), soft=True)
-            _setprop(self.host, self.port, f"{self.device}.CCD_FRAME.Y", str(y), soft=True)
-            _setprop(self.host, self.port, f"{self.device}.CCD_FRAME.WIDTH", str(w), soft=True)
-            _setprop(self.host, self.port, f"{self.device}.CCD_FRAME.HEIGHT", str(h), soft=True)
+            _setprop(
+                self.host, self.port, f"{self.device}.CCD_FRAME.X", str(x), soft=True
+            )
+            _setprop(
+                self.host, self.port, f"{self.device}.CCD_FRAME.Y", str(y), soft=True
+            )
+            _setprop(
+                self.host,
+                self.port,
+                f"{self.device}.CCD_FRAME.WIDTH",
+                str(w),
+                soft=True,
+            )
+            _setprop(
+                self.host,
+                self.port,
+                f"{self.device}.CCD_FRAME.HEIGHT",
+                str(h),
+                soft=True,
+            )
 
         base_path_str = ""
         for _ in range(CCD_FILE_PATH_RETRY_COUNT):
-            if _has_prop(self.host, self.port, f"{self.device}.CCD_FILE_PATH.FILE_PATH"):
+            if _has_prop(
+                self.host, self.port, f"{self.device}.CCD_FILE_PATH.FILE_PATH"
+            ):
                 try:
-                    base_path_str = _getprop_value(self.host, self.port, f"{self.device}.CCD_FILE_PATH.FILE_PATH")
+                    base_path_str = _getprop_value(
+                        self.host, self.port, f"{self.device}.CCD_FILE_PATH.FILE_PATH"
+                    )
                 except subprocess.CalledProcessError:
                     base_path_str = ""
             else:
@@ -189,7 +298,9 @@ class IndiCameraBackend(CameraBackend):
             if self.output_dir is not None:
                 base_path = self.output_dir / f"{self.output_prefix}.fits"
             else:
-                raise RuntimeError("CCD_FILE_PATH is empty; camera may not support local file uploads.")
+                raise RuntimeError(
+                    "CCD_FILE_PATH is empty; camera may not support local file uploads."
+                )
         else:
             base_path = Path(base_path_str)
         if base_path.is_dir():
@@ -201,7 +312,13 @@ class IndiCameraBackend(CameraBackend):
             if self.use_guider_exposure
             else "CCD_EXPOSURE.CCD_EXPOSURE_VALUE"
         )
-        _setprop(self.host, self.port, f"{self.device}.{exposure_prop}", f"{exposure_s}", soft=False)
+        _setprop(
+            self.host,
+            self.port,
+            f"{self.device}.{exposure_prop}",
+            f"{exposure_s}",
+            soft=False,
+        )
 
         timeout_s = max(DEFAULT_CAPTURE_TIMEOUT_S, exposure_s + 5.0)
         _wait_for_mtime_increase(base_path, prev_mtime, timeout_s=timeout_s)
