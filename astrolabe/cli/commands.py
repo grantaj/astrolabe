@@ -350,7 +350,7 @@ def run_view(args) -> int:
     try:
         from astropy.io import fits
     except ModuleNotFoundError:
-        message = "astropy is required for 'astrolabe view'. Install with: pip install -e .[tools]"
+        message = "astropy is required for 'astrolabe view'. Install with: uv pip install -e .[tools]"
         if getattr(args, "json", False):
             import json
 
