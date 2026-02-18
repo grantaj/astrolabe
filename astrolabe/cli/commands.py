@@ -350,7 +350,6 @@ def run_view(args) -> int:
     try:
         from astropy.io import fits
     except ModuleNotFoundError:
-<<<<<<< HEAD
         message = "astropy is required for 'astrolabe view'. Install with: pip install -e .[tools]"
         if getattr(args, "json", False):
             import json
@@ -368,12 +367,6 @@ def run_view(args) -> int:
             print(json.dumps(payload, indent=2))
         else:
             print(message, file=sys.stderr)
-=======
-        print(
-            "astropy is required for 'astrolabe view'. Install with: uv pip install -e .[tools]",
-            file=sys.stderr,
-        )
->>>>>>> origin/copilot/resolve-merge-conflicts-ruff
         return 2
     if getattr(args, "dry_run", False):
         print("--dry-run has no effect for view.", file=sys.stderr)

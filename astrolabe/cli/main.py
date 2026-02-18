@@ -1,7 +1,6 @@
 import argparse
 import sys
 from astrolabe import __version__
-<<<<<<< HEAD
 from astrolabe.cli.commands import (
     run_doctor,
     run_solve,
@@ -14,9 +13,6 @@ from astrolabe.cli.commands import (
     run_guide,
     run_plan,
 )
-=======
-from astrolabe.cli.commands import run_doctor, run_solve, run_view, run_capture
->>>>>>> origin/copilot/resolve-merge-conflicts-ruff
 
 
 def main():
@@ -43,14 +39,7 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command")
 
-<<<<<<< HEAD
     _ = subparsers.add_parser("doctor", help="Run system diagnostics")
-=======
-    doctor_parser = subparsers.add_parser("doctor", help="Run system diagnostics")
-    doctor_parser.add_argument(
-        "--json", action="store_true", help="Output result as JSON"
-    )
->>>>>>> origin/copilot/resolve-merge-conflicts-ruff
 
     solve_parser = subparsers.add_parser("solve", help="Plate solve a FITS image")
     solve_parser.add_argument("input_fits", nargs="?", help="Input FITS file path")
@@ -80,15 +69,6 @@ def main():
     )
     capture_parser.add_argument("--roi", type=str, help="ROI as x,y,w,h")
     capture_parser.add_argument("--out", type=str, help="Save image to path")
-<<<<<<< HEAD
-=======
-    capture_parser.add_argument(
-        "--json", action="store_true", help="Output result as JSON"
-    )
-    solve_parser.add_argument(
-        "--json", action="store_true", help="Output result as JSON"
-    )
->>>>>>> origin/copilot/resolve-merge-conflicts-ruff
     # Future: add more arguments for hints
 
     view_parser = subparsers.add_parser("view", help="View FITS header and image")
@@ -98,7 +78,6 @@ def main():
     view_parser.add_argument(
         "--show", action="store_true", help="Display image window (requires matplotlib)"
     )
-<<<<<<< HEAD
 
     mount_parser = subparsers.add_parser("mount", help="Mount control and status")
     mount_subparsers = mount_parser.add_subparsers(dest="action", required=True)
@@ -192,8 +171,6 @@ def main():
     plan_parser.add_argument(
         "--elev", dest="elevation_m", type=float, help="Observer elevation meters"
     )
-=======
->>>>>>> origin/copilot/resolve-merge-conflicts-ruff
 
     args = parser.parse_args()
 
