@@ -12,7 +12,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
-    # add other dev/test tools here
+    "pytest-ruff>=0.5",
+    "pytest-ty>=0.1.4",
 ]
 tools = [
     "astropy",
@@ -31,11 +32,5 @@ markers = [
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-[dependency-groups]
-dev = [
-    "pytest-ruff>=0.5",
-    "pytest-ty>=0.1.4",
-]
-
-[tool.setuptools]
-packages = ["astrolabe"]
+[tool.setuptools.packages.find]
+include = ["astrolabe*"]
