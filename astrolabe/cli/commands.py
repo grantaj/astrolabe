@@ -284,7 +284,7 @@ def run_view(args) -> int:
         from astropy.io import fits
     except ModuleNotFoundError:
         print(
-            "astropy is required for 'astrolabe view'. Install with: pip install -e .[tools]",
+            "astropy is required for 'astrolabe view'. Install with: uv pip install -e .[tools]",
             file=sys.stderr,
         )
         return 2

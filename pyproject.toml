@@ -22,6 +22,7 @@ tools = [
 astrolabe = "astrolabe.cli.main:main"
 
 [tool.pytest.ini_options]
+addopts = "--ruff --ruff-format --ty"
 markers = [
     "integration: requires external tools or data",
 ]
@@ -29,3 +30,12 @@ markers = [
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "pytest-ruff>=0.5",
+    "pytest-ty>=0.1.4",
+]
+
+[tool.setuptools]
+packages = ["astrolabe"]

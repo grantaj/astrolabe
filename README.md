@@ -126,11 +126,11 @@ From the repository root:
 
     python -m venv .venv --prompt astrolabe
     source .venv/bin/activate
-    pip install -e .
+    uv pip install -e .
 
 Optional tools (FITS inspection and synthetic starfield generation):
 
-    pip install -e .[tools]
+    uv pip install -e .[tools]
 
 ------------------------------------------------------------------------
 
