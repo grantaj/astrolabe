@@ -70,6 +70,7 @@ class Config:
     def camera_default_exposure_s(self):
         return self._data.get("camera", {}).get("default_exposure_s", None)
 
+<<<<<<< HEAD
     @property
     def mount_backend(self):
         return self._data.get("mount", {}).get("backend", "indi")
@@ -96,6 +97,8 @@ class Config:
     def mount_site_elevation_m(self):
         return self._site_data().get("elevation_m", None)
 
+=======
+>>>>>>> origin/copilot/resolve-merge-conflicts-ruff
 
 def load_config(path: Path | None = None) -> Config:
     explicit_path = path
