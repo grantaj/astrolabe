@@ -85,6 +85,8 @@ Avoid pulling in large frameworks.
 -   Core math should be unit-testable without hardware.
 -   Hardware-specific behavior should be isolated behind backends.
 -   Deterministic behavior is preferred wherever possible.
+-   Use `uv sync --extra dev --extra tools` for local setup, and `uv run` for tools like `pytest` and `ruff`.
+-   Install hooks with `uv run pre-commit install`, and run manually with `uv run pre-commit run --all-files`.
 
 ------------------------------------------------------------------------
 

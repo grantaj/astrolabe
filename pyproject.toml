@@ -14,9 +14,12 @@ dev = [
     "pytest",
     "pytest-ruff>=0.5",
     "pytest-ty>=0.1.4",
+    "pre-commit>=3.6",
+    "tomli>=2.0.1",
 ]
 tools = [
     "astropy",
+    "astroquery",
 ]
 
 [project.scripts]
@@ -27,6 +30,16 @@ addopts = "--ruff --ruff-format --ty"
 markers = [
     "integration: requires external tools or data",
 ]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 
 [build-system]
 requires = ["setuptools>=61.0"]
