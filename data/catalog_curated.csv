@@ -1,0 +1,15 @@
+id,name,ra_deg,dec_deg,type,mag,size_arcmin,surface_brightness,tags
+M42,Orion Nebula,83.820,-5.390,emission_nebula,4.0,85,,showpiece
+M31,Andromeda Galaxy,10.684,41.269,galaxy,3.4,190,,showpiece
+M45,Pleiades,56.750,24.116,open_cluster,1.6,110,,showpiece
+M13,Hercules Globular Cluster,250.423,36.461,globular_cluster,5.8,16,,
+M57,Ring Nebula,283.396,33.030,planetary_nebula,8.8,1.4,,
+M27,Dumbbell Nebula,299.901,22.721,planetary_nebula,7.5,8,,
+NGC5139,Omega Centauri,201.697,-47.479,globular_cluster,3.7,36,,southern_showpiece
+NGC104,47 Tucanae,6.023,-72.081,globular_cluster,4.0,30,,southern_showpiece
+NGC3372,Eta Carinae Nebula,161.265,-59.685,emission_nebula,1.0,120,,southern_showpiece
+M8,Lagoon Nebula,270.925,-24.375,emission_nebula,6.0,90,,
+M20,Trifid Nebula,270.650,-23.020,emission_nebula,6.3,28,,
+M17,Omega Nebula,275.200,-16.170,emission_nebula,6.0,46,,
+M51,Whirlpool Galaxy,202.470,47.200,galaxy,8.4,11,,
+NGC253,Sculptor Galaxy,11.888,-25.288,galaxy,7.1,27,,southern_showpiece

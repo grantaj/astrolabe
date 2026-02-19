@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import datetime
 from typing import Optional, Sequence
 
@@ -8,6 +8,7 @@ class ObserverLocation:
     latitude_deg: float
     longitude_deg: float
     elevation_m: float | None = None
+    name: str | None = None
 
 
 @dataclass
@@ -20,16 +21,31 @@ class PlannerConstraints:
     moon_illumination_strict_threshold: float
 
 
+@dataclass(frozen=True)
+class Target:
+    id: str
+    name: str
+    ra_deg: float
+    dec_deg: float
+    type: str
+    mag: float | None = None
+    size_arcmin: float | None = None
+    surface_brightness: float | None = None
+    tags: list[str] = field(default_factory=list)
+
+
 @dataclass
 class PlannerRequest:
     window_start_utc: datetime.datetime
     window_end_utc: datetime.datetime
     location: ObserverLocation
     constraints: PlannerConstraints
+    mode: str = "visual"
 
 
 @dataclass
 class PlannerEntry:
+    id: str
     name: str
     target_type: str
     best_time_utc: datetime.datetime
@@ -38,6 +54,15 @@ class PlannerEntry:
     moon_separation_deg: float
     moon_illumination: float
     difficulty: str
+    score: float
+    score_components: dict
+    notes: list[str] = field(default_factory=list)
+    ra_deg: float | None = None
+    dec_deg: float | None = None
+    size_arcmin: float | None = None
+    mag: float | None = None
+    surface_brightness: float | None = None
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -52,4 +77,5 @@ class PlannerResult:
     window_end_utc: datetime.datetime
     location: ObserverLocation
     sections: Sequence[PlannerSection]
+    mode: str | None = None
     message: Optional[str] = None

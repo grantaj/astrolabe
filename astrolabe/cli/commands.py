@@ -13,7 +13,7 @@ from astrolabe.camera import get_camera_backend
 from astrolabe.mount import get_mount_backend
 from astrolabe.services import GotoService, PolarAlignService, GuidingService, AlignmentService
 from astrolabe.planner import Planner, ObserverLocation
-from astrolabe.planner.formatters import format_json as format_plan_json
+from astrolabe.planner.formatters import format_text as format_plan_text
 from astrolabe.errors import NotImplementedFeature
 from astrolabe.solver.types import Image, SolveRequest
 from astrolabe.util.format import rad_to_hms, rad_to_dms, rad_to_deg
@@ -258,6 +258,20 @@ def _parse_datetime_arg(value: str | None) -> datetime.datetime | None:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=datetime.timezone.utc)
     return dt
+
+
+def _parse_datetime_local_arg(value: str | None) -> datetime.datetime | None:
+    if not value:
+        return None
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    dt = datetime.datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        local_tz = datetime.datetime.now().astimezone().tzinfo
+        if local_tz is None:
+            local_tz = datetime.timezone.utc
+        dt = dt.replace(tzinfo=local_tz)
+    return dt.astimezone(datetime.timezone.utc)
 
 
 def _parse_location_args(args) -> ObserverLocation | None:
@@ -751,14 +765,25 @@ def run_plan(args) -> int:
         print("--dry-run has no effect for plan.", file=sys.stderr)
 
     try:
+        if args.window_start_utc and args.window_start_local:
+            raise ValueError("Provide either --start-utc or --start-local, not both")
+        if args.window_end_utc and args.window_end_local:
+            raise ValueError("Provide either --end-utc or --end-local, not both")
+
         window_start = _parse_datetime_arg(args.window_start_utc)
         window_end = _parse_datetime_arg(args.window_end_utc)
+        if window_start is None:
+            window_start = _parse_datetime_local_arg(args.window_start_local)
+        if window_end is None:
+            window_end = _parse_datetime_local_arg(args.window_end_local)
+
         location = _parse_location_args(args)
         result = planner.plan(
             window_start_utc=window_start,
             window_end_utc=window_end,
             location=location,
             constraints=None,
+            mode=getattr(args, "mode", None),
         )
         if getattr(args, "json", False):
             import json
@@ -772,7 +797,7 @@ def run_plan(args) -> int:
             )
             print(json.dumps(payload, indent=2, default=str))
         else:
-            print(format_plan_json(result))
+            print(format_plan_text(result))
         return 0
     except ValueError as e:
         print(str(e), file=sys.stderr)

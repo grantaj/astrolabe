@@ -323,6 +323,9 @@ astrolabe plan [options]
 Options:
 - `--start-utc <iso>`    Window start (ISO-8601, accepts `Z`)
 - `--end-utc <iso>`      Window end (ISO-8601, accepts `Z`)
+- `--start-local <iso>`  Window start (local time ISO-8601)
+- `--end-local <iso>`    Window end (local time ISO-8601)
+- `--mode <visual|photo>` Planning mode (default: visual)
 - `--lat <deg>`          Observer latitude degrees
 - `--lon <deg>`          Observer longitude degrees
 - `--elev <m>`           Observer elevation meters
