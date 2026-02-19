@@ -18,7 +18,7 @@ from .types import (
     PlannerEntry,
     Target,
 )
-from .providers import get_catalog_providers
+from .providers import get_catalog_providers, list_solar_system_targets
 
 
 DEFAULT_WINDOW_HOURS = 3
@@ -67,10 +67,12 @@ class Planner:
             raise ValueError("Mode must be one of: visual, photo")
 
         targets = self._load_targets()
+        targets.extend(self._load_solar_system_targets(window_start, window_end))
         window_minutes = (window_end - window_start).total_seconds() / 60.0
 
         entries: list[PlannerEntry] = []
         showpiece_entries: list[PlannerEntry] = []
+        solar_entries: list[PlannerEntry] = []
         mid_time = window_start + (window_end - window_start) / 2
         sun_ra, sun_dec = sun_ra_dec_rad(mid_time)
         moon_ra, moon_dec = moon_ra_dec_rad(mid_time)
@@ -198,8 +200,10 @@ class Planner:
         for entry in all_entries:
             if _is_showpiece_entry(entry) and _is_showpiece_worthy(entry, constraints):
                 showpiece_entries.append(entry)
+            if _is_solar_entry(entry) and _is_solar_worthy(entry, constraints):
+                solar_entries.append(entry)
 
-        sections = _build_sections(entries, showpiece_entries, constraints)
+        sections = _build_sections(entries, showpiece_entries, solar_entries)
 
         return PlannerResult(
             window_start_utc=window_start,
@@ -245,6 +249,13 @@ class Planner:
         for provider in self._providers:
             targets.extend(provider.list_targets())
         return targets
+
+    def _load_solar_system_targets(
+        self,
+        window_start: datetime.datetime,
+        window_end: datetime.datetime,
+    ) -> list[Target]:
+        return list_solar_system_targets(window_start, window_end)
 
 
 def _compute_target_features(
@@ -361,7 +372,7 @@ def _build_notes(
 def _build_sections(
     entries: list[PlannerEntry],
     showpieces: list[PlannerEntry],
-    constraints: PlannerConstraints,
+    solar_entries: list[PlannerEntry],
 ) -> list[PlannerSection]:
     sections: dict[str, list[PlannerEntry]] = {}
     for entry in entries:
@@ -373,8 +384,12 @@ def _build_sections(
 
     sections["Showpieces"] = _limit_showpieces(sections.get("Showpieces", []))
 
+    if solar_entries:
+        sections["Solar System"] = _merge_unique(solar_entries, sections.get("Solar System", []))
+        sections["Solar System"] = _limit_solar(sections.get("Solar System", []))
+
     ordered = []
-    for name in ("Showpieces", "Recommended", "Clusters", "Deep Sky", "Other"):
+    for name in ("Showpieces", "Solar System", "Recommended", "Clusters", "Deep Sky", "Other"):
         if name in sections:
             ordered.append(PlannerSection(name=name, entries=sections[name]))
     for name, items in sections.items():
@@ -385,6 +400,8 @@ def _build_sections(
 
 def _section_for_entry(entry: PlannerEntry) -> str:
     tags = {t.lower() for t in entry.tags}
+    if "solar_system" in tags:
+        return "Solar System"
     if "showpiece" in tags or "southern_showpiece" in tags:
         return "Showpieces"
     t = entry.target_type.lower()
@@ -408,7 +425,25 @@ def _is_showpiece_worthy(entry: PlannerEntry, constraints: PlannerConstraints) -
     return entry.score >= 60.0
 
 
+def _is_solar_entry(entry: PlannerEntry) -> bool:
+    tags = {t.lower() for t in entry.tags}
+    return "solar_system" in tags
+
+
+def _is_solar_worthy(entry: PlannerEntry, constraints: PlannerConstraints) -> bool:
+    if entry.peak_altitude_deg < constraints.min_altitude_deg:
+        return False
+    if entry.time_above_min_alt_min < constraints.min_duration_min:
+        return False
+    return entry.score >= 40.0
+
+
 def _limit_showpieces(entries: list[PlannerEntry]) -> list[PlannerEntry]:
+    entries = sorted(entries, key=lambda e: e.score, reverse=True)
+    return entries[:5]
+
+
+def _limit_solar(entries: list[PlannerEntry]) -> list[PlannerEntry]:
     entries = sorted(entries, key=lambda e: e.score, reverse=True)
     return entries[:5]
 

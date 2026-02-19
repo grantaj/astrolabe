@@ -40,6 +40,7 @@ def score_target(
     moon_illum_strict_threshold: float,
 ) -> tuple[float, dict[str, float]]:
     weights = _weights_for_mode(mode)
+    is_solar = target_type in ("planet", "moon", "sun")
     alt_score = _score_alt(max_alt_deg, min_alt_deg)
     dur_score = _score_duration(time_above_min_min, window_duration_min)
     moon_score = _score_moon(
@@ -49,10 +50,16 @@ def score_target(
         min_sep=moon_sep_min_deg,
         strict_sep=moon_sep_strict_deg,
         strict_threshold=moon_illum_strict_threshold,
+        is_solar=is_solar,
     )
-    size_score = _score_size(size_arcmin, mode)
-    mag_score = _score_mag(mag, mode)
-    type_bonus = _score_type_bonus(target_type, moon_illum)
+    if is_solar:
+        size_score = 1.0
+        mag_score = 1.0
+        type_bonus = 1.0
+    else:
+        size_score = _score_size(size_arcmin, mode)
+        mag_score = _score_mag(mag, mode)
+        type_bonus = _score_type_bonus(target_type, moon_illum)
     components = ScoreComponents(
         alt=alt_score,
         duration=dur_score,
@@ -113,7 +120,10 @@ def _score_moon(
     min_sep: float,
     strict_sep: float,
     strict_threshold: float,
+    is_solar: bool = False,
 ) -> float:
+    if is_solar:
+        return 1.0
     if moon_alt_deg < 0:
         return 1.0
     sep_low = min_sep
