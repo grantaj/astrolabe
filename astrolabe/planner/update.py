@@ -8,13 +8,13 @@ from urllib.request import urlopen
 
 from .types import Target
 
-DEFAULT_OPENNGC_VERSION = "v20231203"
+DEFAULT_OPENNGC_VERSION = "master"
 OPENNGC_BASE_URL = "https://raw.githubusercontent.com/mattiaverga/OpenNGC/{version}/"
 OPENNGC_REQUIRED = {
-    "NGC.csv": ("database_files/NGC.csv", "NGC.csv"),
+    "NGC.csv": ("database_files/NGC.csv",),
 }
 OPENNGC_OPTIONAL = {
-    "addendum.csv": ("database_files/addendum.csv", "addendum.csv"),
+    "addendum.csv": ("database_files/addendum.csv",),
 }
 
 
