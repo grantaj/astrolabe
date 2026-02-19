@@ -27,8 +27,8 @@ def update_catalog(source: str | None = None, version: str | None = None, output
     try:
         for item in sources:
             cached_files.append(_fetch_to_cache(item, cache_dir))
-    except HTTPError as e:
-        if source is None and version != "master" and e.code == 404:
+    except (HTTPError, FileNotFoundError) as e:
+        if source is None and version != "master" and _is_not_found(e):
             version = "master"
             cache_dir = _cache_dir(version)
             cache_dir.mkdir(parents=True, exist_ok=True)
@@ -227,6 +227,12 @@ def _cache_dir(version: str) -> Path:
 def _default_catalog_path() -> str:
     repo_root = Path(__file__).resolve().parents[2]
     return str(repo_root / "data" / "catalog_curated.csv")
+
+
+def _is_not_found(exc: Exception) -> bool:
+    if isinstance(exc, HTTPError):
+        return exc.code == 404
+    return isinstance(exc, FileNotFoundError)
 
 
 def _safe_get(row: list[str], idx: int) -> str | None:
