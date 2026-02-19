@@ -9,8 +9,12 @@ from urllib.request import urlopen
 from .types import Target
 
 DEFAULT_OPENNGC_VERSION = "v20231203"
-OPENNGC_FILES = ("database_files/NGC.csv", "database_files/IC.csv", "database_files/addendum.csv")
 OPENNGC_BASE_URL = "https://raw.githubusercontent.com/mattiaverga/OpenNGC/{version}/"
+OPENNGC_CANDIDATES = {
+    "NGC.csv": ("database_files/NGC.csv", "NGC.csv"),
+    "IC.csv": ("database_files/IC.csv", "IC.csv"),
+    "addendum.csv": ("database_files/addendum.csv", "addendum.csv"),
+}
 
 
 def update_catalog(source: str | None = None, version: str | None = None, output_path: str | None = None) -> dict:
@@ -57,21 +61,31 @@ def update_catalog(source: str | None = None, version: str | None = None, output
     return meta
 
 
-def _resolve_sources(source: str | None, version: str) -> list[str]:
+def _resolve_sources(source: str | None, version: str) -> list[tuple[str, ...] | str]:
     if not source:
-        return [OPENNGC_BASE_URL.format(version=version) + name for name in OPENNGC_FILES]
+        base = OPENNGC_BASE_URL.format(version=version)
+        return [tuple(base + path for path in paths) for paths in OPENNGC_CANDIDATES.values()]
     if source.lower().endswith(".csv"):
         return [source]
     if source.startswith("http://") or source.startswith("https://"):
         base = source.rstrip("/") + "/"
-        return [base + name for name in OPENNGC_FILES]
+        return [tuple(base + path for path in paths) for paths in OPENNGC_CANDIDATES.values()]
     path = Path(source)
     if path.is_dir():
-        return [str(path / name) for name in OPENNGC_FILES]
+        return [tuple(str(path / p) for p in paths) for paths in OPENNGC_CANDIDATES.values()]
     return [source]
 
 
-def _fetch_to_cache(source: str, cache_dir: Path) -> Path:
+def _fetch_to_cache(source: str | tuple[str, ...], cache_dir: Path) -> Path:
+    if isinstance(source, tuple):
+        errors = []
+        for candidate in source:
+            try:
+                return _fetch_to_cache(candidate, cache_dir)
+            except (HTTPError, FileNotFoundError) as e:
+                errors.append(f"{candidate} ({e})")
+        raise FileNotFoundError("No valid source found. Tried: " + "; ".join(errors))
+
     parsed = urlparse(source)
     if parsed.scheme in ("http", "https"):
         filename = Path(parsed.path).name
