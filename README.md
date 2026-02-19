@@ -37,6 +37,7 @@ Astrolabe aims to provide:
 - Closed-loop goto (plate-solve centering)
 - Polar alignment guidance
 - Guiding via pulse corrections
+- Target planning (planner; currently stubbed)
 
 ---
 
@@ -60,20 +61,23 @@ astrolabe capture --exposure 2.0
 # Plate solve a specific image
 astrolabe solve testdata/raw/sample1.fits
 
-# Connect to mount
-astrolabe mount connect
+# Mount status (stub)
+astrolabe mount status
 
-# Slew to coordinates
-astrolabe mount slew --ra 10:45:03 --dec -59:41:04
+# Slew to coordinates (stub)
+astrolabe mount slew --ra-deg 161.2625 --dec-deg -59.6844
 
-# Center target using closed-loop solve
-astrolabe goto "NGC 3372"
+# Center target using closed-loop solve (stub)
+astrolabe goto --ra-deg 161.2625 --dec-deg -59.6844
 
-# Run polar alignment routine
-astrolabe polar
+# Run polar alignment routine (stub)
+astrolabe polar --ra-rotation-deg 30
 
-# Start guiding
-astrolabe guide start
+# Start guiding (stub)
+astrolabe guide start --aggression 0.7 --min-move-arcsec 0.5
+
+# Plan observing targets (stub)
+astrolabe plan --json
 
 ## Development Setup (Ubuntu)
 

@@ -17,6 +17,7 @@ Astrolabe exists to provide:
 -   Closed-loop goto centering
 -   Clear polar alignment guidance
 -   Stable guiding
+-   A curated, observer-oriented target planner (post-MVP)
 
 It prioritizes correctness, composability, and scriptability over
 feature breadth.

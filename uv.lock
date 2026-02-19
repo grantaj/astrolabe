@@ -562,7 +562,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -1318,15 +1318,15 @@ wheels = [
 
 [[package]]
 name = "pytest-ty"
-version = "0.1.4"
+version = "0.1.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
     { name = "ty" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e7/3d/eaf9629f0be2c09a76cd6dd9de385f612da42f29b5f99bd561933936bc9c/pytest_ty-0.1.4.tar.gz", hash = "sha256:6d354e063a783ede306e46afbeca326714cf68ae2c1358a6c842ac14ef106a5e", size = 3310, upload-time = "2026-01-19T17:48:03.881Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/cd/999728819bb0253ea984694f70c4c346e2334f9cddd13732de51fb1207e1/pytest_ty-0.1.5.tar.gz", hash = "sha256:0e307fd945c07364d20da760490cfed512fd486865c4584bad0d7329a515041d", size = 3300, upload-time = "2026-02-18T17:07:10.046Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/49/e1/ac88a41c4a56ce443e323d6e55cb101d3b34193d2d6ba346a68f5638ee83/pytest_ty-0.1.4-py3-none-any.whl", hash = "sha256:67299b66c1d07c30d6ea171684f132840fcb2bd10bf856a459a262ecacc951ce", size = 4353, upload-time = "2026-01-19T17:48:04.976Z" },
+    { url = "https://files.pythonhosted.org/packages/35/70/96572581f3d459a604ef43c0a12d124ff7d9c5a899d85ef390aaeaee4dd0/pytest_ty-0.1.5-py3-none-any.whl", hash = "sha256:f6feae9c794b88c54a86453826a079e36c35ee90d12cc8d5a50f86024cd38af8", size = 4337, upload-time = "2026-02-18T17:07:08.805Z" },
 ]
 
 [[package]]
