@@ -3,6 +3,7 @@ import datetime
 import json
 from pathlib import Path
 from urllib.parse import urlparse
+from urllib.error import HTTPError
 from urllib.request import urlopen
 
 from .types import Target
@@ -19,8 +20,20 @@ def update_catalog(source: str | None = None, version: str | None = None, output
 
     sources = _resolve_sources(source, version)
     cached_files = []
-    for item in sources:
-        cached_files.append(_fetch_to_cache(item, cache_dir))
+    try:
+        for item in sources:
+            cached_files.append(_fetch_to_cache(item, cache_dir))
+    except HTTPError as e:
+        if source is None and version != "master" and e.code == 404:
+            version = "master"
+            cache_dir = _cache_dir(version)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            sources = _resolve_sources(source, version)
+            cached_files = []
+            for item in sources:
+                cached_files.append(_fetch_to_cache(item, cache_dir))
+        else:
+            raise
 
     targets = []
     for path in cached_files:
