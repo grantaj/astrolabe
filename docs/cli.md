@@ -333,7 +333,23 @@ Options:
 
 ---
 
-## 4.10 `view`
+## 4.10 `update`
+
+Update optional datasets.
+
+```
+astrolabe update catalog [options]
+```
+
+Options:
+- `--source <path|url>`   OpenNGC CSV file or base URL/path
+- `--version <tag>`       OpenNGC release tag or commit hash
+- `--output <path>`       Output curated catalog CSV
+- `--json`
+
+---
+
+## 4.11 `view`
 
 Display FITS header and optionally render the image for inspection.
 

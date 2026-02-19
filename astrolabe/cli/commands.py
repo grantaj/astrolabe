@@ -14,6 +14,7 @@ from astrolabe.mount import get_mount_backend
 from astrolabe.services import GotoService, PolarAlignService, GuidingService, AlignmentService
 from astrolabe.planner import Planner, ObserverLocation
 from astrolabe.planner.formatters import format_text as format_plan_text
+from astrolabe.planner.update import update_catalog
 from astrolabe.errors import NotImplementedFeature
 from astrolabe.solver.types import Image, SolveRequest
 from astrolabe.util.format import rad_to_hms, rad_to_dms, rad_to_deg
@@ -804,3 +805,50 @@ def run_plan(args) -> int:
         return 2
     except NotImplementedFeature as e:
         return _handle_not_implemented("plan", args, e)
+
+
+def run_update(args) -> int:
+    _init_logging(getattr(args, "log_level", None))
+    if args.dataset != "catalog":
+        print("Unknown update dataset.", file=sys.stderr)
+        return 2
+    if getattr(args, "dry_run", False):
+        print("--dry-run has no effect for update.", file=sys.stderr)
+
+    try:
+        result = update_catalog(
+            source=args.source,
+            version=args.version,
+            output_path=args.output,
+        )
+        if getattr(args, "json", False):
+            import json
+
+            payload = _json_envelope(
+                command="update.catalog",
+                ok=True,
+                data=result,
+                error=None,
+            )
+            print(json.dumps(payload, indent=2))
+        else:
+            print("Catalog update complete.")
+            print(f"Source: {result['source']}")
+            print(f"Cache: {result['cache_dir']}")
+            print(f"Output: {result['output_path']}")
+            print(f"Targets: {result['targets_written']}")
+        return 0
+    except Exception as e:
+        if getattr(args, "json", False):
+            import json
+
+            payload = _json_envelope(
+                command="update.catalog",
+                ok=False,
+                data=None,
+                error={"code": "update_failed", "message": str(e), "details": None},
+            )
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"Update failed: {e}", file=sys.stderr)
+        return 1
