@@ -18,26 +18,26 @@ def camera(tmp_path):
 
 
 def test_connect_sets_upload_options(camera):
-    with patch("astrolabe.camera.indi._run_indi") as mock_run, \
-         patch("astrolabe.camera.indi._wait_for_device"), \
-         patch("astrolabe.camera.indi._has_prop", return_value=True):
+    with patch("astrolabe.camera.indi.IndiClient.setprop") as mock_setprop, \
+         patch("astrolabe.camera.indi.IndiClient.wait_for_device"), \
+         patch("astrolabe.camera.indi.IndiClient.has_prop", return_value=True):
         camera.connect()
-        calls = [c.args[3][0] for c in mock_run.call_args_list]
-        assert any("UPLOAD_MODE.UPLOAD_LOCAL=On" in c for c in calls)
-        assert any("UPLOAD_SETTINGS.UPLOAD_DIR=" in c for c in calls)
-        assert any("UPLOAD_SETTINGS.UPLOAD_PREFIX=" in c for c in calls)
+        props = [c.args[0] for c in mock_setprop.call_args_list]
+        assert any("UPLOAD_MODE.UPLOAD_LOCAL" in prop for prop in props)
+        assert any("UPLOAD_SETTINGS.UPLOAD_DIR" in prop for prop in props)
+        assert any("UPLOAD_SETTINGS.UPLOAD_PREFIX" in prop for prop in props)
 
 
 def test_capture_sets_gain_bin_roi_and_exposure(camera, tmp_path):
     camera._gain_prop = "CCD_GAIN.GAIN"
-    camera._connected = True  # Prevents connect() and unpatched _has_prop
+    camera._connected = True  # Prevents connect() and client probing in connect()
     base_path = tmp_path / "astrolabe_capture_.fits"
     base_path.write_text("dummy")
 
-    with patch("astrolabe.camera.indi._getprop_value") as mock_getprop, \
-         patch("astrolabe.camera.indi._setprop") as mock_setprop, \
-         patch("astrolabe.camera.indi._wait_for_mtime_increase") as mock_wait, \
-         patch("astrolabe.camera.indi._wait_for_device"):
+    with patch("astrolabe.camera.indi.IndiClient.getprop_value") as mock_getprop, \
+         patch("astrolabe.camera.indi.IndiClient.setprop") as mock_setprop, \
+         patch("astrolabe.camera.indi.IndiClient.has_prop", return_value=True), \
+         patch("astrolabe.camera.indi._wait_for_mtime_increase") as mock_wait:
         mock_getprop.return_value = str(base_path)
         mock_wait.return_value = base_path.stat().st_mtime
 
@@ -52,7 +52,7 @@ def test_capture_sets_gain_bin_roi_and_exposure(camera, tmp_path):
         assert image.exposure_s == 2.5
         assert image.timestamp_utc.tzinfo is not None
 
-        calls = [(c.args[2], c.args[3]) for c in mock_setprop.call_args_list]
+        calls = [(c.args[0], c.args[1]) for c in mock_setprop.call_args_list]
         assert any(prop.endswith("CCD_GAIN.GAIN") and val == "10.0" for prop, val in calls) or any(
             prop.endswith("CCD_GAIN.VALUE") and val == "10.0" for prop, val in calls
         )
@@ -68,17 +68,17 @@ def test_capture_sets_gain_bin_roi_and_exposure(camera, tmp_path):
 def test_capture_uses_guider_exposure(camera, tmp_path):
     camera.use_guider_exposure = True
     camera._gain_prop = "CCD_GAIN.GAIN"
-    camera._connected = True  # Prevents connect() and unpatched _has_prop
+    camera._connected = True  # Prevents connect() and client probing in connect()
     base_path = tmp_path / "astrolabe_capture_.fits"
     base_path.write_text("dummy")
 
-    with patch("astrolabe.camera.indi._getprop_value") as mock_getprop, \
-         patch("astrolabe.camera.indi._setprop") as mock_setprop, \
-         patch("astrolabe.camera.indi._wait_for_mtime_increase") as mock_wait, \
-         patch("astrolabe.camera.indi._wait_for_device"):
+    with patch("astrolabe.camera.indi.IndiClient.getprop_value") as mock_getprop, \
+         patch("astrolabe.camera.indi.IndiClient.setprop") as mock_setprop, \
+         patch("astrolabe.camera.indi.IndiClient.has_prop", return_value=True), \
+         patch("astrolabe.camera.indi._wait_for_mtime_increase") as mock_wait:
         mock_getprop.return_value = str(base_path)
         mock_wait.return_value = base_path.stat().st_mtime
 
         camera.capture(exposure_s=1.0)
-        calls = [(c.args[2], c.args[3]) for c in mock_setprop.call_args_list]
+        calls = [(c.args[0], c.args[1]) for c in mock_setprop.call_args_list]
         assert any(prop.endswith("GUIDER_EXPOSURE.GUIDER_EXPOSURE_VALUE") and val == "1.0" for prop, val in calls)
