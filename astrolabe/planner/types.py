@@ -28,6 +28,8 @@ class Target:
     ra_deg: float
     dec_deg: float
     type: str
+    common_name: str | None = None
+    messier_id: str | None = None
     mag: float | None = None
     size_arcmin: float | None = None
     surface_brightness: float | None = None
@@ -41,6 +43,7 @@ class PlannerRequest:
     location: ObserverLocation
     constraints: PlannerConstraints
     mode: str = "visual"
+    limit: int = 10
 
 
 @dataclass
@@ -56,6 +59,9 @@ class PlannerEntry:
     difficulty: str
     score: float
     score_components: dict
+    common_name: str | None = None
+    messier_id: str | None = None
+    viewability: str | None = None
     notes: list[str] = field(default_factory=list)
     ra_deg: float | None = None
     dec_deg: float | None = None

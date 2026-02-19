@@ -785,6 +785,7 @@ def run_plan(args) -> int:
             location=location,
             constraints=None,
             mode=getattr(args, "mode", None),
+            limit=getattr(args, "limit", None),
         )
         if getattr(args, "json", False):
             import json

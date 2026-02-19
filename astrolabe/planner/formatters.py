@@ -34,10 +34,12 @@ def format_text(result: PlannerResult) -> str:
         lines.append("-" * len(section.name))
         for idx, entry in enumerate(section.entries, start=1):
             best_local = _to_local(entry.best_time_utc, local_tz)
+            display_name = _display_name(entry)
             notes = f" [{'; '.join(entry.notes)}]" if entry.notes else ""
             lines.append(
-                f"{idx:>2}. {entry.name} ({entry.target_type}) "
+                f"{idx:>2}. {display_name} ({entry.target_type}) "
                 f"score {entry.score:.1f} | "
+                f"view {entry.viewability or entry.difficulty} | "
                 f"best {best_local} | "
                 f"max alt {entry.peak_altitude_deg:.0f}° | "
                 f"moon {entry.moon_separation_deg:.0f}°{notes}"
@@ -51,3 +53,13 @@ def _to_local(dt: datetime.datetime, tz: datetime.tzinfo | None) -> str:
     if tz is None:
         tz = datetime.timezone.utc
     return dt.astimezone(tz).isoformat(timespec="minutes")
+
+
+def _display_name(entry) -> str:
+    if entry.common_name and entry.common_name.lower() != entry.name.lower():
+        if entry.messier_id:
+            return f"{entry.common_name} ({entry.messier_id})"
+        return f"{entry.common_name} ({entry.id})"
+    if entry.messier_id:
+        return f"{entry.messier_id} ({entry.id})"
+    return entry.name

@@ -42,6 +42,7 @@ class Planner:
         location: ObserverLocation | None = None,
         constraints: PlannerConstraints | None = None,
         mode: str | None = None,
+        limit: int | None = None,
     ) -> PlannerResult:
         request = self.default_request(self._config)
         window_start = window_start_utc or request.window_start_utc
@@ -59,6 +60,9 @@ class Planner:
 
         constraints = constraints or request.constraints
         mode = (mode or request.mode or "visual").lower()
+        limit = request.limit if limit is None else limit
+        if limit is not None and limit <= 0:
+            raise ValueError("Limit must be positive")
         if mode not in ("visual", "photo"):
             raise ValueError("Mode must be one of: visual, photo")
 
@@ -66,6 +70,7 @@ class Planner:
         window_minutes = (window_end - window_start).total_seconds() / 60.0
 
         entries: list[PlannerEntry] = []
+        showpiece_entries: list[PlannerEntry] = []
         mid_time = window_start + (window_end - window_start) / 2
         sun_ra, sun_dec = sun_ra_dec_rad(mid_time)
         moon_ra, moon_dec = moon_ra_dec_rad(mid_time)
@@ -148,10 +153,13 @@ class Planner:
             )
 
             difficulty = _difficulty_from_score(score)
+            viewability = _viewability_from_score(score)
             entries.append(
                 PlannerEntry(
                     id=target.id,
                     name=target.name,
+                    common_name=target.common_name,
+                    messier_id=target.messier_id,
                     target_type=target.type,
                     best_time_utc=features["best_time_utc"],
                     peak_altitude_deg=features["max_alt_deg"],
@@ -161,6 +169,7 @@ class Planner:
                     difficulty=difficulty,
                     score=score,
                     score_components=components,
+                    viewability=viewability,
                     notes=notes,
                     ra_deg=target.ra_deg,
                     dec_deg=target.dec_deg,
@@ -182,7 +191,15 @@ class Planner:
             )
 
         entries.sort(key=lambda e: e.score, reverse=True)
-        sections = _build_sections(entries)
+        all_entries = list(entries)
+        if limit is not None:
+            entries = entries[:limit]
+
+        for entry in all_entries:
+            if _is_showpiece_entry(entry) and _is_showpiece_worthy(entry, constraints):
+                showpiece_entries.append(entry)
+
+        sections = _build_sections(entries, showpiece_entries, constraints)
 
         return PlannerResult(
             window_start_utc=window_start,
@@ -220,6 +237,7 @@ class Planner:
             location=location,
             constraints=constraints,
             mode="visual",
+            limit=10,
         )
 
     def _load_targets(self) -> list[Target]:
@@ -340,11 +358,20 @@ def _build_notes(
     return notes[:2]
 
 
-def _build_sections(entries: list[PlannerEntry]) -> list[PlannerSection]:
+def _build_sections(
+    entries: list[PlannerEntry],
+    showpieces: list[PlannerEntry],
+    constraints: PlannerConstraints,
+) -> list[PlannerSection]:
     sections: dict[str, list[PlannerEntry]] = {}
     for entry in entries:
         name = _section_for_entry(entry)
         sections.setdefault(name, []).append(entry)
+
+    if showpieces:
+        sections["Showpieces"] = _merge_unique(showpieces, sections.get("Showpieces", []))
+
+    sections["Showpieces"] = _limit_showpieces(sections.get("Showpieces", []))
 
     ordered = []
     for name in ("Showpieces", "Recommended", "Clusters", "Deep Sky", "Other"):
@@ -366,3 +393,40 @@ def _section_for_entry(entry: PlannerEntry) -> str:
     if "nebula" in t or "galaxy" in t:
         return "Deep Sky"
     return "Recommended"
+
+
+def _is_showpiece_entry(entry: PlannerEntry) -> bool:
+    tags = {t.lower() for t in entry.tags}
+    return "showpiece" in tags or "southern_showpiece" in tags
+
+
+def _is_showpiece_worthy(entry: PlannerEntry, constraints: PlannerConstraints) -> bool:
+    if entry.peak_altitude_deg < constraints.min_altitude_deg + 5:
+        return False
+    if entry.time_above_min_alt_min < constraints.min_duration_min:
+        return False
+    return entry.score >= 60.0
+
+
+def _limit_showpieces(entries: list[PlannerEntry]) -> list[PlannerEntry]:
+    entries = sorted(entries, key=lambda e: e.score, reverse=True)
+    return entries[:5]
+
+
+def _merge_unique(primary: list[PlannerEntry], secondary: list[PlannerEntry]) -> list[PlannerEntry]:
+    seen = set()
+    combined: list[PlannerEntry] = []
+    for entry in primary + secondary:
+        if entry.id in seen:
+            continue
+        seen.add(entry.id)
+        combined.append(entry)
+    return combined
+
+
+def _viewability_from_score(score: float) -> str:
+    if score >= 75.0:
+        return "easy"
+    if score >= 55.0:
+        return "medium"
+    return "hard"

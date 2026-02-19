@@ -142,21 +142,29 @@ def _parse_opengnc_csv(path: Path) -> list[Target]:
             min_ax = _parse_float(_safe_get(row, 6))
             size_arcmin = _estimate_size_arcmin(maj_ax, min_ax)
 
-            vmag = _parse_float(_safe_get(row, 10))
-            bmag = _parse_float(_safe_get(row, 9))
+            # OpenNGC columns: B-Mag=8, V-Mag=9, SurfBr=13
+            bmag = _parse_float(_safe_get(row, 8))
+            vmag = _parse_float(_safe_get(row, 9))
             mag = vmag if vmag is not None else bmag
-            surf = _parse_float(_safe_get(row, 14))
+            surf = _parse_float(_safe_get(row, 13))
 
+            messier_id = _parse_messier_id(_safe_get(row, 23))
+            common_name = _parse_common_name(_safe_get(row, 28))
+            tags = _tags_from_name(name)
+            if messier_id:
+                tags.append("messier")
             target = Target(
                 id=_normalize_id(name),
                 name=name,
+                common_name=common_name,
+                messier_id=messier_id,
                 ra_deg=ra_deg,
                 dec_deg=dec_deg,
                 type=_map_type(obj_type),
                 mag=mag,
                 size_arcmin=size_arcmin,
                 surface_brightness=surf,
-                tags=_tags_from_name(name),
+                tags=tags,
             )
             targets.append(target)
     return targets
@@ -176,6 +184,8 @@ def _curate_targets(targets: list[Target]) -> list[Target]:
         tags = list(target.tags)
         if _is_southern_showpiece(target):
             tags.append("southern_showpiece")
+        if _is_messier_showpiece(target):
+            tags.append("showpiece")
         curated.append(
             Target(
                 id=target.id,
@@ -186,6 +196,8 @@ def _curate_targets(targets: list[Target]) -> list[Target]:
                 mag=target.mag,
                 size_arcmin=target.size_arcmin,
                 surface_brightness=target.surface_brightness,
+                common_name=target.common_name,
+                messier_id=target.messier_id,
                 tags=sorted(set(tags)),
             )
         )
@@ -199,6 +211,8 @@ def _write_curated_csv(targets: list[Target], path: Path) -> None:
             [
                 "id",
                 "name",
+                "common_name",
+                "messier_id",
                 "ra_deg",
                 "dec_deg",
                 "type",
@@ -211,11 +225,13 @@ def _write_curated_csv(targets: list[Target], path: Path) -> None:
         for t in targets:
             writer.writerow(
                 [
-                    t.id,
-                    t.name,
-                    f"{t.ra_deg:.6f}",
-                    f"{t.dec_deg:.6f}",
-                    t.type,
+                t.id,
+                t.name,
+                "" if t.common_name is None else t.common_name,
+                "" if t.messier_id is None else t.messier_id,
+                f"{t.ra_deg:.6f}",
+                f"{t.dec_deg:.6f}",
+                t.type,
                     "" if t.mag is None else f"{t.mag:.2f}",
                     "" if t.size_arcmin is None else f"{t.size_arcmin:.2f}",
                     "" if t.surface_brightness is None else f"{t.surface_brightness:.2f}",
@@ -318,6 +334,29 @@ def _tags_from_name(name: str) -> list[str]:
     return tags
 
 
+def _parse_common_name(value: str | None) -> str | None:
+    if not value:
+        return None
+    cleaned = value.replace("|", ",")
+    parts = [p.strip() for p in cleaned.split(",") if p.strip()]
+    if not parts:
+        return None
+    return parts[0]
+
+
+def _parse_messier_id(value: str | None) -> str | None:
+    if not value:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if value.isdigit():
+        return f"M{int(value)}"
+    if value.upper().startswith("M"):
+        return value.upper()
+    return None
+
+
 def _map_type(opengnc_type: str) -> str:
     t = opengnc_type.strip().upper()
     mapping = {
@@ -340,7 +379,15 @@ def _map_type(opengnc_type: str) -> str:
         "NONEX": "nonexistent",
         "DUP": "duplicate",
     }
-    return mapping.get(t, "other")
+    if t in mapping:
+        return mapping[t]
+    if "CL" in t and "N" in t:
+        return "emission_nebula"
+    if "HII" in t:
+        return "emission_nebula"
+    if "PN" in t:
+        return "planetary_nebula"
+    return "other"
 
 
 def _is_southern_showpiece(target: Target) -> bool:
@@ -349,5 +396,15 @@ def _is_southern_showpiece(target: Target) -> bool:
     if target.mag is not None and target.mag <= 6.5:
         return True
     if target.size_arcmin is not None and target.size_arcmin >= 20.0:
+        return True
+    return False
+
+
+def _is_messier_showpiece(target: Target) -> bool:
+    if target.messier_id is None:
+        return False
+    if target.mag is not None and target.mag <= 6.5:
+        return True
+    if target.size_arcmin is not None and target.size_arcmin >= 60.0:
         return True
     return False

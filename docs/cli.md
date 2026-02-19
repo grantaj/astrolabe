@@ -326,6 +326,7 @@ Options:
 - `--start-local <iso>`  Window start (local time ISO-8601)
 - `--end-local <iso>`    Window end (local time ISO-8601)
 - `--mode <visual|photo>` Planning mode (default: visual)
+- `--limit <n>`          Limit total number of targets
 - `--lat <deg>`          Observer latitude degrees
 - `--lon <deg>`          Observer longitude degrees
 - `--elev <m>`           Observer elevation meters
