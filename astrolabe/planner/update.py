@@ -10,9 +10,10 @@ from .types import Target
 
 DEFAULT_OPENNGC_VERSION = "v20231203"
 OPENNGC_BASE_URL = "https://raw.githubusercontent.com/mattiaverga/OpenNGC/{version}/"
-OPENNGC_CANDIDATES = {
+OPENNGC_REQUIRED = {
     "NGC.csv": ("database_files/NGC.csv", "NGC.csv"),
-    "IC.csv": ("database_files/IC.csv", "IC.csv"),
+}
+OPENNGC_OPTIONAL = {
     "addendum.csv": ("database_files/addendum.csv", "addendum.csv"),
 }
 
@@ -22,20 +23,14 @@ def update_catalog(source: str | None = None, version: str | None = None, output
     cache_dir = _cache_dir(version)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    sources = _resolve_sources(source, version)
-    cached_files = []
     try:
-        for item in sources:
-            cached_files.append(_fetch_to_cache(item, cache_dir))
+        cached_files = _fetch_all_sources(source, version, cache_dir)
     except (HTTPError, FileNotFoundError) as e:
         if source is None and version != "master" and _is_not_found(e):
             version = "master"
             cache_dir = _cache_dir(version)
             cache_dir.mkdir(parents=True, exist_ok=True)
-            sources = _resolve_sources(source, version)
-            cached_files = []
-            for item in sources:
-                cached_files.append(_fetch_to_cache(item, cache_dir))
+            cached_files = _fetch_all_sources(source, version, cache_dir)
         else:
             raise
 
@@ -61,18 +56,18 @@ def update_catalog(source: str | None = None, version: str | None = None, output
     return meta
 
 
-def _resolve_sources(source: str | None, version: str) -> list[tuple[str, ...] | str]:
+def _resolve_sources(source: str | None, version: str, candidates: dict[str, tuple[str, ...]]) -> list[tuple[str, ...] | str]:
     if not source:
         base = OPENNGC_BASE_URL.format(version=version)
-        return [tuple(base + path for path in paths) for paths in OPENNGC_CANDIDATES.values()]
+        return [tuple(base + path for path in paths) for paths in candidates.values()]
     if source.lower().endswith(".csv"):
         return [source]
     if source.startswith("http://") or source.startswith("https://"):
         base = source.rstrip("/") + "/"
-        return [tuple(base + path for path in paths) for paths in OPENNGC_CANDIDATES.values()]
+        return [tuple(base + path for path in paths) for paths in candidates.values()]
     path = Path(source)
     if path.is_dir():
-        return [tuple(str(path / p) for p in paths) for paths in OPENNGC_CANDIDATES.values()]
+        return [tuple(str(path / p) for p in paths) for paths in candidates.values()]
     return [source]
 
 
@@ -103,6 +98,21 @@ def _fetch_to_cache(source: str | tuple[str, ...], cache_dir: Path) -> Path:
     if path.resolve() != target.resolve():
         target.write_bytes(path.read_bytes())
     return target
+
+
+def _fetch_all_sources(source: str | None, version: str, cache_dir: Path) -> list[Path]:
+    cached_files: list[Path] = []
+    required_sources = _resolve_sources(source, version, OPENNGC_REQUIRED)
+    for item in required_sources:
+        cached_files.append(_fetch_to_cache(item, cache_dir))
+
+    optional_sources = _resolve_sources(source, version, OPENNGC_OPTIONAL)
+    for item in optional_sources:
+        try:
+            cached_files.append(_fetch_to_cache(item, cache_dir))
+        except (HTTPError, FileNotFoundError):
+            continue
+    return cached_files
 
 
 def _parse_opengnc_csv(path: Path) -> list[Target]:
