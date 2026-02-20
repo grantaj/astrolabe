@@ -3,29 +3,48 @@ name = "astrolabe"
 version = "0.0.1"
 description = "Minimal CLI telescope control tool"
 authors = [{name = "Astrolabe Contributors"}]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "matplotlib",
-    "tomli; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
-    # add other dev/test tools here
+    "pytest-ruff>=0.5",
+    "pytest-ty>=0.1.4",
+    "pre-commit>=3.6",
 ]
 tools = [
     "astropy",
+    "astroquery",
 ]
 
 [project.scripts]
 astrolabe = "astrolabe.cli.main:main"
 
 [tool.pytest.ini_options]
+addopts = "--ruff --ruff-format --ty"
 markers = [
     "integration: requires external tools or data",
 ]
 
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+ignore = ["F401", "F841"] # ignore unused imports/variables during development
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["astrolabe*"]

@@ -103,7 +103,7 @@ class IndiClient:
                 return
             time.sleep(0.2)
 
-        stderr = (last.stderr.strip() if last else "")
+        stderr = last.stderr.strip() if last else ""
         raise RuntimeError(
             f"Timed out waiting for INDI device '{device}' on {self.host}:{self.port}. stderr={stderr!r}"
         )

@@ -1,10 +1,8 @@
+import tomllib
 from pathlib import Path
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python < 3.11
-    import tomli as tomllib
 
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "astrolabe" / "config.toml"
+
 
 class Config:
     def __init__(self, data: dict):
@@ -17,7 +15,6 @@ class Config:
     @property
     def indi_port(self):
         return self._data.get("indi", {}).get("port", 7624)
-
 
     @property
     def solver_name(self):
@@ -90,6 +87,7 @@ class Config:
     @property
     def mount_site_elevation_m(self):
         return self._site_data().get("elevation_m", None)
+
 
 def load_config(path: Path | None = None) -> Config:
     explicit_path = path
