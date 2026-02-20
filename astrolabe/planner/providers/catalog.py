@@ -38,6 +38,8 @@ class LocalCuratedCatalogProvider(CatalogProvider):
                         type=row["type"].strip(),
                         mag=_parse_float(row.get("mag")),
                         size_arcmin=_parse_float(row.get("size_arcmin")),
+                        size_major_arcmin=_parse_float(row.get("size_major_arcmin")),
+                        size_minor_arcmin=_parse_float(row.get("size_minor_arcmin")),
                         surface_brightness=_parse_float(row.get("surface_brightness")),
                         tags=tags,
                     )

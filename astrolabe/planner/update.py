@@ -142,6 +142,8 @@ def _parse_opengnc_csv(path: Path) -> list[Target]:
             maj_ax = _parse_float(_safe_get(row, 5))
             min_ax = _parse_float(_safe_get(row, 6))
             size_arcmin = _estimate_size_arcmin(maj_ax, min_ax)
+            size_major_arcmin = maj_ax
+            size_minor_arcmin = min_ax
 
             # OpenNGC columns: B-Mag=8, V-Mag=9, SurfBr=13
             bmag = _parse_float(_safe_get(row, 8))
@@ -164,6 +166,8 @@ def _parse_opengnc_csv(path: Path) -> list[Target]:
                 type=_map_type(obj_type),
                 mag=mag,
                 size_arcmin=size_arcmin,
+                size_major_arcmin=size_major_arcmin,
+                size_minor_arcmin=size_minor_arcmin,
                 surface_brightness=surf,
                 tags=tags,
             )
@@ -200,6 +204,8 @@ def _curate_targets(targets: list[Target]) -> list[Target]:
                 type=target.type,
                 mag=target.mag,
                 size_arcmin=target.size_arcmin,
+                size_major_arcmin=target.size_major_arcmin,
+                size_minor_arcmin=target.size_minor_arcmin,
                 surface_brightness=target.surface_brightness,
                 common_name=target.common_name,
                 messier_id=target.messier_id,
@@ -225,6 +231,8 @@ def _write_curated_csv(targets: list[Target], path: Path) -> None:
                 "type",
                 "mag",
                 "size_arcmin",
+                "size_major_arcmin",
+                "size_minor_arcmin",
                 "surface_brightness",
                 "tags",
             ]
@@ -242,6 +250,8 @@ def _write_curated_csv(targets: list[Target], path: Path) -> None:
                 t.type,
                 "" if t.mag is None else f"{t.mag:.2f}",
                 "" if t.size_arcmin is None else f"{t.size_arcmin:.2f}",
+                "" if t.size_major_arcmin is None else f"{t.size_major_arcmin:.2f}",
+                "" if t.size_minor_arcmin is None else f"{t.size_minor_arcmin:.2f}",
                 "" if t.surface_brightness is None else f"{t.surface_brightness:.2f}",
                 ";".join(t.tags),
             ]

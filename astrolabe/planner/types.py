@@ -35,6 +35,8 @@ class Target:
     caldwell_id: str | None = None
     mag: float | None = None
     size_arcmin: float | None = None
+    size_major_arcmin: float | None = None
+    size_minor_arcmin: float | None = None
     surface_brightness: float | None = None
     tags: list[str] = field(default_factory=list)
 
@@ -71,6 +73,8 @@ class PlannerEntry:
     ra_deg: float | None = None
     dec_deg: float | None = None
     size_arcmin: float | None = None
+    size_major_arcmin: float | None = None
+    size_minor_arcmin: float | None = None
     mag: float | None = None
     surface_brightness: float | None = None
     tags: list[str] = field(default_factory=list)

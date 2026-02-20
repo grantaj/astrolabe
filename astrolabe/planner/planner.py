@@ -92,7 +92,6 @@ class Planner:
             window_end,
             location,
         )
-        sun_ra, sun_dec = sun_ra_dec_rad(mid_time)
 
         for target in targets:
             features = _compute_target_features(
@@ -123,37 +122,27 @@ class Planner:
                 rejection.sun_gate += 1
                 continue
 
-            moon_sep_deg = math.degrees(
-                angular_separation_rad(
-                    math.radians(target.ra_deg),
-                    math.radians(target.dec_deg),
-                    moon_ra,
-                    moon_dec,
-                )
-            )
-            sun_sep_deg = math.degrees(
-                angular_separation_rad(
-                    math.radians(target.ra_deg),
-                    math.radians(target.dec_deg),
-                    sun_ra,
-                    sun_dec,
-                )
-            )
+            best_time = features["best_time_utc"]
+            time_metrics = _time_metrics(target, best_time, location)
+            moon_sep_deg = time_metrics.moon_sep_deg
+            sun_sep_deg = time_metrics.sun_sep_deg
 
             score, components = score_target(
-                max_alt_deg=features["max_alt_deg"],
+                max_alt_deg=time_metrics.alt_deg,
                 min_alt_deg=constraints.min_altitude_deg,
                 time_above_min_min=features["time_above_min_alt_min"],
                 window_duration_min=window_minutes,
                 moon_sep_deg=moon_sep_deg,
-                moon_illum=moon_illum,
-                moon_alt_deg=moon_alt_deg,
-                moon_up_fraction=features["moon_up_fraction"],
-                sun_alt_min_deg=sun_alt_deg,
+                moon_illum=time_metrics.moon_illum,
+                moon_alt_deg=time_metrics.moon_alt_deg,
+                moon_up_fraction=1.0 if time_metrics.moon_alt_deg > 0 else 0.0,
+                sun_alt_deg=time_metrics.sun_alt_deg,
                 sun_sep_deg=sun_sep_deg,
                 target_type=target.type,
                 mag=target.mag,
                 size_arcmin=target.size_arcmin,
+                size_major_arcmin=target.size_major_arcmin,
+                size_minor_arcmin=target.size_minor_arcmin,
                 surface_brightness=target.surface_brightness,
                 mode=mode,
                 moon_sep_min_deg=constraints.moon_separation_min_deg,
@@ -166,13 +155,13 @@ class Planner:
 
             notes = _build_notes(
                 target=target,
-                max_alt_deg=features["max_alt_deg"],
+                max_alt_deg=time_metrics.alt_deg,
                 time_above_min_alt_min=features["time_above_min_alt_min"],
                 window_duration_min=window_minutes,
                 moon_sep_deg=moon_sep_deg,
-                moon_illum=moon_illum,
-                moon_alt_deg=moon_alt_deg,
-                sun_alt_min_deg=sun_alt_deg,
+                moon_illum=time_metrics.moon_illum,
+                moon_alt_deg=time_metrics.moon_alt_deg,
+                sun_alt_deg=time_metrics.sun_alt_deg,
                 sun_sep_deg=sun_sep_deg,
                 mode=mode,
                 min_alt_deg=constraints.min_altitude_deg,
@@ -202,6 +191,8 @@ class Planner:
                     ra_deg=target.ra_deg,
                     dec_deg=target.dec_deg,
                     size_arcmin=target.size_arcmin,
+                    size_major_arcmin=target.size_major_arcmin,
+                    size_minor_arcmin=target.size_minor_arcmin,
                     mag=target.mag,
                     surface_brightness=target.surface_brightness,
                     tags=target.tags,
@@ -297,31 +288,25 @@ def _compute_target_features(
     mode: str = "visual",
     aperture_mm: float | None = None,
 ) -> dict:
-    lat_rad = math.radians(location.latitude_deg)
-    samples = _sample_times(window_start, window_end, cadence_min=10)
-    altitudes: list[float] = []
-    for t in samples:
-        alt_rad, _ = ra_dec_to_alt_az(
-            math.radians(target.ra_deg),
-            math.radians(target.dec_deg),
-            lat_rad,
-            location.longitude_deg,
-            t,
-        )
-        altitudes.append(math.degrees(alt_rad))
-    time_above_min = _time_above_threshold(samples, altitudes, min_alt_deg)
-    max_alt = max(altitudes)
+    context = _window_context(
+        target,
+        window_start,
+        window_end,
+        location,
+        min_alt_deg,
+    )
+    window_minutes = (window_end - window_start).total_seconds() / 60.0
     best_time = _best_time_by_score(
         target,
-        samples,
+        context.samples,
+        context.altitudes,
         location,
         constraints,
-        time_above_min,
-        window_minutes=(window_end - window_start).total_seconds() / 60.0,
+        context.time_above_min,
+        window_minutes=window_minutes,
         mode=mode,
         aperture_mm=aperture_mm,
     )
-    moon_up_fraction = _moon_up_fraction(window_start, window_end, location)
     best_time_hint = None
     if include_hint:
         best_time_hint = _best_time_hint(
@@ -334,11 +319,12 @@ def _compute_target_features(
             aperture_mm=aperture_mm,
         )
     return {
-        "max_alt_deg": max_alt,
+        "max_alt_deg": context.max_alt,
         "best_time_utc": best_time,
         "best_time_hint_utc": best_time_hint,
-        "time_above_min_alt_min": time_above_min,
-        "moon_up_fraction": moon_up_fraction,
+        "time_above_min_alt_min": context.time_above_min,
+        "moon_up_fraction": context.moon_up_fraction,
+        "sun_alt_min_deg": context.sun_alt_min_deg,
     }
 
 
@@ -353,6 +339,124 @@ def _sample_times(
     steps = max(1, math.ceil(total_min / cadence_min))
     delta = (end - start) / steps
     return [start + delta * i for i in range(steps + 1)]
+
+
+class _WindowContext:
+    def __init__(
+        self,
+        *,
+        samples: list[datetime.datetime],
+        altitudes: list[float],
+        max_alt: float,
+        time_above_min: float,
+        moon_up_fraction: float,
+        sun_alt_min_deg: float,
+    ) -> None:
+        self.samples = samples
+        self.altitudes = altitudes
+        self.max_alt = max_alt
+        self.time_above_min = time_above_min
+        self.moon_up_fraction = moon_up_fraction
+        self.sun_alt_min_deg = sun_alt_min_deg
+
+
+class _TimeMetrics:
+    def __init__(
+        self,
+        *,
+        alt_deg: float,
+        sun_alt_deg: float,
+        sun_sep_deg: float,
+        moon_alt_deg: float,
+        moon_sep_deg: float,
+        moon_illum: float,
+    ) -> None:
+        self.alt_deg = alt_deg
+        self.sun_alt_deg = sun_alt_deg
+        self.sun_sep_deg = sun_sep_deg
+        self.moon_alt_deg = moon_alt_deg
+        self.moon_sep_deg = moon_sep_deg
+        self.moon_illum = moon_illum
+
+
+def _time_metrics(
+    target: Target,
+    t: datetime.datetime,
+    location: ObserverLocation,
+) -> _TimeMetrics:
+    lat_rad = math.radians(location.latitude_deg)
+    alt_rad, _ = ra_dec_to_alt_az(
+        math.radians(target.ra_deg),
+        math.radians(target.dec_deg),
+        lat_rad,
+        location.longitude_deg,
+        t,
+    )
+    alt_deg = math.degrees(alt_rad)
+    sun_ra, sun_dec = sun_ra_dec_rad(t)
+    sun_alt_rad, _ = ra_dec_to_alt_az(sun_ra, sun_dec, lat_rad, location.longitude_deg, t)
+    sun_alt_deg = math.degrees(sun_alt_rad)
+    sun_sep_deg = math.degrees(
+        angular_separation_rad(
+            math.radians(target.ra_deg),
+            math.radians(target.dec_deg),
+            sun_ra,
+            sun_dec,
+        )
+    )
+    moon_ra, moon_dec = moon_ra_dec_rad(t)
+    moon_alt_rad, _ = ra_dec_to_alt_az(moon_ra, moon_dec, lat_rad, location.longitude_deg, t)
+    moon_alt_deg = math.degrees(moon_alt_rad)
+    moon_sep_deg = math.degrees(
+        angular_separation_rad(
+            math.radians(target.ra_deg),
+            math.radians(target.dec_deg),
+            moon_ra,
+            moon_dec,
+        )
+    )
+    moon_illum = moon_illumination_fraction(t)
+    return _TimeMetrics(
+        alt_deg=alt_deg,
+        sun_alt_deg=sun_alt_deg,
+        sun_sep_deg=sun_sep_deg,
+        moon_alt_deg=moon_alt_deg,
+        moon_sep_deg=moon_sep_deg,
+        moon_illum=moon_illum,
+    )
+
+
+def _window_context(
+    target: Target,
+    window_start: datetime.datetime,
+    window_end: datetime.datetime,
+    location: ObserverLocation,
+    min_alt_deg: float,
+) -> _WindowContext:
+    lat_rad = math.radians(location.latitude_deg)
+    samples = _sample_times(window_start, window_end, cadence_min=10)
+    altitudes: list[float] = []
+    for t in samples:
+        alt_rad, _ = ra_dec_to_alt_az(
+            math.radians(target.ra_deg),
+            math.radians(target.dec_deg),
+            lat_rad,
+            location.longitude_deg,
+            t,
+        )
+        altitudes.append(math.degrees(alt_rad))
+    time_above_min = _time_above_threshold(samples, altitudes, min_alt_deg)
+    max_alt = max(altitudes) if altitudes else -90.0
+    moon_up_fraction = _moon_up_fraction(window_start, window_end, location)
+    sun_alt_min = _min_sun_alt_deg(window_start, window_end, location)
+    return _WindowContext(
+        samples=samples,
+        altitudes=altitudes,
+        max_alt=max_alt,
+        time_above_min=time_above_min,
+        moon_up_fraction=moon_up_fraction,
+        sun_alt_min_deg=sun_alt_min,
+    )
 
 
 def _time_above_threshold(
@@ -390,6 +494,7 @@ def _min_sun_alt_deg(
 def _best_time_by_score(
     target: Target,
     times: list[datetime.datetime],
+    altitudes: list[float],
     location: ObserverLocation,
     constraints: PlannerConstraints,
     time_above_min: float,
@@ -400,16 +505,10 @@ def _best_time_by_score(
     lat_rad = math.radians(location.latitude_deg)
     best_time = times[0]
     best_score = -1.0
-    for t in times:
-        alt_rad, _ = ra_dec_to_alt_az(
-            math.radians(target.ra_deg),
-            math.radians(target.dec_deg),
-            lat_rad,
-            location.longitude_deg,
-            t,
-        )
-        alt_deg = math.degrees(alt_rad)
+    for t, alt_deg in zip(times, altitudes):
         sun_ra, sun_dec = sun_ra_dec_rad(t)
+        sun_alt_rad, _ = ra_dec_to_alt_az(sun_ra, sun_dec, lat_rad, location.longitude_deg, t)
+        sun_alt_deg = math.degrees(sun_alt_rad)
         sun_sep_deg = math.degrees(
             angular_separation_rad(
                 math.radians(target.ra_deg),
@@ -418,9 +517,9 @@ def _best_time_by_score(
                 sun_dec,
             )
         )
-        sun_alt_rad, _ = ra_dec_to_alt_az(sun_ra, sun_dec, lat_rad, location.longitude_deg, t)
-        sun_alt_deg = math.degrees(sun_alt_rad)
         moon_ra, moon_dec = moon_ra_dec_rad(t)
+        moon_alt_rad, _ = ra_dec_to_alt_az(moon_ra, moon_dec, lat_rad, location.longitude_deg, t)
+        moon_alt_deg = math.degrees(moon_alt_rad)
         moon_sep_deg = math.degrees(
             angular_separation_rad(
                 math.radians(target.ra_deg),
@@ -429,11 +528,8 @@ def _best_time_by_score(
                 moon_dec,
             )
         )
-        moon_alt_rad, _ = ra_dec_to_alt_az(moon_ra, moon_dec, lat_rad, location.longitude_deg, t)
-        moon_alt_deg = math.degrees(moon_alt_rad)
         moon_illum = moon_illumination_fraction(t)
         moon_up_fraction = 1.0 if moon_alt_deg > 0 else 0.0
-
         score, _ = score_target(
             max_alt_deg=alt_deg,
             min_alt_deg=constraints.min_altitude_deg,
@@ -443,11 +539,13 @@ def _best_time_by_score(
             moon_illum=moon_illum,
             moon_alt_deg=moon_alt_deg,
             moon_up_fraction=moon_up_fraction,
-            sun_alt_min_deg=sun_alt_deg,
+            sun_alt_deg=sun_alt_deg,
             sun_sep_deg=sun_sep_deg,
             target_type=target.type,
             mag=target.mag,
             size_arcmin=target.size_arcmin,
+            size_major_arcmin=target.size_major_arcmin,
+            size_minor_arcmin=target.size_minor_arcmin,
             surface_brightness=target.surface_brightness,
             mode=mode,
             moon_sep_min_deg=constraints.moon_separation_min_deg,
@@ -506,7 +604,7 @@ def _best_time_hint(
         mode=mode,
         aperture_mm=aperture_mm,
     )
-    sun_alt_ext = _min_sun_alt_deg(extended_start, extended_end, location)
+    sun_alt_ext = features_ext["sun_alt_min_deg"]
     feasible = apply_feasibility_constraints(
         Feasibility(
             max_alt_deg=features_ext["max_alt_deg"],
@@ -521,50 +619,11 @@ def _best_time_hint(
     best_time = features_ext["best_time_utc"]
     if window_start <= best_time <= window_end:
         return None
-    if not _is_time_feasible(best_time, target, location, constraints):
-        return None
     if best_time < window_start and (window_start - best_time) <= datetime.timedelta(hours=1):
         return best_time
     if best_time > window_end and (best_time - window_end) <= datetime.timedelta(hours=1):
         return best_time
     return None
-
-
-def _is_time_feasible(
-    t: datetime.datetime,
-    target: Target,
-    location: ObserverLocation,
-    constraints: PlannerConstraints,
-) -> bool:
-    lat_rad = math.radians(location.latitude_deg)
-    alt_rad, _ = ra_dec_to_alt_az(
-        math.radians(target.ra_deg),
-        math.radians(target.dec_deg),
-        lat_rad,
-        location.longitude_deg,
-        t,
-    )
-    if math.degrees(alt_rad) < constraints.min_altitude_deg:
-        return False
-    sun_ra, sun_dec = sun_ra_dec_rad(t)
-    sun_alt_rad, _ = ra_dec_to_alt_az(sun_ra, sun_dec, lat_rad, location.longitude_deg, t)
-    if math.degrees(sun_alt_rad) > constraints.sun_altitude_max_deg:
-        return False
-    moon_ra, moon_dec = moon_ra_dec_rad(t)
-    moon_alt_rad, _ = ra_dec_to_alt_az(moon_ra, moon_dec, lat_rad, location.longitude_deg, t)
-    moon_alt_deg = math.degrees(moon_alt_rad)
-    if moon_alt_deg >= 0:
-        moon_sep_deg = math.degrees(
-            angular_separation_rad(
-                math.radians(target.ra_deg),
-                math.radians(target.dec_deg),
-                moon_ra,
-                moon_dec,
-            )
-        )
-        if moon_sep_deg < constraints.moon_separation_min_deg:
-            return False
-    return True
 
 
 class _RejectionStats:
@@ -644,7 +703,7 @@ def _build_notes(
     moon_sep_deg: float,
     moon_illum: float,
     moon_alt_deg: float,
-    sun_alt_min_deg: float,
+    sun_alt_deg: float,
     sun_sep_deg: float,
     mode: str,
     min_alt_deg: float,
@@ -680,7 +739,7 @@ def _build_notes(
         elif target.size_arcmin < pref_min * 0.5:
             notes.append("Small target; benefits from steady seeing")
 
-    if sun_alt_min_deg > -18.0 and sun_sep_deg < 90.0:
+    if sun_alt_deg > -18.0 and sun_sep_deg < 90.0:
         notes.append("Twilight glow")
 
     return notes[:2]
@@ -758,8 +817,8 @@ def _is_solar_worthy(entry: PlannerEntry, constraints: PlannerConstraints) -> bo
 
 
 def _limit_showpieces(entries: list[PlannerEntry]) -> list[PlannerEntry]:
-    entries = sorted(entries, key=lambda e: e.score, reverse=True)
-    return entries[:5]
+    filtered = [e for e in entries if e.viewability in (None, "easy", "medium")]
+    return sorted(filtered, key=lambda e: e.score, reverse=True)[:10]
 
 
 def _limit_solar(entries: list[PlannerEntry]) -> list[PlannerEntry]:
