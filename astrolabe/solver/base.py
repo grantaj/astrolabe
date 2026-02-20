@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from .types import SolveRequest, SolveResult
 
+
 class SolverBackend(ABC):
     @abstractmethod
     def solve(self, request: SolveRequest) -> SolveResult:

@@ -54,7 +54,7 @@ def format_angle(rad: float, style: str = "deg", precision: int = 2) -> str:
     if style == "deg":
         return f"{rad_to_deg(rad):.{precision}f}°"
     if style == "arcsec":
-        return f"{rad_to_arcsec(rad):.{precision}f}\""
+        return f'{rad_to_arcsec(rad):.{precision}f}"'
     if style == "hms":
         return rad_to_hms(rad, precision=precision)
     if style == "dms":
