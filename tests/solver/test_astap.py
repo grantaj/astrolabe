@@ -80,6 +80,7 @@ def test_astap_solve_placeholder(sample_image):
         request = SolveRequest(image=sample_image)
         result = backend.solve(request)
         assert result.success is True
+        assert result.message is not None
         assert result.message.startswith("ASTAP solve succeeded")
 
 
