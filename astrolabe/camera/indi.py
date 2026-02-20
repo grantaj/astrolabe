@@ -15,7 +15,9 @@ CCD_FILE_PATH_RETRY_COUNT = 10
 CCD_FILE_PATH_RETRY_SLEEP_S = 0.2
 
 
-def _wait_for_mtime_increase(path: Path, prev_mtime: Optional[float], timeout_s: float) -> float:
+def _wait_for_mtime_increase(
+    path: Path, prev_mtime: Optional[float], timeout_s: float
+) -> float:
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         if path.exists():
@@ -56,9 +58,15 @@ class IndiCameraBackend(CameraBackend):
             self._gain_prop = "CCD_GAIN.VALUE"
         if self.output_dir is not None:
             self.output_dir.mkdir(parents=True, exist_ok=True)
-            self._client.setprop(f"{self.device}.UPLOAD_MODE.UPLOAD_LOCAL", "On", soft=True)
-            self._client.setprop(f"{self.device}.UPLOAD_MODE.UPLOAD_CLIENT", "Off", soft=True)
-            self._client.setprop(f"{self.device}.UPLOAD_MODE.UPLOAD_BOTH", "Off", soft=True)
+            self._client.setprop(
+                f"{self.device}.UPLOAD_MODE.UPLOAD_LOCAL", "On", soft=True
+            )
+            self._client.setprop(
+                f"{self.device}.UPLOAD_MODE.UPLOAD_CLIENT", "Off", soft=True
+            )
+            self._client.setprop(
+                f"{self.device}.UPLOAD_MODE.UPLOAD_BOTH", "Off", soft=True
+            )
             self._client.setprop(
                 f"{self.device}.UPLOAD_SETTINGS.UPLOAD_DIR",
                 str(self.output_dir.resolve()),
@@ -97,11 +105,17 @@ class IndiCameraBackend(CameraBackend):
                 elif self._client.has_prop(f"{self.device}.CCD_GAIN.VALUE"):
                     self._gain_prop = "CCD_GAIN.VALUE"
             if self._gain_prop is not None:
-                self._client.setprop(f"{self.device}.{self._gain_prop}", str(gain), soft=True)
+                self._client.setprop(
+                    f"{self.device}.{self._gain_prop}", str(gain), soft=True
+                )
 
         if binning is not None:
-            self._client.setprop(f"{self.device}.CCD_BINNING.HOR_BIN", str(binning), soft=True)
-            self._client.setprop(f"{self.device}.CCD_BINNING.VERT_BIN", str(binning), soft=True)
+            self._client.setprop(
+                f"{self.device}.CCD_BINNING.HOR_BIN", str(binning), soft=True
+            )
+            self._client.setprop(
+                f"{self.device}.CCD_BINNING.VERT_BIN", str(binning), soft=True
+            )
 
         if roi is not None:
             x, y, w, h = roi
@@ -114,7 +128,9 @@ class IndiCameraBackend(CameraBackend):
         for _ in range(CCD_FILE_PATH_RETRY_COUNT):
             if self._client.has_prop(f"{self.device}.CCD_FILE_PATH.FILE_PATH"):
                 try:
-                    base_path_str = self._client.getprop_value(f"{self.device}.CCD_FILE_PATH.FILE_PATH")
+                    base_path_str = self._client.getprop_value(
+                        f"{self.device}.CCD_FILE_PATH.FILE_PATH"
+                    )
                 except subprocess.CalledProcessError:
                     base_path_str = ""
             else:
@@ -126,7 +142,9 @@ class IndiCameraBackend(CameraBackend):
             if self.output_dir is not None:
                 base_path = self.output_dir / f"{self.output_prefix}.fits"
             else:
-                raise RuntimeError("CCD_FILE_PATH is empty; camera may not support local file uploads.")
+                raise RuntimeError(
+                    "CCD_FILE_PATH is empty; camera may not support local file uploads."
+                )
         else:
             base_path = Path(base_path_str)
         if base_path.is_dir():
@@ -138,7 +156,9 @@ class IndiCameraBackend(CameraBackend):
             if self.use_guider_exposure
             else "CCD_EXPOSURE.CCD_EXPOSURE_VALUE"
         )
-        self._client.setprop(f"{self.device}.{exposure_prop}", f"{exposure_s}", soft=False)
+        self._client.setprop(
+            f"{self.device}.{exposure_prop}", f"{exposure_s}", soft=False
+        )
 
         timeout_s = max(DEFAULT_CAPTURE_TIMEOUT_S, exposure_s + 5.0)
         _wait_for_mtime_increase(base_path, prev_mtime, timeout_s=timeout_s)

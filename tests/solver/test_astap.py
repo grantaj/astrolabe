@@ -13,10 +13,12 @@ import math
 
 TEST_TIMEOUT_S = 1.0
 
+
 @pytest.fixture
 def sample_fits_path():
     # Path to a sample FITS file in testdata/raw/
     return "testdata/raw/sample1.fits"
+
 
 @pytest.fixture
 def sample_image(sample_fits_path):
@@ -26,8 +28,9 @@ def sample_image(sample_fits_path):
         height_px=1024,
         timestamp_utc=datetime.datetime.now(datetime.timezone.utc),
         exposure_s=2.0,
-        metadata={}
+        metadata={},
     )
+
 
 def test_astap_is_available_success():
     backend = AstapSolverBackend(binary="astap_cli")
@@ -37,6 +40,7 @@ def test_astap_is_available_success():
         assert result["ok"] is True
         assert "responds" in result["detail"]
 
+
 def test_astap_is_available_not_found():
     backend = AstapSolverBackend(binary="not_a_real_binary")
     with patch("subprocess.run", side_effect=FileNotFoundError):
@@ -44,8 +48,10 @@ def test_astap_is_available_not_found():
         assert result["ok"] is False
         assert "not found" in result["detail"]
 
+
 def test_astap_solve_placeholder(sample_image):
     backend = AstapSolverBackend(binary="astap_cli")
+
     def fake_exists(path):
         path_str = str(path)
         return path_str.endswith(".ini") or path_str.endswith(".wcs")
@@ -64,8 +70,10 @@ def test_astap_solve_placeholder(sample_image):
             return io.StringIO('Offset was 1.2"\n123 stars\n')
         raise FileNotFoundError(path)
 
-    with patch("subprocess.run") as mock_run, patch("os.path.exists", side_effect=fake_exists), patch(
-        "builtins.open", new=fake_open
+    with (
+        patch("subprocess.run") as mock_run,
+        patch("os.path.exists", side_effect=fake_exists),
+        patch("builtins.open", new=fake_open),
     ):
         mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = ""
@@ -101,8 +109,10 @@ def test_astap_hint_units():
             "CRVAL1=10\nCRVAL2=20\nCDELT1=0.0002777778\nCDELT2=0.0002777778\nCROTA1=0\n"
         )
 
-    with patch("subprocess.run") as mock_run, patch("os.path.exists", side_effect=fake_exists), patch(
-        "builtins.open", new=fake_open
+    with (
+        patch("subprocess.run") as mock_run,
+        patch("os.path.exists", side_effect=fake_exists),
+        patch("builtins.open", new=fake_open),
     ):
         mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = ""
@@ -114,6 +124,7 @@ def test_astap_hint_units():
         assert ra_value == pytest.approx(1.0, rel=0, abs=1e-9)
         assert spd_value == pytest.approx(90.0, rel=0, abs=1e-9)
         assert "-radius" in cmd
+
 
 @pytest.fixture(scope="session")
 def synthetic_fits_path(tmp_path_factory):
@@ -138,7 +149,9 @@ def synthetic_fits_path(tmp_path_factory):
         (work_dir / "hyg4.2").symlink_to(hyg_dir)
 
     script = repo_root / "scripts" / "gen_catalog_starfield.py"
-    result = subprocess.run([sys.executable, str(script)], cwd=work_dir, capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, str(script)], cwd=work_dir, capture_output=True, text=True
+    )
     if result.returncode != 0:
         pytest.skip(f"synthetic generator failed: {result.stderr.strip()}")
 
