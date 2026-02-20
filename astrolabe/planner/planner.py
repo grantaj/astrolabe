@@ -181,6 +181,7 @@ class Planner:
                     name=target.name,
                     common_name=target.common_name,
                     messier_id=target.messier_id,
+                    caldwell_id=target.caldwell_id,
                     target_type=target.type,
                     best_time_utc=features["best_time_utc"],
                     best_time_hint_utc=features["best_time_hint_utc"],

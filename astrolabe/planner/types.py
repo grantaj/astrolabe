@@ -30,6 +30,7 @@ class Target:
     type: str
     common_name: str | None = None
     messier_id: str | None = None
+    caldwell_id: str | None = None
     mag: float | None = None
     size_arcmin: float | None = None
     surface_brightness: float | None = None
@@ -62,6 +63,7 @@ class PlannerEntry:
     best_time_hint_utc: datetime.datetime | None = None
     common_name: str | None = None
     messier_id: str | None = None
+    caldwell_id: str | None = None
     viewability: str | None = None
     notes: list[str] = field(default_factory=list)
     ra_deg: float | None = None

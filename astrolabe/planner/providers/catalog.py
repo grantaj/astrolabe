@@ -32,6 +32,7 @@ class LocalCuratedCatalogProvider(CatalogProvider):
                         name=row["name"].strip(),
                         common_name=_parse_optional(row.get("common_name")),
                         messier_id=_parse_optional(row.get("messier_id")),
+                        caldwell_id=_parse_optional(row.get("caldwell_id")),
                         ra_deg=float(row["ra_deg"]),
                         dec_deg=float(row["dec_deg"]),
                         type=row["type"].strip(),

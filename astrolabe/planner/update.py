@@ -1,6 +1,7 @@
 import csv
 import datetime
 import json
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.error import HTTPError
@@ -171,6 +172,7 @@ def _parse_opengnc_csv(path: Path) -> list[Target]:
 
 
 def _curate_targets(targets: list[Target]) -> list[Target]:
+    caldwell_map = _load_caldwell_map()
     curated = []
     for target in targets:
         if target.type in ("duplicate", "nonexistent", "other"):
@@ -186,6 +188,9 @@ def _curate_targets(targets: list[Target]) -> list[Target]:
             tags.append("southern_showpiece")
         if _is_messier_showpiece(target):
             tags.append("showpiece")
+        caldwell_id = caldwell_map.get(_normalize_catalog_id(target.id))
+        if caldwell_id:
+            tags.append("caldwell")
         curated.append(
             Target(
                 id=target.id,
@@ -198,6 +203,7 @@ def _curate_targets(targets: list[Target]) -> list[Target]:
                 surface_brightness=target.surface_brightness,
                 common_name=target.common_name,
                 messier_id=target.messier_id,
+                caldwell_id=caldwell_id,
                 tags=sorted(set(tags)),
             )
         )
@@ -213,6 +219,7 @@ def _write_curated_csv(targets: list[Target], path: Path) -> None:
                 "name",
                 "common_name",
                 "messier_id",
+                "caldwell_id",
                 "ra_deg",
                 "dec_deg",
                 "type",
@@ -229,15 +236,16 @@ def _write_curated_csv(targets: list[Target], path: Path) -> None:
                 t.name,
                 "" if t.common_name is None else t.common_name,
                 "" if t.messier_id is None else t.messier_id,
+                "" if t.caldwell_id is None else t.caldwell_id,
                 f"{t.ra_deg:.6f}",
                 f"{t.dec_deg:.6f}",
                 t.type,
-                    "" if t.mag is None else f"{t.mag:.2f}",
-                    "" if t.size_arcmin is None else f"{t.size_arcmin:.2f}",
-                    "" if t.surface_brightness is None else f"{t.surface_brightness:.2f}",
-                    ";".join(t.tags),
-                ]
-            )
+                "" if t.mag is None else f"{t.mag:.2f}",
+                "" if t.size_arcmin is None else f"{t.size_arcmin:.2f}",
+                "" if t.surface_brightness is None else f"{t.surface_brightness:.2f}",
+                ";".join(t.tags),
+            ]
+        )
 
 
 def _write_metadata(meta: dict, path: Path) -> None:
@@ -255,6 +263,24 @@ def _default_catalog_path() -> str:
     return str(repo_root / "data" / "catalog_curated.csv")
 
 
+def _load_caldwell_map() -> dict[str, str]:
+    path = Path(__file__).resolve().parents[2] / "data" / "caldwell.csv"
+    if not path.exists():
+        return {}
+    mapping: dict[str, str] = {}
+    with open(path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            caldwell_id = row.get("caldwell_id")
+            object_id = row.get("object_id")
+            if not caldwell_id or not object_id:
+                continue
+            norm = _normalize_catalog_id(object_id)
+            if norm:
+                mapping[norm] = caldwell_id
+    return mapping
+
+
 def _is_not_found(exc: Exception) -> bool:
     if isinstance(exc, HTTPError):
         return exc.code == 404
@@ -265,6 +291,21 @@ def _safe_get(row: list[str], idx: int) -> str | None:
     if idx >= len(row):
         return None
     return row[idx].strip()
+
+
+def _normalize_catalog_id(value: str) -> str | None:
+    value = value.strip().upper()
+    if value.startswith("NGC"):
+        num = re.findall(r"\d+", value)
+        if not num:
+            return None
+        return f"NGC{int(num[0]):04d}"
+    if value.startswith("IC"):
+        num = re.findall(r"\d+", value)
+        if not num:
+            return None
+        return f"IC{int(num[0]):04d}"
+    return None
 
 
 def _parse_ra_to_deg(value: str) -> float | None:

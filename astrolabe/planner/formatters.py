@@ -36,7 +36,7 @@ def format_text(result: PlannerResult, verbose: bool = False) -> str:
         rows = []
         for idx, entry in enumerate(section.entries, start=1):
             best_local = _format_entry_time(entry.best_time_utc, local_tz, window_short)
-            display_name = _display_name(entry)
+            display_name = _display_name_verbose(entry) if verbose else _display_name(entry)
             view = entry.viewability or entry.difficulty
             note_parts = list(entry.notes) if entry.notes else []
             if entry.best_time_hint_utc:
@@ -143,10 +143,30 @@ def _display_name(entry) -> str:
     if entry.common_name and entry.common_name.lower() != entry.name.lower():
         if entry.messier_id:
             return f"{entry.common_name} ({entry.messier_id})"
+        if entry.caldwell_id:
+            return f"{entry.common_name} ({entry.caldwell_id})"
         return f"{entry.common_name} ({entry.id})"
     if entry.messier_id:
         return f"{entry.messier_id} ({entry.id})"
+    if entry.caldwell_id:
+        return f"{entry.caldwell_id} ({entry.id})"
     return entry.name
+
+
+def _display_name_verbose(entry) -> str:
+    ids = []
+    if entry.messier_id:
+        ids.append(entry.messier_id)
+    if entry.caldwell_id:
+        ids.append(entry.caldwell_id)
+    if entry.id:
+        ids.append(entry.id)
+    id_text = ", ".join(ids)
+    if entry.common_name and entry.common_name.lower() != entry.name.lower():
+        return f"{entry.common_name} ({id_text})"
+    if entry.name:
+        return f"{entry.name} ({id_text})" if id_text else entry.name
+    return id_text
 
 
 def _display_type(value: str) -> str:
