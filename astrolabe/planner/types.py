@@ -59,6 +59,7 @@ class PlannerEntry:
     difficulty: str
     score: float
     score_components: dict
+    best_time_hint_utc: datetime.datetime | None = None
     common_name: str | None = None
     messier_id: str | None = None
     viewability: str | None = None

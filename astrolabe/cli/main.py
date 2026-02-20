@@ -131,6 +131,7 @@ def main():
     plan_parser.add_argument("--end-local", dest="window_end_local", help="Window end (local time ISO-8601)")
     plan_parser.add_argument("--mode", choices=["visual", "photo"], help="Planning mode")
     plan_parser.add_argument("--limit", type=int, help="Limit total number of targets")
+    plan_parser.add_argument("--verbose", action="store_true", help="Include detailed numeric output")
     plan_parser.add_argument("--lat", dest="latitude_deg", type=float, help="Observer latitude degrees")
     plan_parser.add_argument("--lon", dest="longitude_deg", type=float, help="Observer longitude degrees")
     plan_parser.add_argument("--elev", dest="elevation_m", type=float, help="Observer elevation meters")

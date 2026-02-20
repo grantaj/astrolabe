@@ -799,7 +799,7 @@ def run_plan(args) -> int:
             )
             print(json.dumps(payload, indent=2, default=str))
         else:
-            print(format_plan_text(result))
+            print(format_plan_text(result, verbose=getattr(args, "verbose", False)))
         return 0
     except ValueError as e:
         print(str(e), file=sys.stderr)

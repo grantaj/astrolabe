@@ -31,6 +31,9 @@ def score_target(
     moon_sep_deg: float,
     moon_illum: float,
     moon_alt_deg: float,
+    moon_up_fraction: float,
+    sun_alt_min_deg: float,
+    sun_sep_deg: float,
     target_type: str,
     mag: float | None,
     size_arcmin: float | None,
@@ -47,10 +50,15 @@ def score_target(
         moon_sep_deg=moon_sep_deg,
         moon_illum=moon_illum,
         moon_alt_deg=moon_alt_deg,
+        moon_up_fraction=moon_up_fraction,
         min_sep=moon_sep_min_deg,
         strict_sep=moon_sep_strict_deg,
         strict_threshold=moon_illum_strict_threshold,
         is_solar=is_solar,
+    )
+    sun_glow = _score_sun_glow(
+        sun_alt_min_deg=sun_alt_min_deg,
+        sun_sep_deg=sun_sep_deg,
     )
     if is_solar:
         size_score = 1.0
@@ -68,7 +76,7 @@ def score_target(
         mag=mag_score,
         type_bonus=type_bonus,
     )
-    total = components.total(weights)
+    total = components.total(weights) * sun_glow
     score = max(0.0, min(1.0, total)) * 100.0
     return score, {
         "alt": alt_score,
@@ -77,6 +85,7 @@ def score_target(
         "size": size_score,
         "mag": mag_score,
         "type": type_bonus,
+        "sun_glow": sun_glow,
     }
 
 
@@ -117,6 +126,7 @@ def _score_moon(
     moon_sep_deg: float,
     moon_illum: float,
     moon_alt_deg: float,
+    moon_up_fraction: float,
     min_sep: float,
     strict_sep: float,
     strict_threshold: float,
@@ -126,15 +136,37 @@ def _score_moon(
         return 1.0
     if moon_alt_deg < 0:
         return 1.0
+    if moon_up_fraction <= 0:
+        return 1.0
     sep_low = min_sep
     sep_high = strict_sep if moon_illum >= strict_threshold else min_sep
     if sep_high <= sep_low:
-        return 1.0 if moon_sep_deg >= sep_low else 0.0
+        score = 1.0 if moon_sep_deg >= sep_low else 0.0
+        return _blend_moon_fraction(score, moon_up_fraction)
     if moon_sep_deg <= sep_low:
-        return 0.0
+        return _blend_moon_fraction(0.0, moon_up_fraction)
     if moon_sep_deg >= sep_high:
+        return _blend_moon_fraction(1.0, moon_up_fraction)
+    return _blend_moon_fraction(_clamp((moon_sep_deg - sep_low) / (sep_high - sep_low)), moon_up_fraction)
+
+
+def _blend_moon_fraction(score: float, moon_up_fraction: float) -> float:
+    return (score * moon_up_fraction) + (1.0 - moon_up_fraction)
+
+
+def _score_sun_glow(
+    sun_alt_min_deg: float,
+    sun_sep_deg: float,
+) -> float:
+    if sun_alt_min_deg <= -18.0:
         return 1.0
-    return _clamp((moon_sep_deg - sep_low) / (sep_high - sep_low))
+    if sun_alt_min_deg >= -12.0:
+        base = 0.2
+    else:
+        base = 1.0 - (sun_alt_min_deg + 18.0) / 6.0
+    sep_factor = _clamp(1.0 - (sun_sep_deg / 180.0))
+    penalty = base * sep_factor
+    return _clamp(1.0 - penalty)
 
 
 def _score_size(size_arcmin: float | None, mode: str) -> float:
