@@ -9,6 +9,8 @@ class ObserverLocation:
     longitude_deg: float
     elevation_m: float | None = None
     name: str | None = None
+    bortle: int | None = None
+    sqm: float | None = None
 
 
 @dataclass

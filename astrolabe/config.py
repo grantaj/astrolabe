@@ -91,6 +91,18 @@ class Config:
     def mount_site_elevation_m(self):
         return self._site_data().get("elevation_m", None)
 
+    @property
+    def mount_site_bortle(self):
+        return self._site_data().get("bortle", None)
+
+    @property
+    def mount_site_sqm(self):
+        return self._site_data().get("sqm", None)
+
+    @property
+    def planner_aperture_mm(self):
+        return self._data.get("planner", {}).get("aperture_mm", None)
+
 def load_config(path: Path | None = None) -> Config:
     explicit_path = path
     path = path or DEFAULT_CONFIG_PATH

@@ -37,10 +37,14 @@ def score_target(
     target_type: str,
     mag: float | None,
     size_arcmin: float | None,
+    surface_brightness: float | None = None,
     mode: str,
     moon_sep_min_deg: float,
     moon_sep_strict_deg: float,
     moon_illum_strict_threshold: float,
+    bortle: int | None = None,
+    sqm: float | None = None,
+    aperture_mm: float | None = None,
 ) -> tuple[float, dict[str, float]]:
     weights = _weights_for_mode(mode)
     is_solar = target_type in ("planet", "moon", "sun")
@@ -60,6 +64,16 @@ def score_target(
         sun_alt_min_deg=sun_alt_min_deg,
         sun_sep_deg=sun_sep_deg,
     )
+    sky = _score_visibility(
+        target_type=target_type,
+        mag=mag,
+        size_arcmin=size_arcmin,
+        surface_brightness=surface_brightness,
+        altitude_deg=max_alt_deg,
+        sqm=sqm,
+        bortle=bortle,
+        aperture_mm=aperture_mm,
+    )
     if is_solar:
         size_score = 1.0
         mag_score = 1.0
@@ -76,7 +90,7 @@ def score_target(
         mag=mag_score,
         type_bonus=type_bonus,
     )
-    total = components.total(weights) * sun_glow
+    total = components.total(weights) * sun_glow * sky
     score = max(0.0, min(1.0, total)) * 100.0
     return score, {
         "alt": alt_score,
@@ -86,6 +100,7 @@ def score_target(
         "mag": mag_score,
         "type": type_bonus,
         "sun_glow": sun_glow,
+        "visibility": sky,
     }
 
 
@@ -167,6 +182,126 @@ def _score_sun_glow(
     sep_factor = _clamp(1.0 - (sun_sep_deg / 180.0))
     penalty = base * sep_factor
     return _clamp(1.0 - penalty)
+
+
+def _score_visibility(
+    *,
+    target_type: str,
+    mag: float | None,
+    size_arcmin: float | None,
+    surface_brightness: float | None,
+    altitude_deg: float,
+    sqm: float | None,
+    bortle: int | None,
+    aperture_mm: float | None,
+) -> float:
+    if target_type in ("planet", "moon", "sun"):
+        return 1.0
+    sqm_val = _sqm_from_inputs(sqm, bortle)
+    if sqm_val is None:
+        return 1.0
+    mu_sky = _sky_brightness_eff(sqm_val, altitude_deg)
+
+    if _is_point_like(target_type, size_arcmin):
+        if mag is None:
+            return 1.0
+        lm = _limiting_magnitude(sqm_val, aperture_mm)
+        margin = lm - mag
+        return _score_limiting_mag(margin)
+
+    mu_obj = surface_brightness
+    if mu_obj is None:
+        if mag is None or size_arcmin is None:
+            return 1.0
+        beta = 1.5 if _is_nebula_type(target_type) else 2.5
+        mu_obj = _estimate_surface_brightness(mag, size_arcmin, size_arcmin, beta=beta)
+    mu_obj = _apply_structure_boost(mu_obj, target_type)
+    delta = mu_obj - mu_sky
+    return _score_contrast(delta)
+
+
+def _sqm_from_inputs(sqm: float | None, bortle: int | None) -> float | None:
+    if sqm is not None:
+        return sqm
+    if bortle is None:
+        return None
+    # Approximate SQM from Bortle (rough mapping)
+    mapping = {
+        1: 21.9,
+        2: 21.7,
+        3: 21.3,
+        4: 20.8,
+        5: 20.3,
+        6: 19.6,
+        7: 18.9,
+        8: 18.3,
+        9: 17.8,
+    }
+    return mapping.get(max(1, min(9, bortle)), 20.3)
+
+
+def _sky_brightness_eff(sqm: float, altitude_deg: float) -> float:
+    alt = max(5.0, min(90.0, altitude_deg))
+    x = 1.0 / math.sin(math.radians(alt))
+    c = 0.8
+    return sqm - c * (x - 1.0)
+
+
+def _estimate_surface_brightness(mag: float, a_arcmin: float, b_arcmin: float, beta: float = 2.5) -> float:
+    a_sec = a_arcmin * 60.0
+    b_sec = b_arcmin * 60.0
+    area = math.pi * (a_sec / 2.0) * (b_sec / 2.0)
+    if area <= 0:
+        return mag
+    return mag + beta * math.log10(area)
+
+
+def _score_contrast(delta_mu: float) -> float:
+    if delta_mu <= 0:
+        return 1.0
+    alpha = 1.2
+    return math.exp(-alpha * delta_mu)
+
+
+def _limiting_magnitude(sqm: float, aperture_mm: float | None) -> float:
+    nelm = sqm - 14.0
+    if aperture_mm is None:
+        aperture_mm = 80.0
+    lm = nelm + 5.0 * math.log10(aperture_mm) - 5.0
+    return lm
+
+
+def _score_limiting_mag(margin: float) -> float:
+    if margin >= 0:
+        return 1.0
+    return math.exp(margin)
+
+
+def _is_point_like(target_type: str, size_arcmin: float | None) -> bool:
+    t = target_type.lower()
+    if "star" in t or "double" in t:
+        return True
+    if "open" in t and "cluster" in t:
+        return True
+    if "planetary" in t and (size_arcmin is not None and size_arcmin < 2.0):
+        return True
+    if size_arcmin is not None and size_arcmin < 2.0:
+        return True
+    return False
+
+
+def _apply_structure_boost(mu_mean: float, target_type: str) -> float:
+    t = target_type.lower()
+    if "emission" in t or "reflection" in t or "nebula" in t:
+        return mu_mean - 1.0
+    if "globular" in t:
+        return mu_mean - 1.0
+    return mu_mean
+
+
+def _is_nebula_type(target_type: str) -> bool:
+    t = target_type.lower()
+    return "nebula" in t
 
 
 def _score_size(size_arcmin: float | None, mode: str) -> float:

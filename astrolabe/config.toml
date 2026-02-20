@@ -25,6 +25,14 @@ backend = "indi"
 device = "Telescope Simulator"
 
 [mount.site]
-latitude_deg = -34.93
-longitude_deg = 138.60
+# Crafers West
+latitude_deg = -34.9921
+longitude_deg = 138.68268
 elevation_m = 50
+# Optional 
+bortle = 5
+sqm = 20.33
+
+[planner]
+# Optional telescope aperture (mm) used for visibility scoring
+aperture_mm = 203

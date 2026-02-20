@@ -103,6 +103,7 @@ class Planner:
                 constraints.min_altitude_deg,
                 constraints,
                 mode=mode,
+                aperture_mm=self._config.planner_aperture_mm,
             )
             if features["max_alt_deg"] < constraints.min_altitude_deg:
                 rejection.below_min_alt += 1
@@ -153,10 +154,14 @@ class Planner:
                 target_type=target.type,
                 mag=target.mag,
                 size_arcmin=target.size_arcmin,
+                surface_brightness=target.surface_brightness,
                 mode=mode,
                 moon_sep_min_deg=constraints.moon_separation_min_deg,
                 moon_sep_strict_deg=constraints.moon_separation_strict_deg,
                 moon_illum_strict_threshold=constraints.moon_illumination_strict_threshold,
+                bortle=location.bortle,
+                sqm=location.sqm,
+                aperture_mm=self._config.planner_aperture_mm,
             )
 
             notes = _build_notes(
@@ -245,6 +250,8 @@ class Planner:
             latitude_deg=config.mount_site_latitude_deg,
             longitude_deg=config.mount_site_longitude_deg,
             elevation_m=config.mount_site_elevation_m,
+            bortle=config.mount_site_bortle,
+            sqm=config.mount_site_sqm,
         )
 
         constraints = PlannerConstraints(
@@ -288,6 +295,7 @@ def _compute_target_features(
     constraints: PlannerConstraints,
     include_hint: bool = True,
     mode: str = "visual",
+    aperture_mm: float | None = None,
 ) -> dict:
     lat_rad = math.radians(location.latitude_deg)
     samples = _sample_times(window_start, window_end, cadence_min=10)
@@ -311,6 +319,7 @@ def _compute_target_features(
         time_above_min,
         window_minutes=(window_end - window_start).total_seconds() / 60.0,
         mode=mode,
+        aperture_mm=aperture_mm,
     )
     moon_up_fraction = _moon_up_fraction(window_start, window_end, location)
     best_time_hint = None
@@ -322,6 +331,7 @@ def _compute_target_features(
             location,
             constraints,
             mode=mode,
+            aperture_mm=aperture_mm,
         )
     return {
         "max_alt_deg": max_alt,
@@ -385,6 +395,7 @@ def _best_time_by_score(
     time_above_min: float,
     window_minutes: float,
     mode: str,
+    aperture_mm: float | None,
 ) -> datetime.datetime:
     lat_rad = math.radians(location.latitude_deg)
     best_time = times[0]
@@ -437,10 +448,14 @@ def _best_time_by_score(
             target_type=target.type,
             mag=target.mag,
             size_arcmin=target.size_arcmin,
+            surface_brightness=target.surface_brightness,
             mode=mode,
             moon_sep_min_deg=constraints.moon_separation_min_deg,
             moon_sep_strict_deg=constraints.moon_separation_strict_deg,
             moon_illum_strict_threshold=constraints.moon_illumination_strict_threshold,
+            bortle=location.bortle,
+            sqm=location.sqm,
+            aperture_mm=aperture_mm,
         )
         if score > best_score:
             best_score = score
@@ -473,6 +488,7 @@ def _best_time_hint(
     location: ObserverLocation,
     constraints: PlannerConstraints,
     mode: str,
+    aperture_mm: float | None,
 ) -> datetime.datetime | None:
     # Re-run the same windowed feature evaluation on an extended window,
     # and suggest the best time only if it lies just outside the requested window.
@@ -488,6 +504,7 @@ def _best_time_hint(
         constraints,
         include_hint=False,
         mode=mode,
+        aperture_mm=aperture_mm,
     )
     sun_alt_ext = _min_sun_alt_deg(extended_start, extended_end, location)
     feasible = apply_feasibility_constraints(

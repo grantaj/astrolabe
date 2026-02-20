@@ -22,6 +22,13 @@ def format_text(result: PlannerResult, verbose: bool = False) -> str:
     lines.append(
         f"Location: lat {result.location.latitude_deg:.3f}°, lon {result.location.longitude_deg:.3f}°"
     )
+    if result.location.bortle is not None or result.location.sqm is not None:
+        parts = []
+        if result.location.bortle is not None:
+            parts.append(f"Bortle {result.location.bortle}")
+        if result.location.sqm is not None:
+            parts.append(f"SQM {result.location.sqm:.1f}")
+        lines.append("Sky: " + ", ".join(parts))
     if result.mode:
         lines.append(f"Mode: {result.mode}")
     if result.message:
