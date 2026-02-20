@@ -1,3 +1,4 @@
+# Caldwell object mapping (C# → NGC/IC) compiled from publicly available catalogs
 caldwell_id,object_id
 C1,NGC0188
 C2,NGC0040
