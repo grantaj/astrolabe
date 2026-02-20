@@ -34,6 +34,9 @@ markers = [
 target-version = "py310"
 line-length = 88
 
+[tool.ruff.lint]
+ignore = ["F401", "F841"] # ignore unused imports/variables during development
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
