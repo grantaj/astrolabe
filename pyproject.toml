@@ -6,7 +6,7 @@ authors = [{name = "Astrolabe Contributors"}]
 requires-python = ">=3.10"
 dependencies = [
     "matplotlib",
-    "tomli; python_version < '3.11'",
+    "tomli>=2.0.1; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
@@ -15,7 +15,6 @@ dev = [
     "pytest-ruff>=0.5",
     "pytest-ty>=0.1.4",
     "pre-commit>=3.6",
-    "tomli>=2.0.1",
 ]
 tools = [
     "astropy",
