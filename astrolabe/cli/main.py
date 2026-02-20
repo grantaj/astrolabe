@@ -37,7 +37,7 @@ def main():
 
     subparsers = parser.add_subparsers(dest="command")
 
-    doctor_parser = subparsers.add_parser("doctor", help="Run system diagnostics")
+    subparsers.add_parser("doctor", help="Run system diagnostics")
 
     solve_parser = subparsers.add_parser("solve", help="Plate solve a FITS image")
     solve_parser.add_argument("input_fits", nargs="?", help="Input FITS file path")
@@ -68,15 +68,15 @@ def main():
     mount_parser = subparsers.add_parser("mount", help="Mount control and status")
     mount_subparsers = mount_parser.add_subparsers(dest="action", required=True)
 
-    mount_status = mount_subparsers.add_parser("status", help="Show mount status")
+    mount_subparsers.add_parser("status", help="Show mount status")
 
     mount_slew = mount_subparsers.add_parser("slew", help="Slew mount to coordinates")
     mount_slew.add_argument("--ra-deg", type=float, required=True, help="Right ascension in degrees")
     mount_slew.add_argument("--dec-deg", type=float, required=True, help="Declination in degrees")
 
-    mount_park = mount_subparsers.add_parser("park", help="Park the mount")
+    mount_subparsers.add_parser("park", help="Park the mount")
 
-    mount_stop = mount_subparsers.add_parser("stop", help="Stop mount motion")
+    mount_subparsers.add_parser("stop", help="Stop mount motion")
 
     goto_parser = subparsers.add_parser("goto", help="Closed-loop goto centering")
     goto_parser.add_argument("--ra-deg", type=float, required=True, help="Target right ascension in degrees")
@@ -111,9 +111,9 @@ def main():
     guide_start.add_argument("--aggression", type=float, required=True, help="Aggression (0-1)")
     guide_start.add_argument("--min-move-arcsec", type=float, required=True, help="Minimum move arcsec")
 
-    guide_stop = guide_subparsers.add_parser("stop", help="Stop guiding")
+    guide_subparsers.add_parser("stop", help="Stop guiding")
 
-    guide_status = guide_subparsers.add_parser("status", help="Guiding status")
+    guide_subparsers.add_parser("status", help="Guiding status")
 
     plan_parser = subparsers.add_parser("plan", help="Plan observing targets")
     plan_parser.add_argument("--start-utc", dest="window_start_utc", help="Window start (ISO-8601)")

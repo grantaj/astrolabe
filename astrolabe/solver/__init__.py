@@ -1,5 +1,5 @@
 from .astap import AstapSolverBackend
-from .types import SolveRequest, SolveResult
+from .types import SolveRequest as SolveRequest, SolveResult as SolveResult
 from .base import SolverBackend
 
 def get_solver_backend(config) -> SolverBackend:
