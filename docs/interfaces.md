@@ -4,7 +4,7 @@ This document defines the logical interfaces between Astrolabe modules.
 
 These interfaces enforce architectural separation between:
 - Hardware backends (camera, solver, mount)
-- Core services (goto, polar, guiding)
+- Core services (pointing, target, polar, guiding)
 - CLI layer
 
 All conventions referenced here follow `docs/conventions.md`.
@@ -182,30 +182,88 @@ They contain math and policy but no hardware-specific code.
 
 ---
 
-## 3.1 GotoService
+## 3.1 PointingService
 
 Responsibilities:
 - Closed-loop centering
+- Pointing model updates (session + persistent)
+- Diagnostics and recovery workflows
 
-Interface:
+Interface (conceptual):
+
+where(
+    exposure_s: optional float
+) -> SolveResult
 
 center_target(
     target_ra_rad: float,
     target_dec_rad: float,
     tolerance_arcsec: float,
     max_iterations: int
-) -> GotoResult
+) -> PointingResult
 
-GotoResult (conceptual):
+calibrate(
+    target_count: int,
+    exposure_s: optional float,
+    max_attempts: optional int
+) -> PointingResult
 
+recover(
+    exposure_s: optional float
+) -> PointingResult
+
+status() -> PointingStatus
+
+diagnose() -> DiagnosticReport
+
+PointingResult (conceptual):
 - success: bool
-- final_error_arcsec: float
-- iterations: int
+- solves_attempted: int
+- solves_succeeded: int
+- final_error_arcsec: optional float
+- message: optional string
+- exit_reason: optional string
+
+PointingStatus (conceptual):
+- confidence: float (0–1)
+- model_state: str (e.g., "session", "persistent", "none")
+- active_warnings: list[str]
+- last_solve_quality: optional dict
+
+DiagnosticReport (conceptual):
+- findings: list[DiagnosticFinding]
+
+DiagnosticFinding (conceptual):
+- severity: str (INFO/WARN/ERROR)
+- label: str
+- evidence: dict
+- suggested_actions: list[str]
+- blocks_learning: bool
+- blocks_centering: bool
+
+---
+
+## 3.2 TargetResolverService
+
+Responsibilities:
+- Resolve object names to ICRS coordinates
+- Provide normalized target objects for services
+
+Interface (conceptual):
+
+resolve(
+    target: str
+) -> TargetResult
+
+TargetResult (conceptual):
+- success: bool
+- ra_rad: float
+- dec_rad: float
 - message: optional string
 
 ---
 
-## 3.2 PolarAlignService
+## 3.3 PolarAlignService
 
 Responsibilities:
 - Perform polar alignment routine
@@ -226,38 +284,6 @@ PolarResult:
 - message: optional string
 
 All corrections are relative mechanical adjustments.
-
----
-
-## 3.3 AlignmentService
-
-Responsibilities:
-- Plate-solve-based alignment and sync
-- Initial multi-point alignment modeling
-
-Interface:
-
-sync_current(
-    exposure_s: optional float
-) -> AlignmentResult
-
-solve_current(
-    exposure_s: optional float
-) -> SolveResult
-
-initial_alignment(
-    target_count: int,
-    exposure_s: optional float,
-    max_attempts: optional int
-) -> AlignmentResult
-
-AlignmentResult (conceptual):
-
-- success: bool
-- solves_attempted: int
-- solves_succeeded: int
-- rms_arcsec: optional float
-- message: optional string
 
 ---
 
