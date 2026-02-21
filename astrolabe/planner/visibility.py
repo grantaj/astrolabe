@@ -37,10 +37,11 @@ def score_visibility(
             maj_arcmin = size_major_arcmin
             min_arcmin = size_minor_arcmin
         elif size_minor_arcmin is not None:
-            maj_arcmin = (size_arcmin * 2.0) - size_minor_arcmin
-            if maj_arcmin <= 0:
-                maj_arcmin = max(size_arcmin, size_minor_arcmin)
-            min_arcmin = size_minor_arcmin
+            # Avoid assuming `size_arcmin` is the mean of major/minor axes.
+            # Use a conservative approach: treat the larger value as the major
+            # axis and the smaller as the minor axis.
+            maj_arcmin = max(size_arcmin, size_minor_arcmin)
+            min_arcmin = min(size_arcmin, size_minor_arcmin)
         else:
             maj_arcmin = size_arcmin
             min_arcmin = size_arcmin
