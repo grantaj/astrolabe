@@ -64,9 +64,9 @@ def ra_dec_to_alt_az(
 def sun_ra_dec_rad(dt: datetime.datetime) -> tuple[float, float]:
     jd = _to_julian_date(dt)
     n = jd - 2451545.0
-    l = math.radians((280.460 + 0.9856474 * n) % 360.0)
+    l_sun = math.radians((280.460 + 0.9856474 * n) % 360.0)
     g = math.radians((357.528 + 0.9856003 * n) % 360.0)
-    lam = l + math.radians(1.915) * math.sin(g) + math.radians(0.020) * math.sin(2 * g)
+    lam = l_sun + math.radians(1.915) * math.sin(g) + math.radians(0.020) * math.sin(2 * g)
     eps = math.radians(23.439 - 0.0000004 * n)
     ra = math.atan2(math.cos(eps) * math.sin(lam), math.cos(lam))
     dec = math.asin(math.sin(eps) * math.sin(lam))
@@ -76,10 +76,10 @@ def sun_ra_dec_rad(dt: datetime.datetime) -> tuple[float, float]:
 def moon_ra_dec_rad(dt: datetime.datetime) -> tuple[float, float]:
     jd = _to_julian_date(dt)
     n = jd - 2451545.0
-    l = math.radians((218.316 + 13.176396 * n) % 360.0)
+    l_moon = math.radians((218.316 + 13.176396 * n) % 360.0)
     m = math.radians((134.963 + 13.064993 * n) % 360.0)
     f = math.radians((93.272 + 13.229350 * n) % 360.0)
-    lam = l + math.radians(6.289) * math.sin(m)
+    lam = l_moon + math.radians(6.289) * math.sin(m)
     beta = math.radians(5.128) * math.sin(f)
     eps = math.radians(23.439 - 0.0000004 * n)
     sin_dec = math.sin(beta) * math.cos(eps) + math.cos(beta) * math.sin(eps) * math.sin(lam)

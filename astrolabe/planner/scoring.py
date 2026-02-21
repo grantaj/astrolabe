@@ -2,6 +2,7 @@ import math
 from dataclasses import dataclass
 
 from .visibility import score_visibility
+from astrolabe.errors import NotImplementedFeature
 
 
 @dataclass
