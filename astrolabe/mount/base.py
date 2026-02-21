@@ -47,5 +47,9 @@ class MountBackend(ABC):
         pass
 
     @abstractmethod
+    def set_tracking(self, enabled: bool) -> None:
+        pass
+
+    @abstractmethod
     def pulse_guide(self, ra_ms: float, dec_ms: float) -> None:
         pass

@@ -109,6 +109,22 @@ def run_doctor(args=None) -> int:
                 pass
         return {"ok": True, "detail": "connected"}
 
+    def check_mount():
+        try:
+            mount = get_mount_backend(config)
+        except Exception as e:
+            return {"ok": False, "detail": f"invalid mount config: {e}"}
+        try:
+            mount.connect()
+        except Exception as e:
+            return {"ok": False, "detail": f"connect failed: {e}"}
+        finally:
+            try:
+                mount.disconnect()
+            except Exception:
+                pass
+        return {"ok": True, "detail": "connected"}
+
     def check_config():
         try:
             load_config(_config_path_from_args(args))
@@ -121,7 +137,7 @@ def run_doctor(args=None) -> int:
         "indi_server": check_indi_server(),
         f"solver ({config.solver_name})": check_solver(),
         f"camera ({config.camera_backend})": check_camera(),
-        "mount_backend": {"ok": False, "detail": "not implemented"},
+        f"mount ({config.mount_backend})": check_mount(),
     }
 
     ok = all(c["ok"] for c in checks.values())
@@ -478,8 +494,14 @@ def run_mount(args) -> int:
                 print(f"Connected: {state.connected}")
                 print(f"Tracking: {state.tracking}")
                 print(f"Slewing: {state.slewing}")
-                print(f"RA (rad): {state.ra_rad}")
-                print(f"Dec (rad): {state.dec_rad}")
+                if state.ra_rad is not None:
+                    print(f"RA: {rad_to_hms(state.ra_rad)}")
+                else:
+                    print("RA: None")
+                if state.dec_rad is not None:
+                    print(f"Dec: {rad_to_dms(state.dec_rad)}")
+                else:
+                    print("Dec: None")
                 print(f"Timestamp: {state.timestamp_utc.isoformat()}")
             return 0
 
@@ -525,6 +547,23 @@ def run_mount(args) -> int:
                     error=None,
                 )
                 print(json.dumps(payload, indent=2))
+            return 0
+
+        if args.action == "track":
+            mount.set_tracking(args.tracking_enabled)
+            label = "enabled" if args.tracking_enabled else "disabled"
+            if getattr(args, "json", False):
+                import json
+
+                payload = _json_envelope(
+                    command="mount.track",
+                    ok=True,
+                    data={"tracking": args.tracking_enabled},
+                    error=None,
+                )
+                print(json.dumps(payload, indent=2))
+            else:
+                print(f"Tracking {label}.")
             return 0
 
         print("Unknown mount action.", file=sys.stderr)

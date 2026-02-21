@@ -93,6 +93,17 @@ def main():
         "--dec-deg", type=float, required=True, help="Declination in degrees"
     )
 
+    mount_track = mount_subparsers.add_parser(
+        "track", help="Enable or disable sidereal tracking"
+    )
+    mount_track_group = mount_track.add_mutually_exclusive_group(required=True)
+    mount_track_group.add_argument(
+        "--on", dest="tracking_enabled", action="store_true", help="Enable tracking"
+    )
+    mount_track_group.add_argument(
+        "--off", dest="tracking_enabled", action="store_false", help="Disable tracking"
+    )
+
     mount_park = mount_subparsers.add_parser("park", help="Park the mount")
 
     mount_stop = mount_subparsers.add_parser("stop", help="Stop mount motion")
