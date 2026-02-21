@@ -78,20 +78,8 @@ PLANET_INFO = {
 # computed from ephemerides rather than static constants.
 
 
-def _days_since_j2000(dt: datetime.datetime) -> float:
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=datetime.timezone.utc)
-    dt = dt.astimezone(datetime.timezone.utc)
-    year = dt.year
-    month = dt.month
-    day = dt.day + (dt.hour + (dt.minute + dt.second / 60.0) / 60.0) / 24.0
-    if month <= 2:
-        year -= 1
-        month += 12
-    a = math.floor(year / 100)
-    b = 2 - a + math.floor(a / 4)
-    jd = math.floor(365.25 * (year + 4716)) + math.floor(30.6001 * (month + 1)) + day + b - 1524.5
-    return jd - 2451545.0
+# The days-since-J2000 calculation is provided by `days_since_j2000`
+# in `astrolabe/planner/astro.py` to avoid duplication.
 
 
 def _planet_ra_dec(planet: str, d: float, earth_xyz: tuple[float, float, float]) -> tuple[float | None, float | None]:

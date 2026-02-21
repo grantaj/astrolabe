@@ -209,6 +209,13 @@ class Planner:
                 message=_build_no_target_message(rejection, constraints, sun_alt_deg, window_start, window_end, location),
             )
 
+        # Note: The `limit` value applies only to the main ranked `entries`
+        # list. Showpiece and solar entries are gathered from `all_entries`
+        # (the full ranked list) and may add targets back into the final
+        # `sections` output. This is intentional (Option A): the `limit`
+        # constrains the primary ranked list while allowing curated
+        # supplemental sections (showpieces/solar) to include additional
+        # entries.
         entries.sort(key=lambda e: e.score, reverse=True)
         all_entries = list(entries)
         if limit is not None:
