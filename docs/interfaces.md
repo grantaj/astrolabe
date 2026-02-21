@@ -170,7 +170,9 @@ Notes:
 - Backend performs ICRS → apparent conversion internally.
 - Backend may require site latitude/longitude/elevation for frame conversion.
 - set_tracking controls mount sidereal tracking: enabled=True starts tracking, enabled=False stops.
-- Auto-connect: set_tracking will connect the mount if not already connected.
+- Auto-connect: All state-reading and state-modifying operations (get_state, slew_to, sync,
+  set_tracking, park, pulse_guide) connect the mount if not already connected. stop() and
+  disconnect() never auto-connect.
 - pulse_guide uses milliseconds duration convention.
 - Positive RA pulse increases RA tracking rate temporarily.
 - Positive DEC pulse increases declination.
