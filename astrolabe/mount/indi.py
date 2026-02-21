@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import math
 import time
 
 from astrolabe.indi.client import IndiClient
+from astrolabe.errors import BackendError
 from .base import MountBackend, MountState
+
+logger = logging.getLogger(__name__)
 
 try:
     from astropy.coordinates import SkyCoord, FK5
@@ -151,7 +155,9 @@ class IndiMountBackend(MountBackend):
                 prop_state = self._client.getprop_state(f"{coord_prop}.RA")
                 slewing = prop_state.lower() == _INDI_BUSY.lower()
             except Exception:
-                pass
+                logger.debug(
+                    "Failed to read slew state for %s", coord_prop, exc_info=True
+                )
 
         return MountState(
             connected=True,
@@ -206,6 +212,10 @@ class IndiMountBackend(MountBackend):
                 str(_rad_to_degrees(dec_rad)),
                 soft=False,
             )
+        else:
+            raise BackendError(
+                f"Mount device '{self.device}' has no supported coordinate property"
+            )
 
     def sync(self, ra_rad: float, dec_rad: float) -> None:
         if not self._connected:
@@ -249,6 +259,10 @@ class IndiMountBackend(MountBackend):
                 f"{self.device}.EQUATORIAL_COORD.DEC",
                 str(_rad_to_degrees(dec_rad)),
                 soft=False,
+            )
+        else:
+            raise BackendError(
+                f"Mount device '{self.device}' has no supported coordinate property"
             )
 
     def stop(self) -> None:
