@@ -6,6 +6,7 @@ from .types import (
     PlannerResult,
     PlannerSection,
     PlannerEntry,
+    Target,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "PlannerResult",
     "PlannerSection",
     "PlannerEntry",
+    "Target",
 ]

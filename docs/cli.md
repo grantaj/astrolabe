@@ -323,6 +323,11 @@ astrolabe plan [options]
 Options:
 - `--start-utc <iso>`    Window start (ISO-8601, accepts `Z`)
 - `--end-utc <iso>`      Window end (ISO-8601, accepts `Z`)
+- `--start-local <iso>`  Window start (local time ISO-8601)
+- `--end-local <iso>`    Window end (local time ISO-8601)
+- `--mode <visual|photo>` Planning mode (default: visual)
+- `--limit <n>`          Limit total number of targets
+- `--verbose`            Include detailed numeric output
 - `--lat <deg>`          Observer latitude degrees
 - `--lon <deg>`          Observer longitude degrees
 - `--elev <m>`           Observer elevation meters
@@ -330,7 +335,23 @@ Options:
 
 ---
 
-## 4.10 `view`
+## 4.10 `update`
+
+Update optional datasets.
+
+```
+astrolabe update catalog [options]
+```
+
+Options:
+- `--source <path|url>`   OpenNGC CSV file or base URL/path
+- `--version <tag>`       OpenNGC release tag or commit hash
+- `--output <path>`       Output curated catalog CSV
+- `--json`
+
+---
+
+## 4.11 `view`
 
 Display FITS header and optionally render the image for inspection.
 

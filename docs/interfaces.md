@@ -326,6 +326,7 @@ PlannerResult (conceptual):
 
 PlannerEntry (conceptual):
 
+- id: str
 - name: str
 - target_type: str
 - best_time_utc: datetime
@@ -333,6 +334,9 @@ PlannerEntry (conceptual):
 - time_above_min_alt_min: float
 - moon_separation_deg: float
 - moon_illumination: float
+- score: float (0–100)
+- score_components: dict (normalized factors)
+- notes: list[str]
 - difficulty: str (easy / medium / hard)
 
 ---

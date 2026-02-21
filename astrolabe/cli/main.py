@@ -12,6 +12,7 @@ from astrolabe.cli.commands import (
     run_polar,
     run_guide,
     run_plan,
+    run_update,
 )
 
 
@@ -155,12 +156,37 @@ def main():
 
     guide_status = guide_subparsers.add_parser("status", help="Guiding status")
 
+    update_parser = subparsers.add_parser("update", help="Update optional datasets")
+    update_subparsers = update_parser.add_subparsers(dest="dataset", required=True)
+
+    update_catalog = update_subparsers.add_parser(
+        "catalog", help="Update curated catalog from OpenNGC"
+    )
+    update_catalog.add_argument("--source", help="OpenNGC CSV file or base URL/path")
+    update_catalog.add_argument("--version", help="OpenNGC release tag or commit hash")
+    update_catalog.add_argument("--output", help="Output path for curated catalog CSV")
+
     plan_parser = subparsers.add_parser("plan", help="Plan observing targets")
     plan_parser.add_argument(
         "--start-utc", dest="window_start_utc", help="Window start (ISO-8601)"
     )
     plan_parser.add_argument(
         "--end-utc", dest="window_end_utc", help="Window end (ISO-8601)"
+    )
+    plan_parser.add_argument(
+        "--start-local",
+        dest="window_start_local",
+        help="Window start (local time ISO-8601)",
+    )
+    plan_parser.add_argument(
+        "--end-local", dest="window_end_local", help="Window end (local time ISO-8601)"
+    )
+    plan_parser.add_argument(
+        "--mode", choices=["visual", "photo"], help="Planning mode"
+    )
+    plan_parser.add_argument("--limit", type=int, help="Limit total number of targets")
+    plan_parser.add_argument(
+        "--verbose", action="store_true", help="Include detailed numeric output"
     )
     plan_parser.add_argument(
         "--lat", dest="latitude_deg", type=float, help="Observer latitude degrees"
@@ -204,6 +230,9 @@ def main():
 
     if args.command == "guide":
         return run_guide(args)
+
+    if args.command == "update":
+        return run_update(args)
 
     if args.command == "plan":
         return run_plan(args)

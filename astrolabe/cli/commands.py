@@ -18,7 +18,8 @@ from astrolabe.services import (
     AlignmentService,
 )
 from astrolabe.planner import Planner, ObserverLocation
-from astrolabe.planner.formatters import format_json as format_plan_json
+from astrolabe.planner.formatters import format_text as format_plan_text
+from astrolabe.planner.update import update_catalog
 from astrolabe.errors import NotImplementedFeature
 from astrolabe.solver.types import Image, SolveRequest
 from astrolabe.util.format import rad_to_hms, rad_to_dms, rad_to_deg
@@ -271,6 +272,20 @@ def _parse_datetime_arg(value: str | None) -> datetime.datetime | None:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=datetime.timezone.utc)
     return dt
+
+
+def _parse_datetime_local_arg(value: str | None) -> datetime.datetime | None:
+    if not value:
+        return None
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    dt = datetime.datetime.fromisoformat(value)
+    if dt.tzinfo is None:
+        local_tz = datetime.datetime.now().astimezone().tzinfo
+        if local_tz is None:
+            local_tz = datetime.timezone.utc
+        dt = dt.replace(tzinfo=local_tz)
+    return dt.astimezone(datetime.timezone.utc)
 
 
 def _parse_location_args(args) -> ObserverLocation | None:
@@ -779,14 +794,26 @@ def run_plan(args) -> int:
         print("--dry-run has no effect for plan.", file=sys.stderr)
 
     try:
+        if args.window_start_utc and args.window_start_local:
+            raise ValueError("Provide either --start-utc or --start-local, not both")
+        if args.window_end_utc and args.window_end_local:
+            raise ValueError("Provide either --end-utc or --end-local, not both")
+
         window_start = _parse_datetime_arg(args.window_start_utc)
         window_end = _parse_datetime_arg(args.window_end_utc)
+        if window_start is None:
+            window_start = _parse_datetime_local_arg(args.window_start_local)
+        if window_end is None:
+            window_end = _parse_datetime_local_arg(args.window_end_local)
+
         location = _parse_location_args(args)
         result = planner.plan(
             window_start_utc=window_start,
             window_end_utc=window_end,
             location=location,
             constraints=None,
+            mode=getattr(args, "mode", None),
+            limit=getattr(args, "limit", None),
         )
         if getattr(args, "json", False):
             import json
@@ -800,10 +827,57 @@ def run_plan(args) -> int:
             )
             print(json.dumps(payload, indent=2, default=str))
         else:
-            print(format_plan_json(result))
+            print(format_plan_text(result, verbose=getattr(args, "verbose", False)))
         return 0
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 2
     except NotImplementedFeature as e:
         return _handle_not_implemented("plan", args, e)
+
+
+def run_update(args) -> int:
+    _init_logging(getattr(args, "log_level", None))
+    if args.dataset != "catalog":
+        print("Unknown update dataset.", file=sys.stderr)
+        return 2
+    if getattr(args, "dry_run", False):
+        print("--dry-run has no effect for update.", file=sys.stderr)
+
+    try:
+        result = update_catalog(
+            source=args.source,
+            version=args.version,
+            output_path=args.output,
+        )
+        if getattr(args, "json", False):
+            import json
+
+            payload = _json_envelope(
+                command="update.catalog",
+                ok=True,
+                data=result,
+                error=None,
+            )
+            print(json.dumps(payload, indent=2))
+        else:
+            print("Catalog update complete.")
+            print(f"Source: {result['source']}")
+            print(f"Cache: {result['cache_dir']}")
+            print(f"Output: {result['output_path']}")
+            print(f"Targets: {result['targets_written']}")
+        return 0
+    except Exception as e:
+        if getattr(args, "json", False):
+            import json
+
+            payload = _json_envelope(
+                command="update.catalog",
+                ok=False,
+                data=None,
+                error={"code": "update_failed", "message": str(e), "details": None},
+            )
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"Update failed: {e}", file=sys.stderr)
+        return 1
