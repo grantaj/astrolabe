@@ -158,6 +158,7 @@ get_state() -> MountState
 
 slew_to(ra_rad: float, dec_rad: float) -> None
 sync(ra_rad: float, dec_rad: float) -> None
+set_tracking(enabled: bool) -> None
 stop() -> None
 park() -> None
 
@@ -168,9 +169,15 @@ Notes:
 - slew_to and sync expect ICRS inputs.
 - Backend performs ICRS → apparent conversion internally.
 - Backend may require site latitude/longitude/elevation for frame conversion.
+- set_tracking controls mount sidereal tracking: enabled=True starts tracking, enabled=False stops.
+- Auto-connect: All state-reading and state-modifying operations (get_state, slew_to, sync,
+  set_tracking, park, pulse_guide) connect the mount if not already connected. stop() and
+  disconnect() never auto-connect.
 - pulse_guide uses milliseconds duration convention.
 - Positive RA pulse increases RA tracking rate temporarily.
 - Positive DEC pulse increases declination.
+- Slewing detection: Backend observes coordinate property state to detect active slews.
+  When slew is in progress, the coordinate property state becomes "Busy".
 
 ---
 
@@ -352,6 +359,7 @@ PlannerResult (conceptual):
 
 PlannerEntry (conceptual):
 
+- id: str
 - name: str
 - target_type: str
 - best_time_utc: datetime
@@ -359,6 +367,9 @@ PlannerEntry (conceptual):
 - time_above_min_alt_min: float
 - moon_separation_deg: float
 - moon_illumination: float
+- score: float (0–100)
+- score_components: dict (normalized factors)
+- notes: list[str]
 - difficulty: str (easy / medium / hard)
 
 ---

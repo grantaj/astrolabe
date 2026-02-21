@@ -1,21 +1,18 @@
 from .base import CatalogProvider
-from .messier import MessierProvider
-from .solar_system import SolarSystemProvider
-from .southern_highlights import SouthernHighlightsProvider
+from .catalog import LocalCuratedCatalogProvider
+from .solar_system import SolarSystemProvider, list_solar_system_targets
 
 
 def get_catalog_providers():
     return [
-        MessierProvider(),
-        SouthernHighlightsProvider(),
-        SolarSystemProvider(),
+        LocalCuratedCatalogProvider(),
     ]
 
 
 __all__ = [
     "CatalogProvider",
-    "MessierProvider",
-    "SouthernHighlightsProvider",
+    "LocalCuratedCatalogProvider",
     "SolarSystemProvider",
+    "list_solar_system_targets",
     "get_catalog_providers",
 ]
