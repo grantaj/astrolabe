@@ -1,9 +1,9 @@
-from unittest.mock import patch, MagicMock
-import datetime
+from unittest.mock import patch
 import math
 import pytest
 
-from astrolabe.mount.indi import IndiMountBackend
+from astrolabe.mount.indi import IndiMountBackend, _hours_to_rad, _degrees_to_rad
+from astrolabe.errors import BackendError
 from astrolabe.config import Config
 
 
@@ -119,6 +119,30 @@ def test_sync_jnow(mount):
         assert ("Telescope Simulator.EQUATORIAL_EOD_COORD.RA", str(6.0)) in calls
 
 
+def test_sync_j2000(mount):
+    mount._connected = True
+    with (
+        patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
+        patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
+    ):
+
+        def has_prop_mock(prop):
+            if "EQUATORIAL_COORD" in prop and "EOD" not in prop:
+                return True
+            if "ON_COORD_SET" in prop:
+                return True
+            return False
+
+        mock_has_prop.side_effect = has_prop_mock
+
+        mount.sync(math.pi / 2, math.pi / 4)
+
+        calls = [(c.args[0], c.args[1]) for c in mock_setprop.call_args_list]
+        assert ("Telescope Simulator.ON_COORD_SET.SYNC", "On") in calls
+        assert ("Telescope Simulator.EQUATORIAL_COORD.RA", str(6.0)) in calls
+        assert ("Telescope Simulator.EQUATORIAL_COORD.DEC", str(45.0)) in calls
+
+
 def test_get_state_jnow(mount):
     mount._connected = True
     with (
@@ -194,6 +218,49 @@ def test_get_state_detects_slewing(mount):
         assert state.slewing is True
         mock_getprop_state.assert_called_once_with(
             "Telescope Simulator.EQUATORIAL_EOD_COORD.RA"
+        )
+
+
+def test_get_state_j2000(mount):
+    mount._connected = True
+    with (
+        patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
+        patch("astrolabe.mount.indi.IndiClient.getprop_value") as mock_getprop,
+        patch("astrolabe.mount.indi.IndiClient.getprop_state") as mock_getprop_state,
+    ):
+
+        def has_prop_mock(prop):
+            if "EQUATORIAL_EOD_COORD" in prop:
+                return False
+            if "EQUATORIAL_COORD" in prop:
+                return True
+            if "TELESCOPE_TRACK_STATE.TRACK_ON" in prop:
+                return True
+            return False
+
+        mock_has_prop.side_effect = has_prop_mock
+
+        def getprop_mock(prop):
+            if "EQUATORIAL_COORD.RA" in prop:
+                return "1.0"
+            if "EQUATORIAL_COORD.DEC" in prop:
+                return "2.0"
+            if "TRACK_ON" in prop:
+                return "On"
+            return ""
+
+        mock_getprop.side_effect = getprop_mock
+        mock_getprop_state.return_value = "Ok"
+
+        state = mount.get_state()
+
+        assert state.connected is True
+        assert state.tracking is True
+        assert math.isclose(state.ra_rad, _hours_to_rad(1.0))
+        assert math.isclose(state.dec_rad, _degrees_to_rad(2.0))
+        assert state.slewing is False
+        mock_getprop_state.assert_called_once_with(
+            "Telescope Simulator.EQUATORIAL_COORD.RA"
         )
 
 
