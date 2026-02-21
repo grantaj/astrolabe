@@ -2,7 +2,7 @@ import datetime
 import math
 
 from .base import CatalogProvider
-from astrolabe.planner.astro import moon_ra_dec_rad, moon_illumination_fraction
+from astrolabe.planner.astro import moon_ra_dec_rad, moon_illumination_fraction, days_since_j2000
 from astrolabe.planner.types import Target
 
 
@@ -18,7 +18,7 @@ def list_solar_system_targets(
     window_end_utc: datetime.datetime,
 ) -> list[Target]:
     mid = window_start_utc + (window_end_utc - window_start_utc) / 2
-    d = _days_since_j2000(mid)
+    d = days_since_j2000(mid)
 
     earth = _planet_heliocentric("earth", d)
     ra_moon, dec_moon = moon_ra_dec_rad(mid)
@@ -33,7 +33,7 @@ def list_solar_system_targets(
         mag=-12.7,
         size_arcmin=30.0,
         surface_brightness=None,
-        tags=["solar_system", "showpiece", "moon", f"illum_{int(illum*100)}"],
+        tags=("solar_system", "showpiece", "moon", f"illum_{int(illum*100)}"),
     )
     targets = [moon]
     for planet in ("mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"):
@@ -55,7 +55,7 @@ def list_solar_system_targets(
                 mag=info["mag"],
                 size_arcmin=info["size_arcmin"],
                 surface_brightness=None,
-                tags=tags,
+                tags=tuple(tags),
             )
         )
 
@@ -71,6 +71,11 @@ PLANET_INFO = {
     "uranus": {"name": "Uranus", "mag": 5.7, "size_arcmin": 0.07},
     "neptune": {"name": "Neptune", "mag": 7.8, "size_arcmin": 0.05},
 }
+
+# NOTE: The `mag` and `size_arcmin` values above are approximate average
+# values for the planets. Apparent magnitudes and angular sizes vary with
+# distance and phase; if higher accuracy is required these should be
+# computed from ephemerides rather than static constants.
 
 
 def _days_since_j2000(dt: datetime.datetime) -> float:

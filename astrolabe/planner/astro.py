@@ -18,6 +18,14 @@ def _to_julian_date(dt: datetime.datetime) -> float:
     return jd
 
 
+def days_since_j2000(dt: datetime.datetime) -> float:
+    """Return days since J2000.0 for the given datetime (UTC-aware).
+
+    This is a convenience wrapper used by other planner modules.
+    """
+    return _to_julian_date(dt) - 2451545.0
+
+
 def _normalize_angle_rad(angle: float) -> float:
     return angle % (2.0 * math.pi)
 
