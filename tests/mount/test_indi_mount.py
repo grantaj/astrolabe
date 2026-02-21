@@ -143,6 +143,55 @@ def test_sync_j2000(mount):
         assert ("Telescope Simulator.EQUATORIAL_COORD.DEC", str(45.0)) in calls
 
 
+def test_slew_to_wraps_ra_j2000(mount):
+    mount._connected = True
+    with (
+        patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
+        patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
+    ):
+
+        def has_prop_mock(prop):
+            if "EQUATORIAL_COORD" in prop and "EOD" not in prop:
+                return True
+            if "ON_COORD_SET" in prop:
+                return True
+            return False
+
+        mock_has_prop.side_effect = has_prop_mock
+
+        mount.slew_to(-math.pi / 2, math.pi / 4)
+
+        calls = [(c.args[0], c.args[1]) for c in mock_setprop.call_args_list]
+        # -pi/2 wraps to 3pi/2 => 18h
+        assert ("Telescope Simulator.EQUATORIAL_COORD.RA", str(18.0)) in calls
+        assert ("Telescope Simulator.EQUATORIAL_COORD.DEC", str(45.0)) in calls
+
+
+def test_slew_to_wraps_ra_jnow(mount):
+    mount._connected = True
+    with (
+        patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
+        patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
+        patch("astrolabe.mount.indi.icrs_to_jnow") as mock_icrs,
+    ):
+
+        def has_prop_mock(prop):
+            if "EQUATORIAL_EOD_COORD" in prop:
+                return True
+            if "ON_COORD_SET" in prop:
+                return True
+            return False
+
+        mock_has_prop.side_effect = has_prop_mock
+        mock_icrs.return_value = (-math.pi / 2, math.pi / 4)  # -6h wraps to 18h
+
+        mount.slew_to(math.pi / 2, math.pi / 4)
+
+        calls = [(c.args[0], c.args[1]) for c in mock_setprop.call_args_list]
+        assert ("Telescope Simulator.EQUATORIAL_EOD_COORD.RA", str(18.0)) in calls
+        assert ("Telescope Simulator.EQUATORIAL_EOD_COORD.DEC", str(45.0)) in calls
+
+
 def test_get_state_jnow(mount):
     mount._connected = True
     with (

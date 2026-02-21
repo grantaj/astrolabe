@@ -81,6 +81,10 @@ def jnow_to_icrs(
 
 
 class IndiMountBackend(MountBackend):
+    """INDI mount backend.
+
+    Coordinates are expressed as ICRS in radians for the public interface.
+    """
     def __init__(self, config):
         self._config = config
         self.host = config.indi_host
@@ -172,6 +176,7 @@ class IndiMountBackend(MountBackend):
         if not self._connected:
             self.connect()
 
+        ra_rad = ra_rad % (2.0 * math.pi)
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         has_jnow = self._client.has_prop(f"{self.device}.EQUATORIAL_EOD_COORD.RA")
         has_j2000 = self._client.has_prop(f"{self.device}.EQUATORIAL_COORD.RA")
@@ -191,6 +196,7 @@ class IndiMountBackend(MountBackend):
 
         if has_jnow:
             ra_jnow, dec_jnow = icrs_to_jnow(ra_rad, dec_rad, now_utc)
+            ra_jnow = ra_jnow % (2.0 * math.pi)
             self._client.setprop(
                 f"{self.device}.EQUATORIAL_EOD_COORD.RA",
                 str(_rad_to_hours(ra_jnow)),
@@ -214,13 +220,15 @@ class IndiMountBackend(MountBackend):
             )
         else:
             raise BackendError(
-                f"Mount device '{self.device}' has no supported coordinate property"
+                f"Mount device '{self.device}' has no supported coordinate property "
+                "(EQUATORIAL_EOD_COORD or EQUATORIAL_COORD)."
             )
 
     def sync(self, ra_rad: float, dec_rad: float) -> None:
         if not self._connected:
             self.connect()
 
+        ra_rad = ra_rad % (2.0 * math.pi)
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         has_jnow = self._client.has_prop(f"{self.device}.EQUATORIAL_EOD_COORD.RA")
         has_j2000 = self._client.has_prop(f"{self.device}.EQUATORIAL_COORD.RA")
@@ -239,6 +247,7 @@ class IndiMountBackend(MountBackend):
 
         if has_jnow:
             ra_jnow, dec_jnow = icrs_to_jnow(ra_rad, dec_rad, now_utc)
+            ra_jnow = ra_jnow % (2.0 * math.pi)
             self._client.setprop(
                 f"{self.device}.EQUATORIAL_EOD_COORD.RA",
                 str(_rad_to_hours(ra_jnow)),
@@ -262,7 +271,8 @@ class IndiMountBackend(MountBackend):
             )
         else:
             raise BackendError(
-                f"Mount device '{self.device}' has no supported coordinate property"
+                f"Mount device '{self.device}' has no supported coordinate property "
+                "(EQUATORIAL_EOD_COORD or EQUATORIAL_COORD)."
             )
 
     def stop(self) -> None:
@@ -312,11 +322,14 @@ class IndiMountBackend(MountBackend):
                     soft=True,
                 )
             else:
-                self._client.setprop(
-                    f"{self.device}.TELESCOPE_TIMED_GUIDE_WE.TIMED_GUIDE_W",
-                    str(-ra_ms),
-                    soft=True,
-                )
+                if self._client.has_prop(
+                    f"{self.device}.TELESCOPE_TIMED_GUIDE_WE.TIMED_GUIDE_W"
+                ):
+                    self._client.setprop(
+                        f"{self.device}.TELESCOPE_TIMED_GUIDE_WE.TIMED_GUIDE_W",
+                        str(-ra_ms),
+                        soft=True,
+                    )
 
         if dec_ms != 0 and self._client.has_prop(
             f"{self.device}.TELESCOPE_TIMED_GUIDE_NS.TIMED_GUIDE_N"
@@ -328,8 +341,17 @@ class IndiMountBackend(MountBackend):
                     soft=True,
                 )
             else:
-                self._client.setprop(
-                    f"{self.device}.TELESCOPE_TIMED_GUIDE_NS.TIMED_GUIDE_S",
-                    str(-dec_ms),
-                    soft=True,
-                )
+                if self._client.has_prop(
+                    f"{self.device}.TELESCOPE_TIMED_GUIDE_NS.TIMED_GUIDE_S"
+                ):
+                    self._client.setprop(
+                        f"{self.device}.TELESCOPE_TIMED_GUIDE_NS.TIMED_GUIDE_S",
+                        str(-dec_ms),
+                        soft=True,
+                    )
+        else:
+            logger.warning(
+                "Mount device '%s' has no supported coordinate property "
+                "(EQUATORIAL_EOD_COORD or EQUATORIAL_COORD).",
+                self.device,
+            )
