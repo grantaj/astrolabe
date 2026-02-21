@@ -1,5 +1,6 @@
 import datetime
 import math
+from typing import TypedDict
 
 from .base import CatalogProvider
 from astrolabe.planner.astro import (
@@ -8,6 +9,12 @@ from astrolabe.planner.astro import (
     days_since_j2000,
 )
 from astrolabe.planner.types import Target
+
+
+class _PlanetInfo(TypedDict):
+    name: str
+    mag: float
+    size_arcmin: float
 
 
 class SolarSystemProvider(CatalogProvider):
@@ -76,7 +83,7 @@ def list_solar_system_targets(
     return targets
 
 
-PLANET_INFO = {
+PLANET_INFO: dict[str, _PlanetInfo] = {
     "mercury": {"name": "Mercury", "mag": -0.5, "size_arcmin": 0.20},
     "venus": {"name": "Venus", "mag": -4.0, "size_arcmin": 0.30},
     "mars": {"name": "Mars", "mag": -1.0, "size_arcmin": 0.15},

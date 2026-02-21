@@ -204,7 +204,8 @@ def _curate_targets(targets: list[Target]) -> list[Target]:
             tags.append("southern_showpiece")
         if _is_messier_showpiece(target):
             tags.append("showpiece")
-        caldwell_id = caldwell_map.get(_normalize_catalog_id(target.id))
+        normalized_id = _normalize_catalog_id(target.id)
+        caldwell_id = caldwell_map.get(normalized_id) if normalized_id else None
         if caldwell_id:
             tags.append("caldwell")
         curated.append(
