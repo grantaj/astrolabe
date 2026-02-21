@@ -85,6 +85,7 @@ class IndiMountBackend(MountBackend):
 
     Coordinates are expressed as ICRS in radians for the public interface.
     """
+
     def __init__(self, config):
         self._config = config
         self.host = config.indi_host
