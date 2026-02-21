@@ -4,8 +4,9 @@ import json
 import re
 from pathlib import Path
 from urllib.parse import urlparse
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
+import socket
 
 from .types import Target
 
@@ -37,7 +38,7 @@ def update_catalog(source: str | None = None, version: str | None = None, output
 
     targets = []
     for path in cached_files:
-        targets.extend(_parse_opengnc_csv(path))
+        targets.extend(_parse_openngc_csv(path))
 
     curated = _curate_targets(targets)
     output_path = output_path or _default_catalog_path()
@@ -88,8 +89,13 @@ def _fetch_to_cache(source: str | tuple[str, ...], cache_dir: Path) -> Path:
         if not filename:
             raise ValueError(f"Invalid source URL: {source}")
         target = cache_dir / filename
-        with urlopen(source) as resp:
-            data = resp.read()
+        # Set a timeout to avoid hanging indefinitely if the remote host is
+        # unresponsive. Surface network errors to the caller for handling.
+        try:
+            with urlopen(source, timeout=15) as resp:
+                data = resp.read()
+        except (URLError, socket.timeout) as e:
+            raise
         target.write_bytes(data)
         return target
     path = Path(source)
@@ -116,7 +122,7 @@ def _fetch_all_sources(source: str | None, version: str, cache_dir: Path) -> lis
     return cached_files
 
 
-def _parse_opengnc_csv(path: Path) -> list[Target]:
+def _parse_openngc_csv(path: Path) -> list[Target]:
     targets: list[Target] = []
     with open(path, "r", encoding="utf-8", errors="ignore") as f:
         sample = f.read(4096)
@@ -169,7 +175,7 @@ def _parse_opengnc_csv(path: Path) -> list[Target]:
                 size_major_arcmin=size_major_arcmin,
                 size_minor_arcmin=size_minor_arcmin,
                 surface_brightness=surf,
-                tags=tags,
+                tags=tuple(tags),
             )
             targets.append(target)
     return targets
@@ -210,7 +216,7 @@ def _curate_targets(targets: list[Target]) -> list[Target]:
                 common_name=target.common_name,
                 messier_id=target.messier_id,
                 caldwell_id=caldwell_id,
-                tags=sorted(set(tags)),
+                tags=tuple(sorted(set(tags))),
             )
         )
     return curated
