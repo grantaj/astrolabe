@@ -27,8 +27,8 @@ astrolabe/
   solver/        # plate solving backends + solve parsing
   mount/         # mount backends + mount boundary conversions
   services/
-    goto/        # closed-loop centering
-    alignment/   # solve-based sync + multi-point alignment
+    pointing/    # closed-loop centering + solve-based pointing model
+    target/      # target resolution (object name -> RA/Dec)
     polar/       # polar alignment routine + guidance
     guide/       # guiding loop + calibration + controller
   planner/       # target planning (catalogs + filters + scoring)
@@ -108,14 +108,19 @@ Non-responsibilities:
 ### 4.4 Services (`services/`)
 Services orchestrate backends to implement features.
 
-#### `services/goto/`
+#### `services/pointing/`
 - Closed-loop centering using:
   - mount slew
   - capture
   - solve
   - compute error
   - correction slew
-- Tolerance and max-iterations policy.
+- Pointing model updates (session + persistent) with confidence gates.
+- Diagnostics and recovery workflows.
+
+#### `services/target/`
+- Resolve object names to ICRS coordinates.
+- Provide normalized target objects for downstream services.
 
 #### `services/polar/`
 - Polar alignment routine using:
@@ -142,7 +147,7 @@ Services orchestrate backends to implement features.
 Camera.capture → Image → Solver.solve → SolveResult(ICRS)
 ```
 
-### 5.2 Closed-loop goto flow
+### 5.2 Closed-loop pointing flow
 ```
 Target(ICRS) → Mount.slew_to(target)
            → loop:
