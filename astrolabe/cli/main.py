@@ -14,6 +14,8 @@ from astrolabe.cli.commands import (
     run_plan,
     run_update,
 )
+
+
 def main():
     parser = argparse.ArgumentParser(prog="astrolabe")
     parser.add_argument("--version", action="store_true", help="Show version and exit")
@@ -42,7 +44,9 @@ def main():
 
     solve_parser = subparsers.add_parser("solve", help="Plate solve a FITS image")
     solve_parser.add_argument("input_fits", nargs="?", help="Input FITS file path")
-    solve_parser.add_argument("--in", dest="input_fits_opt", help="Input FITS file path")
+    solve_parser.add_argument(
+        "--in", dest="input_fits_opt", help="Input FITS file path"
+    )
     solve_parser.add_argument(
         "--search-radius-deg",
         type=float,
@@ -54,17 +58,27 @@ def main():
         help="Include solver output on failure",
     )
 
-    capture_parser = subparsers.add_parser("capture", help="Capture a FITS image from camera")
-    capture_parser.add_argument("--exposure", type=float, help="Exposure time in seconds")
+    capture_parser = subparsers.add_parser(
+        "capture", help="Capture a FITS image from camera"
+    )
+    capture_parser.add_argument(
+        "--exposure", type=float, help="Exposure time in seconds"
+    )
     capture_parser.add_argument("--gain", type=float, help="Camera gain")
-    capture_parser.add_argument("--bin", dest="binning", type=int, help="Binning factor")
+    capture_parser.add_argument(
+        "--bin", dest="binning", type=int, help="Binning factor"
+    )
     capture_parser.add_argument("--roi", type=str, help="ROI as x,y,w,h")
     capture_parser.add_argument("--out", type=str, help="Save image to path")
     # Future: add more arguments for hints
 
     view_parser = subparsers.add_parser("view", help="View FITS header and image")
-    view_parser.add_argument("--in", dest="input_fits", required=True, help="Input FITS file path")
-    view_parser.add_argument("--show", action="store_true", help="Display image window (requires matplotlib)")
+    view_parser.add_argument(
+        "--in", dest="input_fits", required=True, help="Input FITS file path"
+    )
+    view_parser.add_argument(
+        "--show", action="store_true", help="Display image window (requires matplotlib)"
+    )
 
     mount_parser = subparsers.add_parser("mount", help="Mount control and status")
     mount_subparsers = mount_parser.add_subparsers(dest="action", required=True)
@@ -72,18 +86,30 @@ def main():
     mount_status = mount_subparsers.add_parser("status", help="Show mount status")
 
     mount_slew = mount_subparsers.add_parser("slew", help="Slew mount to coordinates")
-    mount_slew.add_argument("--ra-deg", type=float, required=True, help="Right ascension in degrees")
-    mount_slew.add_argument("--dec-deg", type=float, required=True, help="Declination in degrees")
+    mount_slew.add_argument(
+        "--ra-deg", type=float, required=True, help="Right ascension in degrees"
+    )
+    mount_slew.add_argument(
+        "--dec-deg", type=float, required=True, help="Declination in degrees"
+    )
 
     mount_park = mount_subparsers.add_parser("park", help="Park the mount")
 
     mount_stop = mount_subparsers.add_parser("stop", help="Stop mount motion")
 
     goto_parser = subparsers.add_parser("goto", help="Closed-loop goto centering")
-    goto_parser.add_argument("--ra-deg", type=float, required=True, help="Target right ascension in degrees")
-    goto_parser.add_argument("--dec-deg", type=float, required=True, help="Target declination in degrees")
-    goto_parser.add_argument("--tolerance-arcsec", type=float, default=30.0, help="Tolerance in arcseconds")
-    goto_parser.add_argument("--max-iterations", type=int, default=5, help="Maximum iterations")
+    goto_parser.add_argument(
+        "--ra-deg", type=float, required=True, help="Target right ascension in degrees"
+    )
+    goto_parser.add_argument(
+        "--dec-deg", type=float, required=True, help="Target declination in degrees"
+    )
+    goto_parser.add_argument(
+        "--tolerance-arcsec", type=float, default=30.0, help="Tolerance in arcseconds"
+    )
+    goto_parser.add_argument(
+        "--max-iterations", type=int, default=5, help="Maximum iterations"
+    )
 
     align_parser = subparsers.add_parser("align", help="Plate-solve alignment")
     align_subparsers = align_parser.add_subparsers(dest="mode", required=True)
@@ -91,26 +117,40 @@ def main():
     align_solve = align_subparsers.add_parser("solve", help="Solve current pointing")
     align_solve.add_argument("--exposure", type=float, help="Exposure time in seconds")
 
-    align_sync = align_subparsers.add_parser("sync", help="Solve and sync current pointing")
+    align_sync = align_subparsers.add_parser(
+        "sync", help="Solve and sync current pointing"
+    )
     align_sync.add_argument("--exposure", type=float, help="Exposure time in seconds")
 
-    align_init = align_subparsers.add_parser("init", help="Initial multi-point alignment")
-    align_init.add_argument("--targets", dest="target_count", type=int, default=3, help="Target count")
+    align_init = align_subparsers.add_parser(
+        "init", help="Initial multi-point alignment"
+    )
+    align_init.add_argument(
+        "--targets", dest="target_count", type=int, default=3, help="Target count"
+    )
     align_init.add_argument("--exposure", type=float, help="Exposure time in seconds")
     align_init.add_argument("--max-attempts", type=int, help="Max attempts")
 
     polar_parser = subparsers.add_parser("polar", help="Polar alignment routine")
-    polar_parser.add_argument("--ra-rotation-deg", type=float, required=True, help="RA rotation in degrees")
+    polar_parser.add_argument(
+        "--ra-rotation-deg", type=float, required=True, help="RA rotation in degrees"
+    )
 
     guide_parser = subparsers.add_parser("guide", help="Guiding control")
     guide_subparsers = guide_parser.add_subparsers(dest="action", required=True)
 
     guide_calibrate = guide_subparsers.add_parser("calibrate", help="Calibrate guiding")
-    guide_calibrate.add_argument("--duration", type=float, required=True, help="Calibration duration in seconds")
+    guide_calibrate.add_argument(
+        "--duration", type=float, required=True, help="Calibration duration in seconds"
+    )
 
     guide_start = guide_subparsers.add_parser("start", help="Start guiding")
-    guide_start.add_argument("--aggression", type=float, required=True, help="Aggression (0-1)")
-    guide_start.add_argument("--min-move-arcsec", type=float, required=True, help="Minimum move arcsec")
+    guide_start.add_argument(
+        "--aggression", type=float, required=True, help="Aggression (0-1)"
+    )
+    guide_start.add_argument(
+        "--min-move-arcsec", type=float, required=True, help="Minimum move arcsec"
+    )
 
     guide_stop = guide_subparsers.add_parser("stop", help="Stop guiding")
 

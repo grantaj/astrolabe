@@ -8,6 +8,7 @@ def get_catalog_providers():
         LocalCuratedCatalogProvider(),
     ]
 
+
 __all__ = [
     "CatalogProvider",
     "LocalCuratedCatalogProvider",

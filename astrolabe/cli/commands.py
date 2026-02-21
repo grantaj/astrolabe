@@ -11,7 +11,12 @@ from astrolabe.config import load_config
 from astrolabe.solver import get_solver_backend
 from astrolabe.camera import get_camera_backend
 from astrolabe.mount import get_mount_backend
-from astrolabe.services import GotoService, PolarAlignService, GuidingService, AlignmentService
+from astrolabe.services import (
+    GotoService,
+    PolarAlignService,
+    GuidingService,
+    AlignmentService,
+)
 from astrolabe.planner import Planner, ObserverLocation
 from astrolabe.planner.formatters import format_text as format_plan_text
 from astrolabe.planner.update import update_catalog
@@ -78,7 +83,9 @@ def run_doctor(args=None) -> int:
 
     def check_indi_server():
         try:
-            with socket.create_connection((config.indi_host, config.indi_port), timeout=2):
+            with socket.create_connection(
+                (config.indi_host, config.indi_port), timeout=2
+            ):
                 return {"ok": True, "detail": "reachable"}
         except (ConnectionRefusedError, socket.timeout, OSError):
             return {"ok": False, "detail": "not reachable"}
@@ -126,7 +133,13 @@ def run_doctor(args=None) -> int:
             command="doctor",
             ok=ok,
             data={"checks": checks},
-            error=None if ok else {"code": "doctor_failed", "message": "one or more checks failed", "details": None},
+            error=None
+            if ok
+            else {
+                "code": "doctor_failed",
+                "message": "one or more checks failed",
+                "details": None,
+            },
         )
         print(json.dumps(payload, indent=2))
     else:
@@ -282,7 +295,9 @@ def _parse_location_args(args) -> ObserverLocation | None:
     if lat is None and lon is None and elev is None:
         return None
     if lat is None or lon is None:
-        raise ValueError("Both latitude and longitude are required when specifying location")
+        raise ValueError(
+            "Both latitude and longitude are required when specifying location"
+        )
     return ObserverLocation(latitude_deg=lat, longitude_deg=lon, elevation_m=elev)
 
 
@@ -292,9 +307,14 @@ def run_capture(args) -> int:
     if getattr(args, "dry_run", False):
         print("--dry-run has no effect for capture.", file=sys.stderr)
 
-    exposure = args.exposure if args.exposure is not None else config.camera_default_exposure_s
+    exposure = (
+        args.exposure if args.exposure is not None else config.camera_default_exposure_s
+    )
     if exposure is None:
-        print("Exposure is required (use --exposure or set camera.default_exposure_s).", file=sys.stderr)
+        print(
+            "Exposure is required (use --exposure or set camera.default_exposure_s).",
+            file=sys.stderr,
+        )
         return 2
 
     try:
@@ -353,7 +373,11 @@ def run_view(args) -> int:
                 command="view",
                 ok=False,
                 data=None,
-                error={"code": "dependency_missing", "message": message, "details": None},
+                error={
+                    "code": "dependency_missing",
+                    "message": message,
+                    "details": None,
+                },
             )
             print(json.dumps(payload, indent=2))
         else:
@@ -443,7 +467,9 @@ def run_mount(args) -> int:
                         "slewing": state.slewing,
                         "ra_rad": state.ra_rad,
                         "dec_rad": state.dec_rad,
-                        "timestamp_utc": state.timestamp_utc.isoformat() if state.timestamp_utc else None,
+                        "timestamp_utc": state.timestamp_utc.isoformat()
+                        if state.timestamp_utc
+                        else None,
                     },
                     error=None,
                 )
@@ -704,7 +730,9 @@ def run_guide(args) -> int:
             return 0 if result.success else 1
 
         if args.action == "start":
-            service.start(aggression=args.aggression, min_move_arcsec=args.min_move_arcsec)
+            service.start(
+                aggression=args.aggression, min_move_arcsec=args.min_move_arcsec
+            )
             if getattr(args, "json", False):
                 import json
 

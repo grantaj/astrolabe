@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any
 import datetime
 
+
 @dataclass
 class Image:
     data: Any  # Placeholder for image data (e.g., numpy array or file path)
@@ -10,6 +11,7 @@ class Image:
     timestamp_utc: datetime.datetime
     exposure_s: float
     metadata: Dict[str, Any]
+
 
 @dataclass
 class SolveRequest:
@@ -21,6 +23,7 @@ class SolveRequest:
     search_radius_rad: Optional[float] = None
     timeout_s: Optional[float] = None
     extra_options: Optional[Dict[str, Any]] = None
+
 
 @dataclass
 class SolveResult:
