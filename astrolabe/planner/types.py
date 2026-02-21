@@ -38,7 +38,7 @@ class Target:
     size_major_arcmin: float | None = None
     size_minor_arcmin: float | None = None
     surface_brightness: float | None = None
-    tags: list[str] = field(default_factory=list)
+    tags: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass
@@ -77,7 +77,7 @@ class PlannerEntry:
     size_minor_arcmin: float | None = None
     mag: float | None = None
     surface_brightness: float | None = None
-    tags: list[str] = field(default_factory=list)
+    tags: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass
