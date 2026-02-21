@@ -82,10 +82,6 @@ def test_slew_to_jnow(mount):
             "EQUATORIAL_EOD_COORD",
             {"RA": str(6.0), "DEC": str(45.0)},
         ) in vector_calls
-        assert {
-            "Telescope Simulator.EQUATORIAL_EOD_COORD.RA": str(6.0),
-            "Telescope Simulator.EQUATORIAL_EOD_COORD.DEC": str(45.0),
-        } in multi_calls
 
 
 def test_slew_to_j2000(mount):
@@ -480,6 +476,7 @@ def test_slew_to_auto_connects(mount):
     with (
         patch("astrolabe.mount.indi.IndiClient.wait_for_device"),
         patch("astrolabe.mount.indi.IndiClient.setprop"),
+        patch("astrolabe.mount.indi.IndiClient.setprop_vector"),
         patch("astrolabe.mount.indi.IndiClient.setprop_multi"),
         patch("astrolabe.mount.indi.IndiClient.has_prop", return_value=True),
         patch("astrolabe.mount.indi.icrs_to_jnow", return_value=(0.0, 0.0)),
