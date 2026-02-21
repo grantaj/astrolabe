@@ -206,7 +206,14 @@ class Planner:
                 location=location,
                 sections=[],
                 mode=mode,
-                message=_build_no_target_message(rejection, constraints, sun_alt_deg, window_start, window_end, location),
+                message=_build_no_target_message(
+                    rejection,
+                    constraints,
+                    sun_alt_deg,
+                    window_start,
+                    window_end,
+                    location,
+                ),
             )
 
         # Note: The `limit` value applies only to the main ranked `entries`
@@ -401,7 +408,9 @@ def _time_metrics(
     )
     alt_deg = math.degrees(alt_rad)
     sun_ra, sun_dec = sun_ra_dec_rad(t)
-    sun_alt_rad, _ = ra_dec_to_alt_az(sun_ra, sun_dec, lat_rad, location.longitude_deg, t)
+    sun_alt_rad, _ = ra_dec_to_alt_az(
+        sun_ra, sun_dec, lat_rad, location.longitude_deg, t
+    )
     sun_alt_deg = math.degrees(sun_alt_rad)
     sun_sep_deg = math.degrees(
         angular_separation_rad(
@@ -412,7 +421,9 @@ def _time_metrics(
         )
     )
     moon_ra, moon_dec = moon_ra_dec_rad(t)
-    moon_alt_rad, _ = ra_dec_to_alt_az(moon_ra, moon_dec, lat_rad, location.longitude_deg, t)
+    moon_alt_rad, _ = ra_dec_to_alt_az(
+        moon_ra, moon_dec, lat_rad, location.longitude_deg, t
+    )
     moon_alt_deg = math.degrees(moon_alt_rad)
     moon_sep_deg = math.degrees(
         angular_separation_rad(
@@ -491,7 +502,9 @@ def _min_sun_alt_deg(
     min_alt = 90.0
     for t in times:
         sun_ra, sun_dec = sun_ra_dec_rad(t)
-        alt_rad, _ = ra_dec_to_alt_az(sun_ra, sun_dec, lat_rad, location.longitude_deg, t)
+        alt_rad, _ = ra_dec_to_alt_az(
+            sun_ra, sun_dec, lat_rad, location.longitude_deg, t
+        )
         alt_deg = math.degrees(alt_rad)
         if alt_deg < min_alt:
             min_alt = alt_deg
@@ -514,7 +527,9 @@ def _best_time_by_score(
     best_score = -1.0
     for t, alt_deg in zip(times, altitudes):
         sun_ra, sun_dec = sun_ra_dec_rad(t)
-        sun_alt_rad, _ = ra_dec_to_alt_az(sun_ra, sun_dec, lat_rad, location.longitude_deg, t)
+        sun_alt_rad, _ = ra_dec_to_alt_az(
+            sun_ra, sun_dec, lat_rad, location.longitude_deg, t
+        )
         sun_alt_deg = math.degrees(sun_alt_rad)
         sun_sep_deg = math.degrees(
             angular_separation_rad(
@@ -525,7 +540,9 @@ def _best_time_by_score(
             )
         )
         moon_ra, moon_dec = moon_ra_dec_rad(t)
-        moon_alt_rad, _ = ra_dec_to_alt_az(moon_ra, moon_dec, lat_rad, location.longitude_deg, t)
+        moon_alt_rad, _ = ra_dec_to_alt_az(
+            moon_ra, moon_dec, lat_rad, location.longitude_deg, t
+        )
         moon_alt_deg = math.degrees(moon_alt_rad)
         moon_sep_deg = math.degrees(
             angular_separation_rad(
@@ -580,7 +597,9 @@ def _moon_up_fraction(
     up = 0
     for t in times:
         ra_moon, dec_moon = moon_ra_dec_rad(t)
-        alt_rad, _ = ra_dec_to_alt_az(ra_moon, dec_moon, lat_rad, location.longitude_deg, t)
+        alt_rad, _ = ra_dec_to_alt_az(
+            ra_moon, dec_moon, lat_rad, location.longitude_deg, t
+        )
         if alt_rad > 0:
             up += 1
     return up / max(1, len(times))
@@ -626,9 +645,13 @@ def _best_time_hint(
     best_time = features_ext["best_time_utc"]
     if window_start <= best_time <= window_end:
         return None
-    if best_time < window_start and (window_start - best_time) <= datetime.timedelta(hours=1):
+    if best_time < window_start and (window_start - best_time) <= datetime.timedelta(
+        hours=1
+    ):
         return best_time
-    if best_time > window_end and (best_time - window_end) <= datetime.timedelta(hours=1):
+    if best_time > window_end and (best_time - window_end) <= datetime.timedelta(
+        hours=1
+    ):
         return best_time
     return None
 
@@ -653,7 +676,9 @@ def _build_no_target_message(
         parts.append(
             f"Sun never below {constraints.sun_altitude_max_deg:.0f}° (min {sun_alt_min_deg:.1f}°)."
         )
-        suggestion = _suggest_dark_start(window_start, window_end, location, constraints.sun_altitude_max_deg)
+        suggestion = _suggest_dark_start(
+            window_start, window_end, location, constraints.sun_altitude_max_deg
+        )
         if suggestion:
             parts.append(f"Try starting around {suggestion}.")
     if rejection.below_min_alt > 0:
@@ -679,7 +704,9 @@ def _suggest_dark_start(
     samples = _sample_times(window_start, window_end, cadence_min=5)
     for t in samples:
         sun_ra, sun_dec = sun_ra_dec_rad(t)
-        alt_rad, _ = ra_dec_to_alt_az(sun_ra, sun_dec, lat_rad, location.longitude_deg, t)
+        alt_rad, _ = ra_dec_to_alt_az(
+            sun_ra, sun_dec, lat_rad, location.longitude_deg, t
+        )
         if math.degrees(alt_rad) <= sun_altitude_max_deg:
             return t.astimezone(local_tz).isoformat(timespec="minutes")
     # look ahead up to 6 hours for next dark window
@@ -687,7 +714,9 @@ def _suggest_dark_start(
     samples = _sample_times(window_end, extended_end, cadence_min=5)
     for t in samples:
         sun_ra, sun_dec = sun_ra_dec_rad(t)
-        alt_rad, _ = ra_dec_to_alt_az(sun_ra, sun_dec, lat_rad, location.longitude_deg, t)
+        alt_rad, _ = ra_dec_to_alt_az(
+            sun_ra, sun_dec, lat_rad, location.longitude_deg, t
+        )
         if math.degrees(alt_rad) <= sun_altitude_max_deg:
             return t.astimezone(local_tz).isoformat(timespec="minutes")
     return None
@@ -763,16 +792,27 @@ def _build_sections(
         sections.setdefault(name, []).append(entry)
 
     if showpieces:
-        sections["Showpieces"] = _merge_unique(showpieces, sections.get("Showpieces", []))
+        sections["Showpieces"] = _merge_unique(
+            showpieces, sections.get("Showpieces", [])
+        )
 
     sections["Showpieces"] = _limit_showpieces(sections.get("Showpieces", []))
 
     if solar_entries:
-        sections["Solar System"] = _merge_unique(solar_entries, sections.get("Solar System", []))
+        sections["Solar System"] = _merge_unique(
+            solar_entries, sections.get("Solar System", [])
+        )
         sections["Solar System"] = _limit_solar(sections.get("Solar System", []))
 
     ordered = []
-    for name in ("Showpieces", "Solar System", "Recommended", "Clusters", "Deep Sky", "Other"):
+    for name in (
+        "Showpieces",
+        "Solar System",
+        "Recommended",
+        "Clusters",
+        "Deep Sky",
+        "Other",
+    ):
         if name in sections:
             ordered.append(PlannerSection(name=name, entries=sections[name]))
     for name, items in sections.items():
@@ -833,7 +873,9 @@ def _limit_solar(entries: list[PlannerEntry]) -> list[PlannerEntry]:
     return entries[:5]
 
 
-def _merge_unique(primary: list[PlannerEntry], secondary: list[PlannerEntry]) -> list[PlannerEntry]:
+def _merge_unique(
+    primary: list[PlannerEntry], secondary: list[PlannerEntry]
+) -> list[PlannerEntry]:
     seen = set()
     combined: list[PlannerEntry] = []
     for entry in primary + secondary:

@@ -20,7 +20,11 @@ OPENNGC_OPTIONAL = {
 }
 
 
-def update_catalog(source: str | None = None, version: str | None = None, output_path: str | None = None) -> dict:
+def update_catalog(
+    source: str | None = None,
+    version: str | None = None,
+    output_path: str | None = None,
+) -> dict:
     version = version or DEFAULT_OPENNGC_VERSION
     cache_dir = _cache_dir(version)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -58,7 +62,9 @@ def update_catalog(source: str | None = None, version: str | None = None, output
     return meta
 
 
-def _resolve_sources(source: str | None, version: str, candidates: dict[str, tuple[str, ...]]) -> list[tuple[str, ...] | str]:
+def _resolve_sources(
+    source: str | None, version: str, candidates: dict[str, tuple[str, ...]]
+) -> list[tuple[str, ...] | str]:
     if not source:
         base = OPENNGC_BASE_URL.format(version=version)
         return [tuple(base + path for path in paths) for paths in candidates.values()]
@@ -198,7 +204,8 @@ def _curate_targets(targets: list[Target]) -> list[Target]:
             tags.append("southern_showpiece")
         if _is_messier_showpiece(target):
             tags.append("showpiece")
-        caldwell_id = caldwell_map.get(_normalize_catalog_id(target.id))
+        normalized_id = _normalize_catalog_id(target.id)
+        caldwell_id = caldwell_map.get(normalized_id) if normalized_id else None
         if caldwell_id:
             tags.append("caldwell")
         curated.append(
@@ -246,22 +253,24 @@ def _write_curated_csv(targets: list[Target], path: Path) -> None:
         for t in targets:
             writer.writerow(
                 [
-                t.id,
-                t.name,
-                "" if t.common_name is None else t.common_name,
-                "" if t.messier_id is None else t.messier_id,
-                "" if t.caldwell_id is None else t.caldwell_id,
-                f"{t.ra_deg:.6f}",
-                f"{t.dec_deg:.6f}",
-                t.type,
-                "" if t.mag is None else f"{t.mag:.2f}",
-                "" if t.size_arcmin is None else f"{t.size_arcmin:.2f}",
-                "" if t.size_major_arcmin is None else f"{t.size_major_arcmin:.2f}",
-                "" if t.size_minor_arcmin is None else f"{t.size_minor_arcmin:.2f}",
-                "" if t.surface_brightness is None else f"{t.surface_brightness:.2f}",
-                ";".join(t.tags),
-            ]
-        )
+                    t.id,
+                    t.name,
+                    "" if t.common_name is None else t.common_name,
+                    "" if t.messier_id is None else t.messier_id,
+                    "" if t.caldwell_id is None else t.caldwell_id,
+                    f"{t.ra_deg:.6f}",
+                    f"{t.dec_deg:.6f}",
+                    t.type,
+                    "" if t.mag is None else f"{t.mag:.2f}",
+                    "" if t.size_arcmin is None else f"{t.size_arcmin:.2f}",
+                    "" if t.size_major_arcmin is None else f"{t.size_major_arcmin:.2f}",
+                    "" if t.size_minor_arcmin is None else f"{t.size_minor_arcmin:.2f}",
+                    ""
+                    if t.surface_brightness is None
+                    else f"{t.surface_brightness:.2f}",
+                    ";".join(t.tags),
+                ]
+            )
 
 
 def _write_metadata(meta: dict, path: Path) -> None:

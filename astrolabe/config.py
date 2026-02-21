@@ -100,6 +100,7 @@ class Config:
     def planner_aperture_mm(self):
         return self._data.get("planner", {}).get("aperture_mm", None)
 
+
 def load_config(path: Path | None = None) -> Config:
     explicit_path = path
     path = path or DEFAULT_CONFIG_PATH

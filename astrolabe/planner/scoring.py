@@ -169,7 +169,9 @@ def _score_moon(
         return _blend_moon_fraction(0.0, moon_up_fraction)
     if moon_sep_deg >= sep_high:
         return _blend_moon_fraction(1.0, moon_up_fraction)
-    return _blend_moon_fraction(_clamp((moon_sep_deg - sep_low) / (sep_high - sep_low)), moon_up_fraction)
+    return _blend_moon_fraction(
+        _clamp((moon_sep_deg - sep_low) / (sep_high - sep_low)), moon_up_fraction
+    )
 
 
 def _blend_moon_fraction(score: float, moon_up_fraction: float) -> float:
@@ -189,8 +191,6 @@ def _score_sun_glow(
     sep_factor = _clamp(1.0 - (sun_sep_deg / 180.0))
     penalty = base * sep_factor
     return _clamp(1.0 - penalty)
-
-
 
 
 def _score_size(size_arcmin: float | None, mode: str) -> float:

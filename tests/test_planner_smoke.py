@@ -26,7 +26,9 @@ def test_planner_smoke():
     result = planner.plan(
         window_start_utc=window_start,
         window_end_utc=window_end,
-        location=ObserverLocation(latitude_deg=-34.93, longitude_deg=138.60, elevation_m=50),
+        location=ObserverLocation(
+            latitude_deg=-34.93, longitude_deg=138.60, elevation_m=50
+        ),
         mode="visual",
     )
     assert result.sections

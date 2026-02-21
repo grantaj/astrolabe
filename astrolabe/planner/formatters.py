@@ -43,11 +43,15 @@ def format_text(result: PlannerResult, verbose: bool = False) -> str:
         rows = []
         for idx, entry in enumerate(section.entries, start=1):
             best_local = _format_entry_time(entry.best_time_utc, local_tz, window_short)
-            display_name = _display_name_verbose(entry) if verbose else _display_name(entry)
+            display_name = (
+                _display_name_verbose(entry) if verbose else _display_name(entry)
+            )
             view = entry.viewability or entry.difficulty
             note_parts = list(entry.notes) if entry.notes else []
             if entry.best_time_hint_utc:
-                hint_time = _format_entry_time(entry.best_time_hint_utc, local_tz, window_short)
+                hint_time = _format_entry_time(
+                    entry.best_time_hint_utc, local_tz, window_short
+                )
                 note_parts.append(f"better around {hint_time}")
             notes = "; ".join(note_parts)
             rows.append(
@@ -70,7 +74,11 @@ def format_text(result: PlannerResult, verbose: bool = False) -> str:
         name_w = min(40, max(len(r["name"]) for r in rows))
         type_w = min(18, max(len(r["type"]) for r in rows))
         view_w = min(7, max(len(r["view"]) for r in rows))
-        best_w = min(5, max(len(r["best"]) for r in rows)) if window_short else min(16, max(len(r["best"]) for r in rows))
+        best_w = (
+            min(5, max(len(r["best"]) for r in rows))
+            if window_short
+            else min(16, max(len(r["best"]) for r in rows))
+        )
         for r in rows:
             name = _pad(_truncate(r["name"], name_w), name_w)
             ttype = _pad(_truncate(_display_type(r["type"]), type_w), type_w)
@@ -142,8 +150,6 @@ def _pad(value: str, width: int) -> str:
     if len(value) >= width:
         return value
     return value + (" " * (width - len(value)))
-
-
 
 
 def _display_name(entry) -> str:

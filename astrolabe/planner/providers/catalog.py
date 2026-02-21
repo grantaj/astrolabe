@@ -25,7 +25,9 @@ class LocalCuratedCatalogProvider(CatalogProvider):
         with open(path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                tags = [t.strip() for t in (row.get("tags") or "").split(";") if t.strip()]
+                tags = [
+                    t.strip() for t in (row.get("tags") or "").split(";") if t.strip()
+                ]
                 targets.append(
                     Target(
                         id=row["id"].strip(),
