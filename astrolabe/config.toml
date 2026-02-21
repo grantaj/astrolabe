@@ -29,7 +29,7 @@ device = "Telescope Simulator"
 latitude_deg = -34.9921
 longitude_deg = 138.68268
 elevation_m = 50
-# Optional 
+# Optional:
 bortle = 5
 sqm = 20.33
 

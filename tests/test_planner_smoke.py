@@ -5,6 +5,10 @@ from astrolabe.planner import Planner, ObserverLocation
 
 
 def test_planner_smoke():
+    # Use a fixed historical date to keep this smoke test deterministic.
+    # The chosen timestamp (2024-07-01T14:00Z) corresponds to nighttime at
+    # the configured site and provides a stable planning window so test
+    # results remain reproducible across environments.
     config = Config(
         {
             "mount": {
