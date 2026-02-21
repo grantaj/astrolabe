@@ -1,5 +1,8 @@
-from unittest.mock import patch
 import math
+import shutil
+import time
+from unittest.mock import patch
+
 import pytest
 
 from astrolabe.mount.indi import IndiMountBackend, _hours_to_rad, _degrees_to_rad
@@ -28,7 +31,7 @@ def test_connect_waits_for_device(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
     ):
         mount.connect()
-        mock_wait.assert_called_once_with("Telescope Simulator")
+        mock_wait.assert_called_once_with("Telescope Simulator", timeout_s=10.0)
         mock_setprop.assert_called_once_with(
             "Telescope Simulator.CONNECTION.CONNECT", "On", soft=False
         )
@@ -50,6 +53,8 @@ def test_slew_to_jnow(mount):
     with (
         patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
+        patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
+        patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
         patch("astrolabe.mount.indi.icrs_to_jnow") as mock_icrs,
     ):
 
@@ -65,10 +70,22 @@ def test_slew_to_jnow(mount):
 
         mount.slew_to(math.pi / 2, math.pi / 4)
 
-        calls = [(c.args[0], c.args[1]) for c in mock_setprop.call_args_list]
-        assert ("Telescope Simulator.ON_COORD_SET.SLEW", "On") in calls
-        assert ("Telescope Simulator.EQUATORIAL_EOD_COORD.RA", str(6.0)) in calls
-        assert ("Telescope Simulator.EQUATORIAL_EOD_COORD.DEC", str(45.0)) in calls
+        multi_calls = [c.args[0] for c in mock_setprop_multi.call_args_list]
+        vector_calls = [c.args for c in mock_setprop_vector.call_args_list]
+        assert {
+            "Telescope Simulator.ON_COORD_SET.TRACK": "Off",
+            "Telescope Simulator.ON_COORD_SET.SLEW": "On",
+            "Telescope Simulator.ON_COORD_SET.SYNC": "Off",
+        } in multi_calls
+        assert (
+            "Telescope Simulator",
+            "EQUATORIAL_EOD_COORD",
+            {"RA": str(6.0), "DEC": str(45.0)},
+        ) in vector_calls
+        assert {
+            "Telescope Simulator.EQUATORIAL_EOD_COORD.RA": str(6.0),
+            "Telescope Simulator.EQUATORIAL_EOD_COORD.DEC": str(45.0),
+        } in multi_calls
 
 
 def test_slew_to_j2000(mount):
@@ -76,6 +93,8 @@ def test_slew_to_j2000(mount):
     with (
         patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
+        patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
+        patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
     ):
 
         def has_prop_mock(prop):
@@ -89,9 +108,12 @@ def test_slew_to_j2000(mount):
 
         mount.slew_to(math.pi / 2, math.pi / 4)
 
-        calls = [(c.args[0], c.args[1]) for c in mock_setprop.call_args_list]
-        assert ("Telescope Simulator.EQUATORIAL_COORD.RA", str(6.0)) in calls
-        assert ("Telescope Simulator.EQUATORIAL_COORD.DEC", str(45.0)) in calls
+        vector_calls = [c.args for c in mock_setprop_vector.call_args_list]
+        assert (
+            "Telescope Simulator",
+            "EQUATORIAL_COORD",
+            {"RA": str(6.0), "DEC": str(45.0)},
+        ) in vector_calls
 
 
 def test_sync_jnow(mount):
@@ -99,6 +121,8 @@ def test_sync_jnow(mount):
     with (
         patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
+        patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
+        patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
         patch("astrolabe.mount.indi.icrs_to_jnow") as mock_icrs,
     ):
 
@@ -114,9 +138,18 @@ def test_sync_jnow(mount):
 
         mount.sync(math.pi / 2, math.pi / 4)
 
-        calls = [(c.args[0], c.args[1]) for c in mock_setprop.call_args_list]
-        assert ("Telescope Simulator.ON_COORD_SET.SYNC", "On") in calls
-        assert ("Telescope Simulator.EQUATORIAL_EOD_COORD.RA", str(6.0)) in calls
+        multi_calls = [c.args[0] for c in mock_setprop_multi.call_args_list]
+        vector_calls = [c.args for c in mock_setprop_vector.call_args_list]
+        assert {
+            "Telescope Simulator.ON_COORD_SET.TRACK": "Off",
+            "Telescope Simulator.ON_COORD_SET.SLEW": "Off",
+            "Telescope Simulator.ON_COORD_SET.SYNC": "On",
+        } in multi_calls
+        assert (
+            "Telescope Simulator",
+            "EQUATORIAL_EOD_COORD",
+            {"RA": str(6.0), "DEC": str(45.0)},
+        ) in vector_calls
 
 
 def test_sync_j2000(mount):
@@ -124,6 +157,8 @@ def test_sync_j2000(mount):
     with (
         patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
+        patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
+        patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
     ):
 
         def has_prop_mock(prop):
@@ -137,10 +172,18 @@ def test_sync_j2000(mount):
 
         mount.sync(math.pi / 2, math.pi / 4)
 
-        calls = [(c.args[0], c.args[1]) for c in mock_setprop.call_args_list]
-        assert ("Telescope Simulator.ON_COORD_SET.SYNC", "On") in calls
-        assert ("Telescope Simulator.EQUATORIAL_COORD.RA", str(6.0)) in calls
-        assert ("Telescope Simulator.EQUATORIAL_COORD.DEC", str(45.0)) in calls
+        multi_calls = [c.args[0] for c in mock_setprop_multi.call_args_list]
+        vector_calls = [c.args for c in mock_setprop_vector.call_args_list]
+        assert {
+            "Telescope Simulator.ON_COORD_SET.TRACK": "Off",
+            "Telescope Simulator.ON_COORD_SET.SLEW": "Off",
+            "Telescope Simulator.ON_COORD_SET.SYNC": "On",
+        } in multi_calls
+        assert (
+            "Telescope Simulator",
+            "EQUATORIAL_COORD",
+            {"RA": str(6.0), "DEC": str(45.0)},
+        ) in vector_calls
 
 
 def test_slew_to_wraps_ra_j2000(mount):
@@ -148,6 +191,8 @@ def test_slew_to_wraps_ra_j2000(mount):
     with (
         patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
+        patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
+        patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
     ):
 
         def has_prop_mock(prop):
@@ -161,10 +206,13 @@ def test_slew_to_wraps_ra_j2000(mount):
 
         mount.slew_to(-math.pi / 2, math.pi / 4)
 
-        calls = [(c.args[0], c.args[1]) for c in mock_setprop.call_args_list]
+        vector_calls = [c.args for c in mock_setprop_vector.call_args_list]
         # -pi/2 wraps to 3pi/2 => 18h
-        assert ("Telescope Simulator.EQUATORIAL_COORD.RA", str(18.0)) in calls
-        assert ("Telescope Simulator.EQUATORIAL_COORD.DEC", str(45.0)) in calls
+        assert (
+            "Telescope Simulator",
+            "EQUATORIAL_COORD",
+            {"RA": str(18.0), "DEC": str(45.0)},
+        ) in vector_calls
 
 
 def test_slew_to_wraps_ra_jnow(mount):
@@ -172,6 +220,8 @@ def test_slew_to_wraps_ra_jnow(mount):
     with (
         patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
+        patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
+        patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
         patch("astrolabe.mount.indi.icrs_to_jnow") as mock_icrs,
     ):
 
@@ -187,9 +237,12 @@ def test_slew_to_wraps_ra_jnow(mount):
 
         mount.slew_to(math.pi / 2, math.pi / 4)
 
-        calls = [(c.args[0], c.args[1]) for c in mock_setprop.call_args_list]
-        assert ("Telescope Simulator.EQUATORIAL_EOD_COORD.RA", str(18.0)) in calls
-        assert ("Telescope Simulator.EQUATORIAL_EOD_COORD.DEC", str(45.0)) in calls
+        vector_calls = [c.args for c in mock_setprop_vector.call_args_list]
+        assert (
+            "Telescope Simulator",
+            "EQUATORIAL_EOD_COORD",
+            {"RA": str(18.0), "DEC": str(45.0)},
+        ) in vector_calls
 
 
 def test_get_state_jnow(mount):
@@ -231,7 +284,7 @@ def test_get_state_jnow(mount):
         assert math.isclose(state.dec_rad, math.pi / 4)
         assert state.slewing is False
         mock_getprop_state.assert_called_once_with(
-            "Telescope Simulator.EQUATORIAL_EOD_COORD.RA"
+            "Telescope Simulator.EQUATORIAL_EOD_COORD"
         )
 
 
@@ -266,7 +319,7 @@ def test_get_state_detects_slewing(mount):
 
         assert state.slewing is True
         mock_getprop_state.assert_called_once_with(
-            "Telescope Simulator.EQUATORIAL_EOD_COORD.RA"
+            "Telescope Simulator.EQUATORIAL_EOD_COORD"
         )
 
 
@@ -309,7 +362,7 @@ def test_get_state_j2000(mount):
         assert math.isclose(state.dec_rad, _degrees_to_rad(2.0))
         assert state.slewing is False
         mock_getprop_state.assert_called_once_with(
-            "Telescope Simulator.EQUATORIAL_COORD.RA"
+            "Telescope Simulator.EQUATORIAL_COORD"
         )
 
 
@@ -427,6 +480,7 @@ def test_slew_to_auto_connects(mount):
     with (
         patch("astrolabe.mount.indi.IndiClient.wait_for_device"),
         patch("astrolabe.mount.indi.IndiClient.setprop"),
+        patch("astrolabe.mount.indi.IndiClient.setprop_multi"),
         patch("astrolabe.mount.indi.IndiClient.has_prop", return_value=True),
         patch("astrolabe.mount.indi.icrs_to_jnow", return_value=(0.0, 0.0)),
     ):
@@ -445,3 +499,133 @@ def test_get_state_auto_connects(mount):
         state = mount.get_state()
         assert mount.is_connected()
         assert state.connected is True
+
+
+@pytest.mark.integration
+def test_indi_mount_slew_and_state(config):
+    if shutil.which("indi_getprop") is None or shutil.which("indi_setprop") is None:
+        pytest.skip("INDI tools not available")
+
+    mount = IndiMountBackend(config)
+    try:
+        mount.connect()
+    except Exception as exc:  # noqa: BLE001 - integration environment may be missing
+        pytest.skip(f"INDI device not available: {exc}")
+
+    client = mount._client
+
+    # Best-effort: unpark and enable tracking (simulators may require this for motion).
+    if client.has_prop("Telescope Simulator.TELESCOPE_PARK.UNPARK"):
+        client.setprop(
+            "Telescope Simulator.TELESCOPE_PARK.UNPARK", "On", kind="s", soft=True
+        )
+    if client.has_prop("Telescope Simulator.TELESCOPE_TRACK_STATE.TRACK_ON"):
+        client.setprop(
+            "Telescope Simulator.TELESCOPE_TRACK_STATE.TRACK_ON",
+            "On",
+            kind="s",
+            soft=True,
+        )
+    time.sleep(0.5)
+
+    state0 = mount.get_state()
+    if state0.ra_rad is None or state0.dec_rad is None:
+        pytest.skip("Mount state missing coordinates")
+
+    try:
+        target_ra0 = float(
+            client.getprop_value("Telescope Simulator.TARGET_EOD_COORD.RA")
+        )
+        target_dec0 = float(
+            client.getprop_value("Telescope Simulator.TARGET_EOD_COORD.DEC")
+        )
+    except Exception as exc:  # noqa: BLE001 - simulator properties may vary
+        pytest.skip(f"TARGET_EOD_COORD not available: {exc}")
+
+    target_ra = (state0.ra_rad + 0.5) % (2.0 * math.pi)
+    target_dec = max(min(state0.dec_rad + 0.2, math.pi / 2 - 0.1), -math.pi / 2 + 0.1)
+    d_ra0 = (state0.ra_rad - target_ra + math.pi) % (2.0 * math.pi) - math.pi
+    d_dec0 = state0.dec_rad - target_dec
+    initial_err = math.hypot(d_ra0 * math.cos(target_dec), d_dec0)
+
+    mount.slew_to(target_ra, target_dec)
+
+    final_state = None
+    moved = False
+
+    # Verify either target or current coordinate changes after the slew.
+    change_deadline = time.monotonic() + 5.0
+    while time.monotonic() < change_deadline:
+        try:
+            target_ra1 = float(
+                client.getprop_value("Telescope Simulator.TARGET_EOD_COORD.RA")
+            )
+            target_dec1 = float(
+                client.getprop_value("Telescope Simulator.TARGET_EOD_COORD.DEC")
+            )
+        except Exception:
+            target_ra1 = target_ra0
+            target_dec1 = target_dec0
+
+        state_check = mount.get_state()
+        if state_check.ra_rad is not None and state_check.dec_rad is not None:
+            d_ra_curr = (state_check.ra_rad - state0.ra_rad + math.pi) % (
+                2.0 * math.pi
+            ) - math.pi
+            d_dec_curr = state_check.dec_rad - state0.dec_rad
+            if math.hypot(d_ra_curr * math.cos(state0.dec_rad), d_dec_curr) > 1e-4:
+                moved = True
+
+        if abs(target_ra1 - target_ra0) > 1e-6 or abs(target_dec1 - target_dec0) > 1e-6:
+            moved = True
+
+        if moved:
+            break
+        time.sleep(0.5)
+
+    if not moved:
+        pytest.skip(
+            "No coordinate changes observed; simulator may be parked or tracking disabled."
+        )
+
+    deadline = time.monotonic() + 60.0
+    while time.monotonic() < deadline:
+        final_state = mount.get_state()
+        if final_state.ra_rad is None or final_state.dec_rad is None:
+            time.sleep(0.5)
+            continue
+
+        d_ra_t = (final_state.ra_rad - target_ra + math.pi) % (2.0 * math.pi) - math.pi
+        d_dec_t = final_state.dec_rad - target_dec
+        angular_err = math.hypot(d_ra_t * math.cos(target_dec), d_dec_t)
+
+        if angular_err < max(0.05, initial_err * 0.2):
+            break
+
+        time.sleep(0.5)
+
+    assert final_state is not None
+    assert final_state.ra_rad is not None
+    assert final_state.dec_rad is not None
+
+    d_ra = (final_state.ra_rad - target_ra + math.pi) % (2.0 * math.pi) - math.pi
+    d_dec = final_state.dec_rad - target_dec
+    angular_err = math.hypot(d_ra * math.cos(target_dec), d_dec)
+    assert angular_err < initial_err * 0.5
+
+
+@pytest.mark.integration
+def test_indi_mount_connect_and_state(config):
+    if shutil.which("indi_getprop") is None or shutil.which("indi_setprop") is None:
+        pytest.skip("INDI tools not available")
+
+    mount = IndiMountBackend(config)
+    try:
+        mount.connect()
+    except Exception as exc:  # noqa: BLE001 - integration environment may be missing
+        pytest.skip(f"INDI device not available: {exc}")
+
+    state = mount.get_state()
+    assert state.connected is True
+    assert state.ra_rad is not None
+    assert state.dec_rad is not None

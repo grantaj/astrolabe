@@ -28,7 +28,11 @@ _DEGREES_TO_RAD = math.pi / 180.0
 
 # Mount I/O wait times
 _CONNECT_WAIT_S = 0.2
+_CONNECT_TIMEOUT_S = 10.0
+_CONNECT_RETRIES = 3
+_CONNECT_RETRY_SLEEP_S = 0.5
 _COORD_SET_WAIT_S = 0.1
+_SLEW_STATE_TIMEOUT_S = 20.0
 
 # INDI property state values
 _INDI_ON = "On"
@@ -95,7 +99,26 @@ class IndiMountBackend(MountBackend):
         self._connected = False
 
     def connect(self) -> None:
-        self._client.wait_for_device(self.device)
+        last_error: Exception | None = None
+        for attempt in range(1, _CONNECT_RETRIES + 1):
+            try:
+                self._client.wait_for_device(self.device, timeout_s=_CONNECT_TIMEOUT_S)
+                last_error = None
+                break
+            except Exception as exc:  # noqa: BLE001 - keep connect robust
+                last_error = exc
+                logger.warning(
+                    "INDI device '%s' not available (attempt %d/%d).",
+                    self.device,
+                    attempt,
+                    _CONNECT_RETRIES,
+                )
+                time.sleep(_CONNECT_RETRY_SLEEP_S)
+        if last_error is not None:
+            raise BackendError(
+                f"Timed out waiting for INDI device '{self.device}' "
+                f"on {self.host}:{self.port}."
+            ) from last_error
         self._client.setprop(f"{self.device}.CONNECTION.CONNECT", "On", soft=False)
         time.sleep(_CONNECT_WAIT_S)
         self._connected = True
@@ -157,7 +180,7 @@ class IndiMountBackend(MountBackend):
 
         if coord_prop is not None:
             try:
-                prop_state = self._client.getprop_state(f"{coord_prop}.RA")
+                prop_state = self._client.getprop_state(coord_prop)
                 slewing = prop_state.lower() == _INDI_BUSY.lower()
             except Exception:
                 logger.debug(
@@ -182,41 +205,61 @@ class IndiMountBackend(MountBackend):
         has_jnow = self._client.has_prop(f"{self.device}.EQUATORIAL_EOD_COORD.RA")
         has_j2000 = self._client.has_prop(f"{self.device}.EQUATORIAL_COORD.RA")
 
-        # Set ON_COORD_SET to SLEW (optional feature, soft failure allowed)
+        # Best-effort: unpark and ensure time/location are set.
+        if self._client.has_prop(f"{self.device}.TELESCOPE_PARK.UNPARK"):
+            self._client.setprop(
+                f"{self.device}.TELESCOPE_PARK.UNPARK",
+                _INDI_ON,
+                kind="s",
+                soft=True,
+            )
+        if self._client.has_prop(f"{self.device}.TELESCOPE_TRACK_STATE.TRACK_ON"):
+            self._client.setprop(
+                f"{self.device}.TELESCOPE_TRACK_STATE.TRACK_ON",
+                _INDI_ON,
+                kind="s",
+                soft=True,
+            )
+        # NOTE: Do not set TIME_UTC or GEOGRAPHIC_COORD here. Some simulator
+        # builds crash or ignore slews when these are set programmatically.
+        # We will add an explicit, opt-in initializer for time/location later.
+
+        # Arm coordinate action before setting coordinates.
+        # Simulator accepts SLEW=On prior to setting target coordinates.
         if self._client.has_prop(f"{self.device}.ON_COORD_SET.SLEW"):
-            self._client.setprop(
-                f"{self.device}.ON_COORD_SET.TRACK", _INDI_OFF, soft=True
-            )
-            self._client.setprop(
-                f"{self.device}.ON_COORD_SET.SYNC", _INDI_OFF, soft=True
-            )
-            self._client.setprop(
-                f"{self.device}.ON_COORD_SET.SLEW", _INDI_ON, soft=True
+            self._client.setprop_multi(
+                {
+                    f"{self.device}.ON_COORD_SET.TRACK": _INDI_OFF,
+                    f"{self.device}.ON_COORD_SET.SLEW": _INDI_ON,
+                    f"{self.device}.ON_COORD_SET.SYNC": _INDI_OFF,
+                },
+                kind="s",
+                soft=True,
             )
             time.sleep(_COORD_SET_WAIT_S)
 
         if has_jnow:
             ra_jnow, dec_jnow = icrs_to_jnow(ra_rad, dec_rad, now_utc)
             ra_jnow = ra_jnow % (2.0 * math.pi)
-            self._client.setprop(
-                f"{self.device}.EQUATORIAL_EOD_COORD.RA",
-                str(_rad_to_hours(ra_jnow)),
-                soft=False,
-            )
-            self._client.setprop(
-                f"{self.device}.EQUATORIAL_EOD_COORD.DEC",
-                str(_rad_to_degrees(dec_jnow)),
+            self._client.setprop_vector(
+                self.device,
+                "EQUATORIAL_EOD_COORD",
+                {
+                    "RA": str(_rad_to_hours(ra_jnow)),
+                    "DEC": str(_rad_to_degrees(dec_jnow)),
+                },
+                kind="n",
                 soft=False,
             )
         elif has_j2000:
-            self._client.setprop(
-                f"{self.device}.EQUATORIAL_COORD.RA",
-                str(_rad_to_hours(ra_rad)),
-                soft=False,
-            )
-            self._client.setprop(
-                f"{self.device}.EQUATORIAL_COORD.DEC",
-                str(_rad_to_degrees(dec_rad)),
+            self._client.setprop_vector(
+                self.device,
+                "EQUATORIAL_COORD",
+                {
+                    "RA": str(_rad_to_hours(ra_rad)),
+                    "DEC": str(_rad_to_degrees(dec_rad)),
+                },
+                kind="n",
                 soft=False,
             )
         else:
@@ -224,6 +267,23 @@ class IndiMountBackend(MountBackend):
                 f"Mount device '{self.device}' has no supported coordinate property "
                 "(EQUATORIAL_EOD_COORD or EQUATORIAL_COORD)."
             )
+
+        # Best-effort: wait for the slew property state to return OK.
+        # Simulators may not report Busy.
+        coord_prop = (
+            f"{self.device}.EQUATORIAL_EOD_COORD"
+            if has_jnow
+            else f"{self.device}.EQUATORIAL_COORD"
+        )
+        deadline = time.monotonic() + _SLEW_STATE_TIMEOUT_S
+        while time.monotonic() < deadline:
+            try:
+                prop_state = self._client.getprop_state(coord_prop)
+            except Exception:
+                break
+            if prop_state.lower() != _INDI_BUSY.lower():
+                break
+            time.sleep(0.2)
 
     def sync(self, ra_rad: float, dec_rad: float) -> None:
         if not self._connected:
@@ -235,39 +295,39 @@ class IndiMountBackend(MountBackend):
         has_j2000 = self._client.has_prop(f"{self.device}.EQUATORIAL_COORD.RA")
 
         if self._client.has_prop(f"{self.device}.ON_COORD_SET.SYNC"):
-            self._client.setprop(
-                f"{self.device}.ON_COORD_SET.TRACK", _INDI_OFF, soft=True
-            )
-            self._client.setprop(
-                f"{self.device}.ON_COORD_SET.SLEW", _INDI_OFF, soft=True
-            )
-            self._client.setprop(
-                f"{self.device}.ON_COORD_SET.SYNC", _INDI_ON, soft=True
+            self._client.setprop_multi(
+                {
+                    f"{self.device}.ON_COORD_SET.TRACK": _INDI_OFF,
+                    f"{self.device}.ON_COORD_SET.SLEW": _INDI_OFF,
+                    f"{self.device}.ON_COORD_SET.SYNC": _INDI_ON,
+                },
+                kind="s",
+                soft=True,
             )
             time.sleep(_COORD_SET_WAIT_S)
 
         if has_jnow:
             ra_jnow, dec_jnow = icrs_to_jnow(ra_rad, dec_rad, now_utc)
             ra_jnow = ra_jnow % (2.0 * math.pi)
-            self._client.setprop(
-                f"{self.device}.EQUATORIAL_EOD_COORD.RA",
-                str(_rad_to_hours(ra_jnow)),
-                soft=False,
-            )
-            self._client.setprop(
-                f"{self.device}.EQUATORIAL_EOD_COORD.DEC",
-                str(_rad_to_degrees(dec_jnow)),
+            self._client.setprop_vector(
+                self.device,
+                "EQUATORIAL_EOD_COORD",
+                {
+                    "RA": str(_rad_to_hours(ra_jnow)),
+                    "DEC": str(_rad_to_degrees(dec_jnow)),
+                },
+                kind="n",
                 soft=False,
             )
         elif has_j2000:
-            self._client.setprop(
-                f"{self.device}.EQUATORIAL_COORD.RA",
-                str(_rad_to_hours(ra_rad)),
-                soft=False,
-            )
-            self._client.setprop(
-                f"{self.device}.EQUATORIAL_COORD.DEC",
-                str(_rad_to_degrees(dec_rad)),
+            self._client.setprop_vector(
+                self.device,
+                "EQUATORIAL_COORD",
+                {
+                    "RA": str(_rad_to_hours(ra_rad)),
+                    "DEC": str(_rad_to_degrees(dec_rad)),
+                },
+                kind="n",
                 soft=False,
             )
         else:
@@ -301,7 +361,7 @@ class IndiMountBackend(MountBackend):
         else:
             prop = f"{self.device}.TELESCOPE_TRACK_STATE.TRACK_OFF"
         if self._client.has_prop(prop):
-            self._client.setprop(prop, _INDI_ON, soft=True)
+            self._client.setprop(prop, _INDI_ON, kind="s", soft=True)
 
     def pulse_guide(self, ra_ms: float, dec_ms: float) -> None:
         """Send a timed pulse guide command to the mount.
@@ -313,46 +373,52 @@ class IndiMountBackend(MountBackend):
         if not self._connected:
             self.connect()
 
-        if ra_ms != 0 and self._client.has_prop(
-            f"{self.device}.TELESCOPE_TIMED_GUIDE_WE.TIMED_GUIDE_E"
-        ):
-            if ra_ms > 0:
-                self._client.setprop(
-                    f"{self.device}.TELESCOPE_TIMED_GUIDE_WE.TIMED_GUIDE_E",
-                    str(ra_ms),
-                    soft=True,
-                )
-            else:
-                if self._client.has_prop(
-                    f"{self.device}.TELESCOPE_TIMED_GUIDE_WE.TIMED_GUIDE_W"
-                ):
+        if ra_ms != 0:
+            if self._client.has_prop(
+                f"{self.device}.TELESCOPE_TIMED_GUIDE_WE.TIMED_GUIDE_E"
+            ):
+                if ra_ms > 0:
                     self._client.setprop(
-                        f"{self.device}.TELESCOPE_TIMED_GUIDE_WE.TIMED_GUIDE_W",
-                        str(-ra_ms),
+                        f"{self.device}.TELESCOPE_TIMED_GUIDE_WE.TIMED_GUIDE_E",
+                        str(ra_ms),
                         soft=True,
                     )
+                else:
+                    if self._client.has_prop(
+                        f"{self.device}.TELESCOPE_TIMED_GUIDE_WE.TIMED_GUIDE_W"
+                    ):
+                        self._client.setprop(
+                            f"{self.device}.TELESCOPE_TIMED_GUIDE_WE.TIMED_GUIDE_W",
+                            str(-ra_ms),
+                            soft=True,
+                        )
+            else:
+                logger.warning(
+                    "Mount device '%s' has no supported RA timed guide property.",
+                    self.device,
+                )
 
-        if dec_ms != 0 and self._client.has_prop(
-            f"{self.device}.TELESCOPE_TIMED_GUIDE_NS.TIMED_GUIDE_N"
-        ):
-            if dec_ms > 0:
-                self._client.setprop(
-                    f"{self.device}.TELESCOPE_TIMED_GUIDE_NS.TIMED_GUIDE_N",
-                    str(dec_ms),
-                    soft=True,
-                )
-            else:
-                if self._client.has_prop(
-                    f"{self.device}.TELESCOPE_TIMED_GUIDE_NS.TIMED_GUIDE_S"
-                ):
+        if dec_ms != 0:
+            if self._client.has_prop(
+                f"{self.device}.TELESCOPE_TIMED_GUIDE_NS.TIMED_GUIDE_N"
+            ):
+                if dec_ms > 0:
                     self._client.setprop(
-                        f"{self.device}.TELESCOPE_TIMED_GUIDE_NS.TIMED_GUIDE_S",
-                        str(-dec_ms),
+                        f"{self.device}.TELESCOPE_TIMED_GUIDE_NS.TIMED_GUIDE_N",
+                        str(dec_ms),
                         soft=True,
                     )
-        else:
-            logger.warning(
-                "Mount device '%s' has no supported coordinate property "
-                "(EQUATORIAL_EOD_COORD or EQUATORIAL_COORD).",
-                self.device,
-            )
+                else:
+                    if self._client.has_prop(
+                        f"{self.device}.TELESCOPE_TIMED_GUIDE_NS.TIMED_GUIDE_S"
+                    ):
+                        self._client.setprop(
+                            f"{self.device}.TELESCOPE_TIMED_GUIDE_NS.TIMED_GUIDE_S",
+                            str(-dec_ms),
+                            soft=True,
+                        )
+            else:
+                logger.warning(
+                    "Mount device '%s' has no supported DEC timed guide property.",
+                    self.device,
+                )
