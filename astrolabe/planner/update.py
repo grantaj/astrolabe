@@ -24,13 +24,17 @@ def update_catalog(
     source: str | None = None,
     version: str | None = None,
     output_path: str | None = None,
+    *,
+    show_progress: bool = False,
 ) -> dict:
     version = version or DEFAULT_OPENNGC_VERSION
     cache_dir = _cache_dir(version)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        cached_files = _fetch_all_sources(source, version, cache_dir)
+        cached_files = _fetch_all_sources(
+            source, version, cache_dir, show_progress=show_progress
+        )
     except (HTTPError, FileNotFoundError) as e:
         if source is None and version != "master" and _is_not_found(e):
             version = "master"
@@ -79,12 +83,16 @@ def _resolve_sources(
     return [source]
 
 
-def _fetch_to_cache(source: str | tuple[str, ...], cache_dir: Path) -> Path:
+def _fetch_to_cache(
+    source: str | tuple[str, ...], cache_dir: Path, *, show_progress: bool
+) -> Path:
     if isinstance(source, tuple):
         errors = []
         for candidate in source:
             try:
-                return _fetch_to_cache(candidate, cache_dir)
+                return _fetch_to_cache(
+                    candidate, cache_dir, show_progress=show_progress
+                )
             except (HTTPError, FileNotFoundError) as e:
                 errors.append(f"{candidate} ({e})")
         raise FileNotFoundError("No valid source found. Tried: " + "; ".join(errors))
@@ -99,8 +107,12 @@ def _fetch_to_cache(source: str | tuple[str, ...], cache_dir: Path) -> Path:
         # unresponsive. Surface network errors to the caller for handling.
         try:
             with urlopen(source, timeout=15) as resp:
-                data = resp.read()
-        except (URLError, socket.timeout) as e:
+                total = resp.headers.get("Content-Length")
+                total_bytes = int(total) if total and total.isdigit() else None
+                data = _read_with_progress(
+                    resp, total_bytes, show_progress=show_progress
+                )
+        except (URLError, socket.timeout):
             raise
         target.write_bytes(data)
         return target
@@ -113,19 +125,52 @@ def _fetch_to_cache(source: str | tuple[str, ...], cache_dir: Path) -> Path:
     return target
 
 
-def _fetch_all_sources(source: str | None, version: str, cache_dir: Path) -> list[Path]:
+def _fetch_all_sources(
+    source: str | None, version: str, cache_dir: Path, *, show_progress: bool
+) -> list[Path]:
     cached_files: list[Path] = []
     required_sources = _resolve_sources(source, version, OPENNGC_REQUIRED)
     for item in required_sources:
-        cached_files.append(_fetch_to_cache(item, cache_dir))
+        cached_files.append(
+            _fetch_to_cache(item, cache_dir, show_progress=show_progress)
+        )
 
     optional_sources = _resolve_sources(source, version, OPENNGC_OPTIONAL)
     for item in optional_sources:
         try:
-            cached_files.append(_fetch_to_cache(item, cache_dir))
+            cached_files.append(
+                _fetch_to_cache(item, cache_dir, show_progress=show_progress)
+            )
         except (HTTPError, FileNotFoundError):
             continue
     return cached_files
+
+
+def _read_with_progress(
+    stream, total_bytes: int | None, *, show_progress: bool
+) -> bytes:
+    if not show_progress:
+        return stream.read()
+    chunk_size = 64 * 1024
+    data = bytearray()
+    read_bytes = 0
+    while True:
+        chunk = stream.read(chunk_size)
+        if not chunk:
+            break
+        data.extend(chunk)
+        read_bytes += len(chunk)
+        if total_bytes:
+            pct = read_bytes / total_bytes * 100
+            print(f"\rDownloading... {pct:5.1f}% ", end="", flush=True)
+        else:
+            print(
+                f"\rDownloading... {read_bytes / (1024 * 1024):.1f} MB ",
+                end="",
+                flush=True,
+            )
+    print("\rDownload complete.          ")
+    return bytes(data)
 
 
 def _parse_openngc_csv(path: Path) -> list[Target]:

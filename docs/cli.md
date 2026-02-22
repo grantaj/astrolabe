@@ -182,13 +182,14 @@ astrolabe mount park
 
 ## 4.5 `goto`
 
-Closed-loop centering of a target.
+Closed-loop centering of a target. Provide either `--target` or explicit coordinates.
 
 ```
 astrolabe goto [options]
 ```
 
 Options:
+- `--target <value>`              Target name or catalog ID
 - `--ra-deg <value>`              Target RA in degrees
 - `--dec-deg <value>`             Target Dec in degrees
 - `--tolerance-arcsec <value>`    Default 30.0
@@ -201,7 +202,70 @@ JSON data:
 
 ---
 
-## 4.6 `pointing`
+## 4.6 `resolve`
+
+Resolve a target name or catalog ID to coordinates.
+
+```
+astrolabe resolve [options] <target>
+```
+
+Options:
+- `--limit <n>`           Default 5
+- `--min-score <value>`   Override minimum match score
+
+JSON data:
+- `query`
+- `min_score`
+- `matches` (name/id/ra_deg/dec_deg/score/reason)
+
+---
+
+## 4.7 `update`
+
+Optional dataset updates.
+
+### `update catalog`
+```
+astrolabe update catalog [options]
+```
+
+Updates all default catalogs (OpenNGC + HIP + BSC crosswalk).
+
+### `update catalog openngc`
+```
+astrolabe update catalog openngc [options]
+```
+
+Options:
+- `--source <path|url>`   Custom OpenNGC source
+- `--version <tag>`       OpenNGC release tag/commit
+- `--output <path>`       Output path for curated catalog
+
+### `update catalog hip`
+```
+astrolabe update catalog hip [options]
+```
+
+Options:
+- `--source <path|url>`   Hipparcos catalog source
+- `--output <path>`       Output path for hip_subset.csv
+- `--max-mag <value>`     Maximum V magnitude
+- `--insecure`            Disable SSL verification
+
+### `update catalog bsc`
+```
+astrolabe update catalog bsc [options]
+```
+
+Options:
+- `--source <path|url>`   BSC catalog source
+- `--output <path>`       Output path for bsc_crosswalk.csv
+- `--insecure`            Disable SSL verification
+
+---
+
+## 4.8 `pointing`
 
 Pointing actions (solve-as-you-go model).
 

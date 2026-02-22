@@ -8,6 +8,7 @@ from astrolabe.cli.commands import (
     run_capture,
     run_mount,
     run_goto,
+    run_resolve,
     run_align,
     run_polar,
     run_guide,
@@ -108,12 +109,37 @@ def main():
 
     mount_stop = mount_subparsers.add_parser("stop", help="Stop mount motion")
 
+    resolve_parser = subparsers.add_parser(
+        "resolve", help="Resolve a target name or catalog ID"
+    )
+    resolve_parser.add_argument(
+        "target",
+        nargs="+",
+        help="Target name or catalog ID (e.g., M31, NGC1976, Sirius)",
+    )
+    resolve_parser.add_argument(
+        "--limit",
+        type=int,
+        default=5,
+        help="Maximum number of matches to return",
+    )
+    resolve_parser.add_argument(
+        "--min-score",
+        type=float,
+        help="Minimum match score override (default from config)",
+    )
+
     goto_parser = subparsers.add_parser("goto", help="Closed-loop goto centering")
     goto_parser.add_argument(
-        "--ra-deg", type=float, required=True, help="Target right ascension in degrees"
+        "--target",
+        type=str,
+        help="Target name or catalog ID (e.g., M31, NGC1976, Sirius)",
     )
     goto_parser.add_argument(
-        "--dec-deg", type=float, required=True, help="Target declination in degrees"
+        "--ra-deg", type=float, help="Target right ascension in degrees"
+    )
+    goto_parser.add_argument(
+        "--dec-deg", type=float, help="Target declination in degrees"
     )
     goto_parser.add_argument(
         "--tolerance-arcsec", type=float, default=30.0, help="Tolerance in arcseconds"
@@ -171,11 +197,43 @@ def main():
     update_subparsers = update_parser.add_subparsers(dest="dataset", required=True)
 
     update_catalog = update_subparsers.add_parser(
-        "catalog", help="Update curated catalog from OpenNGC"
+        "catalog", help="Update catalogs (OpenNGC + Hipparcos)"
     )
-    update_catalog.add_argument("--source", help="OpenNGC CSV file or base URL/path")
-    update_catalog.add_argument("--version", help="OpenNGC release tag or commit hash")
-    update_catalog.add_argument("--output", help="Output path for curated catalog CSV")
+    catalog_subparsers = update_catalog.add_subparsers(dest="catalog_dataset")
+
+    update_openngc = catalog_subparsers.add_parser(
+        "openngc", help="Update curated OpenNGC catalog only"
+    )
+    update_openngc.add_argument("--source", help="OpenNGC CSV file or base URL/path")
+    update_openngc.add_argument("--version", help="OpenNGC release tag or commit hash")
+    update_openngc.add_argument("--output", help="Output path for curated catalog CSV")
+
+    update_hip = catalog_subparsers.add_parser(
+        "hip", help="Update Hipparcos star subset only"
+    )
+    update_hip.add_argument(
+        "--source", help="Hipparcos catalog source URL or local path"
+    )
+    update_hip.add_argument("--output", help="Output path for hip_subset.csv")
+    update_hip.add_argument(
+        "--max-mag", type=float, help="Maximum V magnitude to include"
+    )
+    update_hip.add_argument(
+        "--insecure",
+        action="store_true",
+        help="Disable SSL certificate verification (not recommended)",
+    )
+
+    update_bsc = catalog_subparsers.add_parser(
+        "bsc", help="Update Bright Star Catalog crosswalk only"
+    )
+    update_bsc.add_argument("--source", help="BSC catalog source URL or local path")
+    update_bsc.add_argument("--output", help="Output path for bsc_crosswalk.csv")
+    update_bsc.add_argument(
+        "--insecure",
+        action="store_true",
+        help="Disable SSL certificate verification (not recommended)",
+    )
 
     plan_parser = subparsers.add_parser("plan", help="Plan observing targets")
     plan_parser.add_argument(
@@ -229,6 +287,9 @@ def main():
 
     if args.command == "mount":
         return run_mount(args)
+
+    if args.command == "resolve":
+        return run_resolve(args)
 
     if args.command == "goto":
         return run_goto(args)

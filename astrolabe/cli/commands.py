@@ -20,6 +20,7 @@ from astrolabe.services import (
 from astrolabe.planner import Planner, ObserverLocation
 from astrolabe.planner.formatters import format_text as format_plan_text
 from astrolabe.planner.update import update_catalog
+from astrolabe.services.target.update import update_hipparcos, update_bsc_crosswalk
 from astrolabe.errors import NotImplementedFeature
 from astrolabe.solver.types import Image, SolveRequest
 from astrolabe.util.format import rad_to_hms, rad_to_dms, rad_to_deg
@@ -583,9 +584,36 @@ def run_goto(args) -> int:
     service = GotoService(mount, camera, solver)
 
     try:
+        if args.target:
+            from astrolabe.services.target.resolver import TargetResolver
+
+            resolver = TargetResolver.from_repo_data(
+                min_score=config.resolver_min_score
+            )
+            matches = resolver.resolve(args.target)
+            if not matches:
+                print(f"Target not found: {args.target}", file=sys.stderr)
+                return 2
+            target = matches[0].record
+            target_ra_deg = target.ra_deg
+            target_dec_deg = target.dec_deg
+            if not getattr(args, "json", False):
+                print(
+                    f"Resolved '{args.target}' -> {target.name} ({target.id})",
+                    file=sys.stderr,
+                )
+        else:
+            if args.ra_deg is None or args.dec_deg is None:
+                print(
+                    "goto requires --target or both --ra-deg and --dec-deg",
+                    file=sys.stderr,
+                )
+                return 2
+            target_ra_deg = args.ra_deg
+            target_dec_deg = args.dec_deg
         result = service.center_target(
-            target_ra_rad=math.radians(args.ra_deg),
-            target_dec_rad=math.radians(args.dec_deg),
+            target_ra_rad=math.radians(target_ra_deg),
+            target_dec_rad=math.radians(target_dec_deg),
             tolerance_arcsec=args.tolerance_arcsec,
             max_iterations=args.max_iterations,
         )
@@ -613,6 +641,72 @@ def run_goto(args) -> int:
         return 0 if result.success else 1
     except NotImplementedFeature as e:
         return _handle_not_implemented("goto", args, e)
+
+
+def run_resolve(args) -> int:
+    _init_logging(getattr(args, "log_level", None))
+    config = load_config(_config_path_from_args(args))
+    if getattr(args, "dry_run", False):
+        print("--dry-run has no effect for resolve.", file=sys.stderr)
+
+    from astrolabe.services.target.resolver import TargetResolver
+
+    query = " ".join(args.target).strip()
+    if not query:
+        print("resolve requires a target name or catalog ID", file=sys.stderr)
+        return 2
+
+    min_score = args.min_score
+    if min_score is None:
+        min_score = config.resolver_min_score
+
+    resolver = TargetResolver.from_repo_data(min_score=min_score)
+    matches = resolver.resolve(query, limit=args.limit)
+
+    if getattr(args, "json", False):
+        import json
+
+        payload = _json_envelope(
+            command="resolve",
+            ok=bool(matches),
+            data={
+                "query": query,
+                "min_score": min_score,
+                "matches": [
+                    {
+                        "name": match.record.name,
+                        "id": match.record.id,
+                        "ra_deg": match.record.ra_deg,
+                        "dec_deg": match.record.dec_deg,
+                        "score": match.match_score,
+                        "reason": match.match_reason,
+                    }
+                    for match in matches
+                ],
+            },
+            error=None
+            if matches
+            else {
+                "code": "not_found",
+                "message": f"Target not found: {query}",
+                "details": None,
+            },
+        )
+        print(json.dumps(payload, indent=2))
+    else:
+        if not matches:
+            print(f"Target not found: {query}", file=sys.stderr)
+            return 2
+        print(f"Query: {query}")
+        print(f"Min score: {min_score}")
+        for match in matches:
+            print(
+                f"- {match.record.name} ({match.record.id}) "
+                f"RA {match.record.ra_deg:.5f} deg "
+                f"Dec {match.record.dec_deg:.5f} deg "
+                f"score={match.match_score:.2f} reason={match.match_reason}"
+            )
+    return 0
 
 
 def run_align(args) -> int:
@@ -877,41 +971,112 @@ def run_plan(args) -> int:
 
 def run_update(args) -> int:
     _init_logging(getattr(args, "log_level", None))
-    if args.dataset != "catalog":
-        print("Unknown update dataset.", file=sys.stderr)
-        return 2
     if getattr(args, "dry_run", False):
         print("--dry-run has no effect for update.", file=sys.stderr)
 
     try:
-        result = update_catalog(
-            source=args.source,
-            version=args.version,
-            output_path=args.output,
-        )
+        if args.dataset != "catalog":
+            print("Unknown update dataset.", file=sys.stderr)
+            return 2
+
+        show_progress = not getattr(args, "json", False)
+        catalog_dataset = getattr(args, "catalog_dataset", None)
+        results = []
+
+        if catalog_dataset in (None, "openngc"):
+            openngc_result = update_catalog(
+                source=getattr(args, "source", None),
+                version=getattr(args, "version", None),
+                output_path=getattr(args, "output", None),
+                show_progress=show_progress,
+            )
+            results.append(
+                (
+                    "update.catalog.openngc",
+                    openngc_result,
+                    [
+                        "OpenNGC update complete.",
+                        f"Source: {openngc_result['source']}",
+                        f"Cache: {openngc_result['cache_dir']}",
+                        f"Output: {openngc_result['output_path']}",
+                        f"Targets: {openngc_result['targets_written']}",
+                    ],
+                )
+            )
+
+        if catalog_dataset in (None, "hip"):
+            max_mag = getattr(args, "max_mag", None)
+            if max_mag is None:
+                max_mag = load_config(_config_path_from_args(args)).resolver_hip_max_mag
+            hip_result = update_hipparcos(
+                source=getattr(args, "source", None),
+                output_path=getattr(args, "output", None),
+                max_mag=max_mag,
+                verify_ssl=not getattr(args, "insecure", False),
+                show_progress=show_progress,
+            )
+            results.append(
+                (
+                    "update.catalog.hip",
+                    hip_result,
+                    [
+                        "Hipparcos subset update complete.",
+                        f"Source: {hip_result['source']}",
+                        f"Cache: {hip_result['cache_dir']}",
+                        f"Output: {hip_result['output_path']}",
+                        f"Stars: {hip_result['stars_written']}",
+                        f"Max mag: {hip_result['max_mag']}",
+                    ],
+                )
+            )
+
+        if catalog_dataset in (None, "bsc"):
+            bsc_result = update_bsc_crosswalk(
+                source=getattr(args, "source", None),
+                output_path=getattr(args, "output", None),
+                verify_ssl=not getattr(args, "insecure", False),
+                show_progress=show_progress,
+            )
+            results.append(
+                (
+                    "update.catalog.bsc",
+                    bsc_result,
+                    [
+                        "BSC crosswalk update complete.",
+                        f"Source: {bsc_result['source']}",
+                        f"HIP Source: {bsc_result['hip_source']}",
+                        f"Cache: {bsc_result['cache_dir']}",
+                        f"Output: {bsc_result['output_path']}",
+                        f"Aliases: {bsc_result['aliases_written']}",
+                    ],
+                )
+            )
+
+        if not results:
+            print("Unknown catalog dataset.", file=sys.stderr)
+            return 2
+
         if getattr(args, "json", False):
             import json
 
             payload = _json_envelope(
                 command="update.catalog",
                 ok=True,
-                data=result,
+                data={name: data for name, data, _ in results},
                 error=None,
             )
             print(json.dumps(payload, indent=2))
         else:
-            print("Catalog update complete.")
-            print(f"Source: {result['source']}")
-            print(f"Cache: {result['cache_dir']}")
-            print(f"Output: {result['output_path']}")
-            print(f"Targets: {result['targets_written']}")
+            for _, _, summary in results:
+                for line in summary:
+                    print(line)
         return 0
     except Exception as e:
         if getattr(args, "json", False):
             import json
 
             payload = _json_envelope(
-                command="update.catalog",
+                command=f"update.{args.dataset}",
                 ok=False,
                 data=None,
                 error={"code": "update_failed", "message": str(e), "details": None},
