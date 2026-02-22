@@ -166,6 +166,20 @@ def main():
         init.add_argument("--exposure", type=float, help="Exposure time in seconds")
         init.add_argument("--max-attempts", type=int, help="Max attempts")
 
+        goto = pointing_subparsers.add_parser(
+            "goto", help="Pointing-aware goto (slew + solve)"
+        )
+        goto.add_argument(
+            "--target",
+            type=str,
+            help="Target name or catalog ID (e.g., M31, NGC1976, Sirius)",
+        )
+        goto.add_argument("--ra-deg", type=float, help="Target RA in degrees")
+        goto.add_argument("--dec-deg", type=float, help="Target Dec in degrees")
+        goto.add_argument(
+            "--exposure", type=float, help="Exposure time in seconds"
+        )
+
     pointing_parser = subparsers.add_parser(
         "pointing", help="Pointing solve/calibration"
     )

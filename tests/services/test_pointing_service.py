@@ -1,5 +1,7 @@
 import datetime
+import pytest
 
+from astrolabe.pointing.model import PointingModel
 from astrolabe.services.pointing import PointingService
 from astrolabe.solver.types import Image, SolveRequest, SolveResult
 from astrolabe.mount.base import MountState
@@ -58,6 +60,11 @@ class FakeMount:
 
     def sync(self, ra_rad, dec_rad):
         self.sync_calls.append((ra_rad, dec_rad))
+
+
+@pytest.fixture(autouse=True)
+def _set_temp_home(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path))
 
 
 def test_solve_current_uses_mount_hint_and_solver():
@@ -132,3 +139,52 @@ def test_initial_alignment_counts_successes():
     assert result.solves_attempted == 2
     assert result.solves_succeeded == 2
     assert len(mount.sync_calls) == 2
+
+
+def test_apply_model_correction():
+    camera = FakeCamera()
+    solver = FakeSolver(
+        SolveResult(
+            success=True,
+            ra_rad=0.0,
+            dec_rad=0.0,
+            pixel_scale_arcsec=1.0,
+            rotation_rad=0.0,
+            rms_arcsec=1.5,
+            num_stars=8,
+            message=None,
+        )
+    )
+    mount = FakeMount()
+    service = PointingService(mount, camera, solver)
+    service._model.b_alpha_rad = 0.01
+    service._model.b_delta_rad = -0.02
+
+    ra_cmd, dec_cmd = service.apply_model(1.0, 0.5)
+
+    assert ra_cmd != 1.0
+    assert dec_cmd != 0.5
+
+
+def test_update_model_from_target():
+    camera = FakeCamera()
+    solver = FakeSolver(
+        SolveResult(
+            success=True,
+            ra_rad=1.0,
+            dec_rad=1.0,
+            pixel_scale_arcsec=1.0,
+            rotation_rad=0.0,
+            rms_arcsec=1.5,
+            num_stars=8,
+            message=None,
+        )
+    )
+    mount = FakeMount()
+    service = PointingService(mount, camera, solver, model=PointingModel())
+    service.update_model_from_target(
+        ra_target=0.9,
+        dec_target=0.8,
+        result=solver.result,
+    )
+    assert service._model.num_samples == 1

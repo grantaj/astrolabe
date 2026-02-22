@@ -299,6 +299,25 @@ JSON data:
 - `final_error_arcsec`
 - `exit_reason`
 
+### `pointing goto`
+```
+astrolabe pointing goto [options]
+```
+
+Options:
+- `--target <value>`              Target name or catalog ID
+- `--ra-deg <value>`              Target RA in degrees
+- `--dec-deg <value>`             Target Dec in degrees
+- `--exposure <seconds>`          Exposure time for solve
+
+JSON data:
+- `target_ra_deg`
+- `target_dec_deg`
+- `command_ra_deg`
+- `command_dec_deg`
+- `solve` (SolveResult)
+- `final_error_arcsec`
+
 ### `pointing recover`
 ```
 astrolabe pointing recover [options]

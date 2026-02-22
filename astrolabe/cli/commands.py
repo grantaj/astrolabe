@@ -780,6 +780,87 @@ def run_align(args) -> int:
                 print(f"Stars: {result.num_stars}")
                 print(f"Message: {result.message}")
             return 0 if result.success else 1
+        if args.mode == "goto":
+            if args.target:
+                from astrolabe.services.target.resolver import TargetResolver
+
+                resolver = TargetResolver.from_repo_data(
+                    min_score=config.resolver_min_score
+                )
+                matches = resolver.resolve(args.target)
+                if not matches:
+                    print(f"Target not found: {args.target}", file=sys.stderr)
+                    return 2
+                target = matches[0].record
+                target_ra_deg = target.ra_deg
+                target_dec_deg = target.dec_deg
+            else:
+                if args.ra_deg is None or args.dec_deg is None:
+                    print(
+                        "pointing goto requires --target or both --ra-deg and --dec-deg",
+                        file=sys.stderr,
+                    )
+                    return 2
+                target_ra_deg = args.ra_deg
+                target_dec_deg = args.dec_deg
+
+            target_ra_rad = math.radians(target_ra_deg)
+            target_dec_rad = math.radians(target_dec_deg)
+            corrected_ra, corrected_dec = service.apply_model(
+                target_ra_rad, target_dec_rad
+            )
+            mount.slew_to(corrected_ra, corrected_dec)
+            result = service.solve_current(
+                exposure_s=args.exposure, use_mount_hints=False
+            )
+            if result.success and result.ra_rad is not None and result.dec_rad is not None:
+                service.update_model_from_target(
+                    ra_target=target_ra_rad,
+                    dec_target=target_dec_rad,
+                    result=result,
+                )
+                d_alpha = (result.ra_rad - target_ra_rad) * math.cos(target_dec_rad)
+                d_delta = result.dec_rad - target_dec_rad
+                angular_err = math.hypot(d_alpha, d_delta)
+            else:
+                angular_err = None
+
+            if getattr(args, "json", False):
+                import json
+
+                payload = _json_envelope(
+                    command="pointing.goto",
+                    ok=result.success,
+                    data={
+                        "target_ra_deg": target_ra_deg,
+                        "target_dec_deg": target_dec_deg,
+                        "command_ra_deg": math.degrees(corrected_ra),
+                        "command_dec_deg": math.degrees(corrected_dec),
+                        "solve": result.__dict__,
+                        "final_error_arcsec": None
+                        if angular_err is None
+                        else math.degrees(angular_err) * 3600.0,
+                    },
+                    error=None
+                    if result.success
+                    else {
+                        "code": "pointing_goto_failed",
+                        "message": result.message or "pointing goto failed",
+                        "details": None,
+                    },
+                )
+                print(json.dumps(payload, indent=2))
+            else:
+                if result.success:
+                    if angular_err is not None:
+                        print(
+                            f"Final error: {math.degrees(angular_err) * 3600.0:.1f} arcsec"
+                        )
+                    else:
+                        print("Final error: unknown")
+                else:
+                    print(f"Pointing goto failed: {result.message}")
+            return 0 if result.success else 1
         if args.mode == "sync":
             result = service.sync_current(exposure_s=args.exposure)
         elif args.mode == "init":

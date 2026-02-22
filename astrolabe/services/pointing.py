@@ -1,5 +1,8 @@
 from dataclasses import dataclass
+import math
+
 from astrolabe.solver.types import SolveRequest, SolveResult
+from astrolabe.pointing.model import PointingModel, DEFAULT_MODEL_PATH
 
 
 @dataclass
@@ -12,12 +15,15 @@ class PointingResult:
 
 
 class PointingService:
-    def __init__(self, mount_backend, camera_backend, solver_backend):
+    def __init__(self, mount_backend, camera_backend, solver_backend, model: PointingModel | None = None):
         self._mount = mount_backend
         self._camera = camera_backend
         self._solver = solver_backend
+        self._model = model or PointingModel.load()
 
-    def solve_current(self, exposure_s: float | None = None) -> SolveResult:
+    def solve_current(
+        self, exposure_s: float | None = None, *, use_mount_hints: bool = True
+    ) -> SolveResult:
         needs_disconnect = False
         if not self._camera.is_connected():
             self._camera.connect()
@@ -28,17 +34,18 @@ class PointingService:
             if needs_disconnect:
                 self._camera.disconnect()
 
-        state = self._mount.get_state()
+        state = self._mount.get_state() if use_mount_hints else None
         request = SolveRequest(
             image=image,
-            ra_hint_rad=state.ra_rad,
-            dec_hint_rad=state.dec_rad,
+            ra_hint_rad=state.ra_rad if state else None,
+            dec_hint_rad=state.dec_rad if state else None,
         )
         return self._solver.solve(request)
 
     def sync_current(self, exposure_s: float | None = None) -> PointingResult:
         result = self.solve_current(exposure_s=exposure_s)
         if result.success and result.ra_rad is not None and result.dec_rad is not None:
+            self._update_model(result)
             self._mount.sync(result.ra_rad, result.dec_rad)
             return PointingResult(
                 success=True,
@@ -77,6 +84,7 @@ class PointingService:
                 and result.ra_rad is not None
                 and result.dec_rad is not None
             ):
+                self._update_model(result)
                 self._mount.sync(result.ra_rad, result.dec_rad)
                 successes += 1
 
@@ -89,3 +97,48 @@ class PointingService:
             if successes >= target_count
             else "Pointing calibrate incomplete",
         )
+
+    def _update_model(self, result: SolveResult) -> None:
+        try:
+            state = self._mount.get_state()
+        except Exception:
+            return
+        if state.ra_rad is None or state.dec_rad is None:
+            return
+        d_alpha, d_delta = _tangent_plane_error(
+            ra_target=state.ra_rad,
+            dec_target=state.dec_rad,
+            ra_solved=result.ra_rad,
+            dec_solved=result.dec_rad,
+        )
+        self._model.update(d_alpha, d_delta, weight=0.1)
+        self._model.save(DEFAULT_MODEL_PATH)
+
+    def apply_model(self, ra_rad: float, dec_rad: float) -> tuple[float, float]:
+        b_alpha, b_delta = self._model.predict()
+        corrected_ra = ra_rad - b_alpha / math.cos(dec_rad)
+        corrected_dec = dec_rad - b_delta
+        corrected_ra = corrected_ra % (2.0 * math.pi)
+        return corrected_ra, corrected_dec
+
+    def update_model_from_target(
+        self, *, ra_target: float, dec_target: float, result: SolveResult
+    ) -> None:
+        if result.ra_rad is None or result.dec_rad is None:
+            return
+        d_alpha, d_delta = _tangent_plane_error(
+            ra_target=ra_target,
+            dec_target=dec_target,
+            ra_solved=result.ra_rad,
+            dec_solved=result.dec_rad,
+        )
+        self._model.update(d_alpha, d_delta, weight=0.1)
+        self._model.save(DEFAULT_MODEL_PATH)
+
+
+def _tangent_plane_error(
+    *, ra_target: float, dec_target: float, ra_solved: float, dec_solved: float
+) -> tuple[float, float]:
+    d_alpha = (ra_solved - ra_target) * math.cos(dec_target)
+    d_delta = dec_solved - dec_target
+    return d_alpha, d_delta
