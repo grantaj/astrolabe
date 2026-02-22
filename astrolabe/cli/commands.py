@@ -611,34 +611,57 @@ def run_goto(args) -> int:
                 return 2
             target_ra_deg = args.ra_deg
             target_dec_deg = args.dec_deg
-        result = service.center_target(
-            target_ra_rad=math.radians(target_ra_deg),
-            target_dec_rad=math.radians(target_dec_deg),
-            tolerance_arcsec=args.tolerance_arcsec,
-            max_iterations=args.max_iterations,
-        )
-        if getattr(args, "json", False):
-            import json
-
-            payload = _json_envelope(
-                command="goto",
-                ok=result.success,
-                data=result.__dict__,
-                error=None
-                if result.success
-                else {
-                    "code": "goto_failed",
-                    "message": result.message or "goto failed",
-                    "details": None,
-                },
+        try:
+            result = service.center_target(
+                target_ra_rad=math.radians(target_ra_deg),
+                target_dec_rad=math.radians(target_dec_deg),
+                tolerance_arcsec=args.tolerance_arcsec,
+                max_iterations=args.max_iterations,
             )
-            print(json.dumps(payload, indent=2))
-        else:
-            print(f"Success: {result.success}")
-            print(f"Final error: {result.final_error_arcsec}")
-            print(f"Iterations: {result.iterations}")
-            print(f"Message: {result.message}")
-        return 0 if result.success else 1
+            if getattr(args, "json", False):
+                import json
+
+                payload = _json_envelope(
+                    command="goto",
+                    ok=result.success,
+                    data=result.__dict__,
+                    error=None
+                    if result.success
+                    else {
+                        "code": "goto_failed",
+                        "message": result.message or "goto failed",
+                        "details": None,
+                    },
+                )
+                print(json.dumps(payload, indent=2))
+            else:
+                print(f"Success: {result.success}")
+                print(f"Final error: {result.final_error_arcsec}")
+                print(f"Iterations: {result.iterations}")
+                print(f"Message: {result.message}")
+            return 0 if result.success else 1
+        except NotImplementedFeature:
+            mount.slew_to(
+                ra_rad=math.radians(target_ra_deg),
+                dec_rad=math.radians(target_dec_deg),
+            )
+            if getattr(args, "json", False):
+                import json
+
+                payload = _json_envelope(
+                    command="goto",
+                    ok=True,
+                    data={
+                        "mode": "fallback_slew",
+                        "ra_deg": target_ra_deg,
+                        "dec_deg": target_dec_deg,
+                    },
+                    error=None,
+                )
+                print(json.dumps(payload, indent=2))
+            else:
+                print("Goto fallback: mount slew issued.")
+            return 0
     except NotImplementedFeature as e:
         return _handle_not_implemented("goto", args, e)
 
