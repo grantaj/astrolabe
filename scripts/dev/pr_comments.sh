@@ -15,7 +15,7 @@ cd "$REPO_ROOT"
 
 PR="$1"
 REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
-OUTDIR="docs/reviews"
+OUTDIR="docs/dev/reviews"
 
 mkdir -p "$OUTDIR"
 
