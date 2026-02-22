@@ -62,7 +62,7 @@ Error object (when ok=false):
 
 The CLI must not emit other text to stdout in `--json` mode.
 
-Note: For subcommands, `command` may include a dotted suffix (e.g., `align.solve`, `mount.status`).
+Note: For subcommands, `command` may include a dotted suffix (e.g., `pointing.where`, `mount.status`).
 Logs may go to stderr.
 
 ---
@@ -72,7 +72,7 @@ Logs may go to stderr.
 Note: The commands below exist in the CLI, but several are currently stubs and return
 `not_implemented` errors until the underlying services are implemented.
 
-Note: `--dry-run` is currently a no-op for commands added in the skeleton (mount/goto/align/polar/guide/plan).
+Note: `--dry-run` is currently a no-op for commands added in the skeleton (mount/goto/pointing/polar/guide/plan).
 
 ## 4.1 `capture`
 
@@ -201,13 +201,13 @@ JSON data:
 
 ---
 
-## 4.6 `align`
+## 4.6 `pointing`
 
-Plate-solve alignment actions.
+Pointing actions (solve-as-you-go model).
 
-### `align solve`
+### `pointing where`
 ```
-astrolabe align solve [options]
+astrolabe pointing where [options]
 ```
 
 Options:
@@ -216,35 +216,56 @@ Options:
 JSON data:
 - Same fields as `solve` (SolveResult)
 
-### `align sync`
+### `pointing calibrate`
 ```
-astrolabe align sync [options]
+astrolabe pointing calibrate [options]
 ```
 
 Options:
 - `--exposure <seconds>`
-
-JSON data:
-- `success`
-- `solves_attempted`
-- `solves_succeeded`
-- `rms_arcsec`
-
-### `align init`
-```
-astrolabe align init [options]
-```
-
-Options:
 - `--targets <n>`
-- `--exposure <seconds>`
 - `--max-attempts <n>`
 
 JSON data:
 - `success`
 - `solves_attempted`
 - `solves_succeeded`
-- `rms_arcsec`
+- `final_error_arcsec`
+- `exit_reason`
+
+### `pointing recover`
+```
+astrolabe pointing recover [options]
+```
+
+Options:
+- `--exposure <seconds>`
+
+JSON data:
+- `success`
+- `solves_attempted`
+- `solves_succeeded`
+- `final_error_arcsec`
+- `exit_reason`
+
+### `pointing status`
+```
+astrolabe pointing status
+```
+
+JSON data:
+- `confidence`
+- `model_state`
+- `active_warnings`
+- `last_solve_quality`
+
+### `pointing diagnose`
+```
+astrolabe pointing diagnose
+```
+
+JSON data:
+- `findings`
 
 ---
 

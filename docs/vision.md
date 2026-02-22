@@ -14,7 +14,7 @@ Astrolabe exists to provide:
 
 -   Reliable plate solving
 -   Deterministic mount control
--   Closed-loop goto centering
+-   Solve-as-you-go pointing with closed-loop centering
 -   Clear polar alignment guidance
 -   Stable guiding
 -   A curated, observer-oriented target planner (post-MVP)
