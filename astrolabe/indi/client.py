@@ -53,26 +53,46 @@ class IndiClient:
 
     def getprop_state(self, query: str, *, timeout_s: float = 2.0) -> str:
         """Return the INDI property state (Idle, Ok, Busy, Alert)."""
-        cp = subprocess.run(
-            [
-                "indi_getprop",
-                "-h",
-                self.host,
-                "-p",
-                str(self.port),
-                "-t",
-                str(timeout_s),
-                "-1",
-                "-s",
-                query,
-            ],
-            check=True,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        line = cp.stdout.strip().split("\n")[0]
-        return line.split()[0] if line else ""
+        try:
+            cp = subprocess.run(
+                [
+                    "indi_getprop",
+                    "-h",
+                    self.host,
+                    "-p",
+                    str(self.port),
+                    "-t",
+                    str(timeout_s),
+                    "-1",
+                    "-s",
+                    query,
+                ],
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            line = cp.stdout.strip().split("\n")[0]
+            return line.split()[0] if line else ""
+        except subprocess.CalledProcessError:
+            cp = subprocess.run(
+                [
+                    "indi_getprop",
+                    "-h",
+                    self.host,
+                    "-p",
+                    str(self.port),
+                    "-t",
+                    str(timeout_s),
+                    "-1",
+                    f"{query}._STATE",
+                ],
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            return cp.stdout.strip()
 
     def has_prop(self, query: str, *, timeout_s: float = 2.0) -> bool:
         cp = subprocess.run(
