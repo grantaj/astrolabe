@@ -172,9 +172,7 @@ def main():
     pointing_subparsers = pointing_parser.add_subparsers(dest="mode", required=True)
     _add_pointing_subcommands(pointing_subparsers)
 
-    align_parser = subparsers.add_parser(
-        "align", help="(deprecated) Use `pointing`"
-    )
+    align_parser = subparsers.add_parser("align", help="(deprecated) Use `pointing`")
     align_subparsers = align_parser.add_subparsers(dest="mode", required=True)
     _add_pointing_subcommands(align_subparsers)
 
