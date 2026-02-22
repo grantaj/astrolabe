@@ -1,7 +1,7 @@
 from .goto import GotoService, GotoResult
 from .polar import PolarAlignService, PolarResult
 from .guide import GuidingService, GuidingStatus, CalibrationResult
-from .alignment import AlignmentService, AlignmentResult
+from .pointing import PointingService, PointingResult
 from .target import TargetResolver, TargetMatch, TargetRecord
 
 __all__ = [
@@ -12,8 +12,8 @@ __all__ = [
     "GuidingService",
     "GuidingStatus",
     "CalibrationResult",
-    "AlignmentService",
-    "AlignmentResult",
+    "PointingService",
+    "PointingResult",
     "TargetResolver",
     "TargetMatch",
     "TargetRecord",

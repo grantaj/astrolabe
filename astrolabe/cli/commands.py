@@ -15,7 +15,7 @@ from astrolabe.services import (
     GotoService,
     PolarAlignService,
     GuidingService,
-    AlignmentService,
+    PointingService,
 )
 from astrolabe.planner import Planner, ObserverLocation
 from astrolabe.planner.formatters import format_text as format_plan_text
@@ -740,7 +740,7 @@ def run_align(args) -> int:
     solver = get_solver_backend(config)
     if getattr(args, "dry_run", False):
         print("--dry-run has no effect for align.", file=sys.stderr)
-    service = AlignmentService(mount, camera, solver)
+    service = PointingService(mount, camera, solver)
 
     try:
         if args.mode == "solve":
@@ -796,14 +796,14 @@ def run_align(args) -> int:
             import json
 
             payload = _json_envelope(
-                command=f"align.{args.mode}",
+                command=f"pointing.{args.mode}",
                 ok=result.success,
                 data=result.__dict__,
                 error=None
                 if result.success
                 else {
                     "code": "align_failed",
-                    "message": result.message or f"align {args.mode} failed",
+                    "message": result.message or f"pointing {args.mode} failed",
                     "details": None,
                 },
             )

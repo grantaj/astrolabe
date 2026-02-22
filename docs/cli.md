@@ -269,6 +269,8 @@ Options:
 
 Pointing actions (solve-as-you-go model).
 
+Note: `align` is a deprecated alias for `pointing`.
+
 ### `pointing where`
 ```
 astrolabe pointing where [options]

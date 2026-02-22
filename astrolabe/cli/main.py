@@ -148,25 +148,35 @@ def main():
         "--max-iterations", type=int, default=5, help="Maximum iterations"
     )
 
-    align_parser = subparsers.add_parser("align", help="Plate-solve alignment")
+    def _add_pointing_subcommands(pointing_subparsers):
+        solve = pointing_subparsers.add_parser("solve", help="Solve current pointing")
+        solve.add_argument("--exposure", type=float, help="Exposure time in seconds")
+
+        sync = pointing_subparsers.add_parser(
+            "sync", help="Solve and sync current pointing"
+        )
+        sync.add_argument("--exposure", type=float, help="Exposure time in seconds")
+
+        init = pointing_subparsers.add_parser(
+            "init", help="Initial multi-point calibration"
+        )
+        init.add_argument(
+            "--targets", dest="target_count", type=int, default=3, help="Target count"
+        )
+        init.add_argument("--exposure", type=float, help="Exposure time in seconds")
+        init.add_argument("--max-attempts", type=int, help="Max attempts")
+
+    pointing_parser = subparsers.add_parser(
+        "pointing", help="Pointing solve/calibration"
+    )
+    pointing_subparsers = pointing_parser.add_subparsers(dest="mode", required=True)
+    _add_pointing_subcommands(pointing_subparsers)
+
+    align_parser = subparsers.add_parser(
+        "align", help="(deprecated) Use `pointing`"
+    )
     align_subparsers = align_parser.add_subparsers(dest="mode", required=True)
-
-    align_solve = align_subparsers.add_parser("solve", help="Solve current pointing")
-    align_solve.add_argument("--exposure", type=float, help="Exposure time in seconds")
-
-    align_sync = align_subparsers.add_parser(
-        "sync", help="Solve and sync current pointing"
-    )
-    align_sync.add_argument("--exposure", type=float, help="Exposure time in seconds")
-
-    align_init = align_subparsers.add_parser(
-        "init", help="Initial multi-point alignment"
-    )
-    align_init.add_argument(
-        "--targets", dest="target_count", type=int, default=3, help="Target count"
-    )
-    align_init.add_argument("--exposure", type=float, help="Exposure time in seconds")
-    align_init.add_argument("--max-attempts", type=int, help="Max attempts")
+    _add_pointing_subcommands(align_subparsers)
 
     polar_parser = subparsers.add_parser("polar", help="Polar alignment routine")
     polar_parser.add_argument(
@@ -293,6 +303,9 @@ def main():
 
     if args.command == "goto":
         return run_goto(args)
+
+    if args.command == "pointing":
+        return run_align(args)
 
     if args.command == "align":
         return run_align(args)
