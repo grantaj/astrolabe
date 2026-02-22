@@ -72,7 +72,11 @@ class PointingService:
             attempts += 1
             result = self.solve_current(exposure_s=exposure_s)
             last_rms = result.rms_arcsec
-            if result.success and result.ra_rad is not None and result.dec_rad is not None:
+            if (
+                result.success
+                and result.ra_rad is not None
+                and result.dec_rad is not None
+            ):
                 self._mount.sync(result.ra_rad, result.dec_rad)
                 successes += 1
 
@@ -81,5 +85,7 @@ class PointingService:
             solves_attempted=attempts,
             solves_succeeded=successes,
             rms_arcsec=last_rms,
-            message=None if successes >= target_count else "Pointing calibrate incomplete",
+            message=None
+            if successes >= target_count
+            else "Pointing calibrate incomplete",
         )
