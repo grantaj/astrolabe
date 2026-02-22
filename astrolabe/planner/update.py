@@ -40,7 +40,9 @@ def update_catalog(
             version = "master"
             cache_dir = _cache_dir(version)
             cache_dir.mkdir(parents=True, exist_ok=True)
-            cached_files = _fetch_all_sources(source, version, cache_dir)
+            cached_files = _fetch_all_sources(
+                source, version, cache_dir, show_progress=show_progress
+            )
         else:
             raise
 
