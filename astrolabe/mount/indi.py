@@ -119,7 +119,9 @@ class IndiMountBackend(MountBackend):
                 f"Timed out waiting for INDI device '{self.device}' "
                 f"on {self.host}:{self.port}."
             ) from last_error
-        self._client.setprop(f"{self.device}.CONNECTION.CONNECT", "On", soft=False)
+        self._client.setprop(
+            f"{self.device}.CONNECTION.CONNECT", "On", kind="s", soft=False
+        )
         time.sleep(_CONNECT_WAIT_S)
         self._connected = True
 
@@ -249,6 +251,7 @@ class IndiMountBackend(MountBackend):
                     "DEC": str(_rad_to_degrees(dec_jnow)),
                 },
                 kind="n",
+                order=["RA", "DEC"],
                 soft=False,
             )
         elif has_j2000:
@@ -260,6 +263,7 @@ class IndiMountBackend(MountBackend):
                     "DEC": str(_rad_to_degrees(dec_rad)),
                 },
                 kind="n",
+                order=["RA", "DEC"],
                 soft=False,
             )
         else:
@@ -280,7 +284,8 @@ class IndiMountBackend(MountBackend):
             try:
                 prop_state = self._client.getprop_state(coord_prop)
             except Exception:
-                break
+                time.sleep(0.2)
+                continue
             if prop_state.lower() != _INDI_BUSY.lower():
                 break
             time.sleep(0.2)
@@ -317,6 +322,7 @@ class IndiMountBackend(MountBackend):
                     "DEC": str(_rad_to_degrees(dec_jnow)),
                 },
                 kind="n",
+                order=["RA", "DEC"],
                 soft=False,
             )
         elif has_j2000:
@@ -328,6 +334,7 @@ class IndiMountBackend(MountBackend):
                     "DEC": str(_rad_to_degrees(dec_rad)),
                 },
                 kind="n",
+                order=["RA", "DEC"],
                 soft=False,
             )
         else:

@@ -133,10 +133,13 @@ class IndiClient:
         *,
         kind: str | None = None,
         soft: bool = True,
+        order: list[str] | None = None,
     ) -> None:
         # indi_setprop vector spec: device.property.e1;e2=v1;v2
-        elem_names = ";".join(elements.keys())
-        elem_values = ";".join(elements.values())
+        if order is None:
+            order = list(elements.keys())
+        elem_names = ";".join(order)
+        elem_values = ";".join(elements[name] for name in order)
         spec = f"{device}.{prop}.{elem_names}={elem_values}"
         args = [spec]
         if kind in {"n", "s", "x"}:

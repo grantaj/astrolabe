@@ -1,4 +1,5 @@
 import math
+import os
 import shutil
 import time
 from unittest.mock import patch
@@ -29,11 +30,12 @@ def test_connect_waits_for_device(mount):
     with (
         patch("astrolabe.mount.indi.IndiClient.wait_for_device") as mock_wait,
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
+        patch("astrolabe.mount.indi.time.sleep"),
     ):
         mount.connect()
         mock_wait.assert_called_once_with("Telescope Simulator", timeout_s=10.0)
         mock_setprop.assert_called_once_with(
-            "Telescope Simulator.CONNECTION.CONNECT", "On", soft=False
+            "Telescope Simulator.CONNECTION.CONNECT", "On", kind="s", soft=False
         )
         assert mount.is_connected()
 
@@ -55,6 +57,7 @@ def test_slew_to_jnow(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
         patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
         patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
+        patch("astrolabe.mount.indi.IndiClient.getprop_state", return_value="Ok"),
         patch("astrolabe.mount.indi.icrs_to_jnow") as mock_icrs,
     ):
 
@@ -91,6 +94,7 @@ def test_slew_to_j2000(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
         patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
         patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
+        patch("astrolabe.mount.indi.IndiClient.getprop_state", return_value="Ok"),
     ):
 
         def has_prop_mock(prop):
@@ -119,6 +123,7 @@ def test_sync_jnow(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
         patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
         patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
+        patch("astrolabe.mount.indi.IndiClient.getprop_state", return_value="Ok"),
         patch("astrolabe.mount.indi.icrs_to_jnow") as mock_icrs,
     ):
 
@@ -155,6 +160,7 @@ def test_sync_j2000(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
         patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
         patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
+        patch("astrolabe.mount.indi.IndiClient.getprop_state", return_value="Ok"),
     ):
 
         def has_prop_mock(prop):
@@ -189,6 +195,7 @@ def test_slew_to_wraps_ra_j2000(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
         patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
         patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
+        patch("astrolabe.mount.indi.IndiClient.getprop_state", return_value="Ok"),
     ):
 
         def has_prop_mock(prop):
@@ -218,6 +225,7 @@ def test_slew_to_wraps_ra_jnow(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop") as mock_setprop,
         patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
         patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
+        patch("astrolabe.mount.indi.IndiClient.getprop_state", return_value="Ok"),
         patch("astrolabe.mount.indi.icrs_to_jnow") as mock_icrs,
     ):
 
@@ -466,6 +474,7 @@ def test_set_tracking_auto_connects(mount):
         patch("astrolabe.mount.indi.IndiClient.wait_for_device"),
         patch("astrolabe.mount.indi.IndiClient.setprop"),
         patch("astrolabe.mount.indi.IndiClient.has_prop", return_value=True),
+        patch("astrolabe.mount.indi.time.sleep"),
     ):
         mount.set_tracking(True)
         assert mount.is_connected()
@@ -478,8 +487,10 @@ def test_slew_to_auto_connects(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop"),
         patch("astrolabe.mount.indi.IndiClient.setprop_vector"),
         patch("astrolabe.mount.indi.IndiClient.setprop_multi"),
+        patch("astrolabe.mount.indi.IndiClient.getprop_state", return_value="Ok"),
         patch("astrolabe.mount.indi.IndiClient.has_prop", return_value=True),
         patch("astrolabe.mount.indi.icrs_to_jnow", return_value=(0.0, 0.0)),
+        patch("astrolabe.mount.indi.time.sleep"),
     ):
         mount.slew_to(0.0, 0.0)
         assert mount.is_connected()
@@ -492,6 +503,7 @@ def test_get_state_auto_connects(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop"),
         patch("astrolabe.mount.indi.IndiClient.has_prop", return_value=False),
         patch("astrolabe.mount.indi.IndiClient.getprop_value", return_value=""),
+        patch("astrolabe.mount.indi.time.sleep"),
     ):
         state = mount.get_state()
         assert mount.is_connected()
@@ -500,6 +512,8 @@ def test_get_state_auto_connects(mount):
 
 @pytest.mark.integration
 def test_indi_mount_slew_and_state(config):
+    if os.environ.get("ASTROLABE_INDI_INTEGRATION") != "1":
+        pytest.skip("Set ASTROLABE_INDI_INTEGRATION=1 to run INDI integration tests")
     if shutil.which("indi_getprop") is None or shutil.which("indi_setprop") is None:
         pytest.skip("INDI tools not available")
 
@@ -613,6 +627,8 @@ def test_indi_mount_slew_and_state(config):
 
 @pytest.mark.integration
 def test_indi_mount_connect_and_state(config):
+    if os.environ.get("ASTROLABE_INDI_INTEGRATION") != "1":
+        pytest.skip("Set ASTROLABE_INDI_INTEGRATION=1 to run INDI integration tests")
     if shutil.which("indi_getprop") is None or shutil.which("indi_setprop") is None:
         pytest.skip("INDI tools not available")
 
