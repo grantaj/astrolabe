@@ -176,9 +176,7 @@ def main():
         )
         goto.add_argument("--ra-deg", type=float, help="Target RA in degrees")
         goto.add_argument("--dec-deg", type=float, help="Target Dec in degrees")
-        goto.add_argument(
-            "--exposure", type=float, help="Exposure time in seconds"
-        )
+        goto.add_argument("--exposure", type=float, help="Exposure time in seconds")
 
     pointing_parser = subparsers.add_parser(
         "pointing", help="Pointing solve/calibration"

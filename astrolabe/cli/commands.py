@@ -813,7 +813,11 @@ def run_align(args) -> int:
             result = service.solve_current(
                 exposure_s=args.exposure, use_mount_hints=False
             )
-            if result.success and result.ra_rad is not None and result.dec_rad is not None:
+            if (
+                result.success
+                and result.ra_rad is not None
+                and result.dec_rad is not None
+            ):
                 service.update_model_from_target(
                     ra_target=target_ra_rad,
                     dec_target=target_dec_rad,

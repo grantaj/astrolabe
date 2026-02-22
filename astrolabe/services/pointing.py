@@ -15,7 +15,13 @@ class PointingResult:
 
 
 class PointingService:
-    def __init__(self, mount_backend, camera_backend, solver_backend, model: PointingModel | None = None):
+    def __init__(
+        self,
+        mount_backend,
+        camera_backend,
+        solver_backend,
+        model: PointingModel | None = None,
+    ):
         self._mount = mount_backend
         self._camera = camera_backend
         self._solver = solver_backend
