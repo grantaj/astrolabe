@@ -58,25 +58,7 @@ class IndiCameraBackend(CameraBackend):
             self._gain_prop = "CCD_GAIN.VALUE"
         if self.output_dir is not None:
             self.output_dir.mkdir(parents=True, exist_ok=True)
-            self._client.setprop(
-                f"{self.device}.UPLOAD_MODE.UPLOAD_LOCAL", "On", soft=True
-            )
-            self._client.setprop(
-                f"{self.device}.UPLOAD_MODE.UPLOAD_CLIENT", "Off", soft=True
-            )
-            self._client.setprop(
-                f"{self.device}.UPLOAD_MODE.UPLOAD_BOTH", "Off", soft=True
-            )
-            self._client.setprop(
-                f"{self.device}.UPLOAD_SETTINGS.UPLOAD_DIR",
-                str(self.output_dir.resolve()),
-                soft=True,
-            )
-            self._client.setprop(
-                f"{self.device}.UPLOAD_SETTINGS.UPLOAD_PREFIX",
-                self.output_prefix,
-                soft=True,
-            )
+            self._ensure_upload_settings()
         self._connected = True
 
     def disconnect(self) -> None:
@@ -97,6 +79,9 @@ class IndiCameraBackend(CameraBackend):
     ) -> Image:
         if not self._connected:
             self.connect()
+        elif self.output_dir is not None:
+            # Some simulators reset upload mode/prefix between captures.
+            self._ensure_upload_settings()
 
         if gain is not None:
             if self._gain_prop is None:
@@ -124,44 +109,54 @@ class IndiCameraBackend(CameraBackend):
             self._client.setprop(f"{self.device}.CCD_FRAME.WIDTH", str(w), soft=True)
             self._client.setprop(f"{self.device}.CCD_FRAME.HEIGHT", str(h), soft=True)
 
-        base_path_str = ""
-        for _ in range(CCD_FILE_PATH_RETRY_COUNT):
-            if self._client.has_prop(f"{self.device}.CCD_FILE_PATH.FILE_PATH"):
-                try:
-                    base_path_str = self._client.getprop_value(
-                        f"{self.device}.CCD_FILE_PATH.FILE_PATH"
-                    )
-                except subprocess.CalledProcessError:
-                    base_path_str = ""
-            else:
-                base_path_str = ""
-            if base_path_str:
-                break
-            time.sleep(CCD_FILE_PATH_RETRY_SLEEP_S)
-        if not base_path_str:
-            if self.output_dir is not None:
-                base_path = self.output_dir / f"{self.output_prefix}.fits"
-            else:
-                raise RuntimeError(
-                    "CCD_FILE_PATH is empty; camera may not support local file uploads."
-                )
-        else:
-            base_path = Path(base_path_str)
-        if base_path.is_dir():
-            raise RuntimeError(f"CCD_FILE_PATH is a directory: {base_path}")
-        prev_mtime = base_path.stat().st_mtime if base_path.exists() else None
-
         exposure_prop = (
             "GUIDER_EXPOSURE.GUIDER_EXPOSURE_VALUE"
             if self.use_guider_exposure
             else "CCD_EXPOSURE.CCD_EXPOSURE_VALUE"
         )
+        exposure_start = time.time()
         self._client.setprop(
             f"{self.device}.{exposure_prop}", f"{exposure_s}", soft=False
         )
-
         timeout_s = max(DEFAULT_CAPTURE_TIMEOUT_S, exposure_s + 5.0)
-        _wait_for_mtime_increase(base_path, prev_mtime, timeout_s=timeout_s)
+        deadline = time.time() + timeout_s
+        base_path: Path | None = None
+        prev_mtime: float | None = None
+        last_path_str = ""
+        while time.time() < deadline:
+            if self._client.has_prop(f"{self.device}.CCD_FILE_PATH.FILE_PATH"):
+                try:
+                    path_str = self._client.getprop_value(
+                        f"{self.device}.CCD_FILE_PATH.FILE_PATH"
+                    )
+                except subprocess.CalledProcessError:
+                    path_str = ""
+            else:
+                path_str = ""
+
+            if path_str:
+                if path_str != last_path_str:
+                    candidate = Path(path_str)
+                    if candidate.is_dir():
+                        raise RuntimeError(f"CCD_FILE_PATH is a directory: {candidate}")
+                    base_path = candidate
+                    prev_mtime = (
+                        base_path.stat().st_mtime if base_path.exists() else None
+                    )
+                    last_path_str = path_str
+            elif base_path is None and self.output_dir is not None:
+                candidate = self.output_dir / f"{self.output_prefix}.fits"
+                base_path = candidate
+                prev_mtime = base_path.stat().st_mtime if base_path.exists() else None
+
+            if base_path and base_path.exists():
+                mt = base_path.stat().st_mtime
+                if prev_mtime is None or mt > prev_mtime or mt >= exposure_start - 0.5:
+                    break
+            time.sleep(0.1)
+
+        if base_path is None or not base_path.exists():
+            raise RuntimeError("Timed out waiting for CCD_FILE_PATH to produce a file")
 
         return Image(
             data=str(base_path),
@@ -175,4 +170,25 @@ class IndiCameraBackend(CameraBackend):
                 "indi_port": self.port,
                 "use_guider_exposure": self.use_guider_exposure,
             },
+        )
+
+    def _ensure_upload_settings(self) -> None:
+        self._client.setprop(
+            f"{self.device}.UPLOAD_MODE.UPLOAD_LOCAL", "On", kind="s", soft=True
+        )
+        self._client.setprop(
+            f"{self.device}.UPLOAD_MODE.UPLOAD_CLIENT", "Off", kind="s", soft=True
+        )
+        self._client.setprop(
+            f"{self.device}.UPLOAD_MODE.UPLOAD_BOTH", "Off", kind="s", soft=True
+        )
+        self._client.setprop(
+            f"{self.device}.UPLOAD_SETTINGS.UPLOAD_DIR",
+            str(self.output_dir.resolve()),
+            soft=True,
+        )
+        self._client.setprop(
+            f"{self.device}.UPLOAD_SETTINGS.UPLOAD_PREFIX",
+            self.output_prefix,
+            soft=True,
         )
