@@ -151,6 +151,33 @@ class IndiClient:
                 raise
             logging.warning(f"Could not set vector {spec} (may be unavailable): {e}")
 
+    def snapshot(self, device: str, *, timeout_s: float = 2.0) -> dict[str, str]:
+        """Fetch all property values and states for a device in one query."""
+        cp = subprocess.run(
+            [
+                "indi_getprop",
+                "-h",
+                self.host,
+                "-p",
+                str(self.port),
+                "-t",
+                str(timeout_s),
+                f"{device}.*.*",
+                f"{device}.*._STATE",
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        result: dict[str, str] = {}
+        for line in cp.stdout.splitlines():
+            eq = line.find("=")
+            if eq < 0:
+                continue
+            result[line[:eq]] = line[eq + 1 :]
+        return result
+
     def wait_for_device(self, device: str, *, timeout_s: float = 10.0) -> None:
         deadline = time.time() + timeout_s
         last = None
