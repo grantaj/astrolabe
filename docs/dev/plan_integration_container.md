@@ -30,7 +30,7 @@ No existing files are modified.
 
 ## 3. `.dockerignore`
 
-Excludes `.venv/`, `__pycache__/`, `.git/`, `.pytest_cache/`, `.ruff_cache/`, `testdata/raw/`, `tycho2/`, `hyg4.2/`, `build/`, `dist/`, `*.egg-info/`, `docs/dev/reviews/`.
+Excludes `.venv/`, `__pycache__/`, `*.pyc`, `*.pyo`, `.git/`, `.pytest_cache/`, `.ruff_cache/`, `.mypy_cache/`, `testdata/raw/`, `tycho2/`, `hyg4.2/`, `build/`, `dist/`, `*.egg-info/`, `docs/dev/reviews/`.
 
 Rationale: Tycho-2 data is downloaded inside the container. Excluding `.git` and `.venv` prevents multi-MB waste in the build context.
 
@@ -43,8 +43,9 @@ Base image: `ubuntu:24.04` (Noble — matches the INDI PPA `Suites: noble`).
 ### Layer structure (top to bottom)
 
 1. **System packages + INDI PPA**
+   - Install `ca-certificates` first (needed for PPA HTTPS).
    - Write the INDI PPA `.sources` file with embedded GPG key to `/etc/apt/sources.list.d/indi.sources`.
-   - Install: `indi-bin`, `libindi-dev`, `libindi1`, `python3.11`, `python3.11-venv`, `python3-pip`, `wget`, `ca-certificates`.
+   - Install: `indi-bin`, `libindi1`, `curl`, `wget`, `ca-certificates`. Python is managed by `uv` (see layer 5).
 
 2. **ASTAP CLI** (pinned version)
    - Download `.deb` from SourceForge (`astap_amd64.deb`).
@@ -61,18 +62,20 @@ Base image: `ubuntu:24.04` (Noble — matches the INDI PPA `Suites: noble`).
    - Installed at `/opt/astrolabe/tycho2/`.
 
 5. **Python environment**
+   - Install `uv` via its official installer script (downloaded from GitHub with SHA-256 checksum verification, pinned to a specific release).
    - Copy `pyproject.toml` + `uv.lock` first (layer caching).
-   - Install `uv` via pip, run `uv sync --extra dev --extra tools`.
+   - Run `uv venv --python 3.11 .venv && uv sync --extra dev --extra tools`.
 
 6. **Application code**
-   - `COPY . /opt/astrolabe/`
-   - `WORKDIR /opt/astrolabe`
+   - `WORKDIR /opt/astrolabe` (set earlier, before Tycho-2 install)
+   - `COPY . .`
 
 7. **Environment variables**
+   - `ASTAP_DB=/opt/astap` is set immediately after the D50 database install (layer 3) so it is available during subsequent build steps.
+   - The remaining variables are set after application code is copied:
    ```
    ASTROLABE_INDI_INTEGRATION=1
    ASTAP_CLI=astap_cli
-   ASTAP_DB=/opt/astap
    ```
 
 8. **Entrypoint**
@@ -84,17 +87,16 @@ Base image: `ubuntu:24.04` (Noble — matches the INDI PPA `Suites: noble`).
 - **Single stage:** all dependencies are runtime (INDI, ASTAP, Python), so multi-stage would not save image size.
 - **Layer ordering:** system pkgs → ASTAP → database → Tycho-2 → Python deps → app code. Maximises Docker layer cache reuse; the expensive download layers rarely change.
 - **No `USER` switch:** INDI simulators and ASTAP run as root in a disposable CI container. No secrets involved.
-- **Pinned versions:** ASTAP `.deb` pinned to a specific release for reproducible builds.
+- **Pinned versions:** ASTAP `.deb` pinned to a specific release for reproducible builds. `uv` installer pinned by version and SHA-256 checksum.
 
 ---
 
 ## 5. `scripts/integration-entrypoint.sh`
 
-1. Start `indiserver indi_simulator_telescope` in background.
-2. Poll `indi_getprop` until the simulator device appears (15 s timeout).
-3. Run `uv run pytest --integration "$@"`.
-4. Propagate pytest exit code.
-5. Trap `EXIT` to kill `indiserver`.
+1. Trap `EXIT` to kill `indiserver` on any exit.
+2. Start `indiserver indi_simulator_telescope` in background.
+3. Poll `indi_getprop -1 -t 1 "Telescope Simulator.CONNECTION.CONNECT"` until it returns `Off` (device exists but is not yet connected), with a 15 s timeout (30 iterations × 0.5 s).
+4. `exec uv run pytest "$@"` — replaces the shell process with pytest. The `--integration` flag is supplied via `CMD` in the Dockerfile, so it appears in `$@` by default.
 
 The solver test's `synthetic_fits_path` fixture handles FITS generation internally — it symlinks `tycho2/` from the repo root and runs `gen_catalog_starfield.py` in a temp directory. The entrypoint only needs to ensure `tycho2/` exists at `/opt/astrolabe/tycho2/`.
 
