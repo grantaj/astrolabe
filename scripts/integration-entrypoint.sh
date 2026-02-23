@@ -16,7 +16,7 @@ echo "[integration] Waiting for INDI device to become available..."
 ready=false
 for _ in $(seq 1 30); do
   if indi_getprop -1 -t 1 "Telescope Simulator.CONNECTION.CONNECT" 2>/dev/null \
-     | grep -q "Telescope Simulator"; then
+     | grep -q "Off"; then
     ready=true
     break
   fi
