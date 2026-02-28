@@ -12,7 +12,7 @@ Date: 2026-02-22
 |---|---|---|---|
 | `test_indi_mount_slew_and_state` | `tests/mount/test_indi_mount.py` | `indiserver`, `indi_simulator_telescope`, `indi_getprop`, `indi_setprop` | None |
 | `test_indi_mount_connect_and_state` | `tests/mount/test_indi_mount.py` | Same as above | None |
-| `test_astap_solve_integration_synthetic` | `tests/solver/test_astap.py` | `astap_cli` | D50 star database, Tycho-2 catalog → synthetic FITS |
+| `test_astap_solve_integration_synthetic` | `tests/solver/test_astap.py` | `astap_cli`, `indiserver`, `indi_simulator_ccd` | D50 star database, Tycho-2 catalog → synthetic FITS |
 
 ---
 
@@ -45,7 +45,7 @@ Base image: `ubuntu:24.04` (Noble — matches the INDI PPA `Suites: noble`).
 1. **System packages + INDI PPA**
    - Install `ca-certificates` first (needed for PPA HTTPS).
    - Write the INDI PPA `.sources` file with embedded GPG key to `/etc/apt/sources.list.d/indi.sources`.
-   - Install: `indi-bin`, `libindi1`, `curl`, `wget`, `ca-certificates`. Python is managed by `uv` (see layer 5).
+   - Install: `indi-bin`, `libindi1`, `curl`, `ca-certificates`. Python is managed by `uv` (see layer 5).
 
 2. **ASTAP CLI** (pinned version)
    - Download `.deb` from SourceForge (`astap_amd64.deb`).
@@ -94,7 +94,7 @@ Base image: `ubuntu:24.04` (Noble — matches the INDI PPA `Suites: noble`).
 ## 5. `scripts/integration-entrypoint.sh`
 
 1. Trap `EXIT` to kill `indiserver` on any exit.
-2. Start `indiserver indi_simulator_telescope` in background.
+2. Start `indiserver indi_simulator_telescope indi_simulator_ccd` in background. The CCD simulator is needed by solver integration tests that capture synthetic FITS frames.
 3. Poll `indi_getprop -1 -t 1 "Telescope Simulator.CONNECTION.CONNECT"` until it returns `Off` (device exists but is not yet connected), with a 15 s timeout (30 iterations × 0.5 s).
 4. `exec uv run pytest "$@"` — replaces the shell process with pytest. The `--integration` flag is supplied via `CMD` in the Dockerfile, so it appears in `$@` by default.
 
@@ -128,7 +128,7 @@ docker run --rm astrolabe-integration --integration -v
 | Risk | Impact | Mitigation |
 |---|---|---|
 | ASTAP SourceForge URL changes | Build fails | Pin exact URL with version. Add clear error message. |
-| Tycho-2 CDS mirror slow/down | Build very slow or fails | `wget -c` retries. Layer is cached after first build. |
+| Tycho-2 CDS mirror slow/down | Build very slow or fails | `curl -C -` retries. Layer is cached after first build. |
 | INDI PPA key rotation | `apt-get update` fails | GPG key embedded in `.sources` file; update Dockerfile when rotated. |
 | Image size (~1–2 GB) | Slow CI pulls | Acceptable for self-contained integration. Data layers are cached. |
 | `indiserver` startup race | Mount tests fail intermittently | Polling loop with timeout in entrypoint ensures readiness. |

@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.x
+
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -45,24 +47,24 @@ Signed-By:
  -----END PGP PUBLIC KEY BLOCK-----
 INDI_SOURCES
 
+ARG INDI_VERSION=2.1.9+202602201352~ubuntu24.04.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        indi-bin \
-        libindi1 \
+        indi-bin=${INDI_VERSION} \
+        libindi1=${INDI_VERSION} \
         curl \
-        wget \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Layer 2: ASTAP CLI ───────────────────────────────────────────────
-RUN wget -q -O /tmp/astap_amd64.deb \
+RUN curl -fSL -o /tmp/astap_amd64.deb \
         "https://sourceforge.net/projects/astap-program/files/linux_installer/astap_amd64.deb/download" \
     && (dpkg -i /tmp/astap_amd64.deb \
         || (apt-get update && apt-get -f install -y --no-install-recommends \
             && rm -rf /var/lib/apt/lists/*)) \
     && rm /tmp/astap_amd64.deb \
-    && (astap_cli -h > /dev/null 2>&1 || true)
+    && astap_cli -h > /dev/null 2>&1
 
 # ── Layer 3: ASTAP D50 star database ────────────────────────────────
-RUN wget -q -O /tmp/d50_star_database.deb \
+RUN curl -fSL -o /tmp/d50_star_database.deb \
         "https://sourceforge.net/projects/astap-program/files/star_databases/d50_star_database.deb/download" \
     && dpkg -i /tmp/d50_star_database.deb \
     && rm /tmp/d50_star_database.deb
@@ -88,6 +90,7 @@ RUN uv venv --python 3.11 .venv \
 # ── Layer 6: Application code ───────────────────────────────────────
 # .dockerignore excludes tycho2/, so COPY won't overwrite downloaded data
 COPY . .
+RUN chmod +x scripts/integration-entrypoint.sh
 
 # ── Environment ─────────────────────────────────────────────────────
 ENV ASTROLABE_INDI_INTEGRATION=1
