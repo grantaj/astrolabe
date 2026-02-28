@@ -24,7 +24,7 @@ Date: 2026-02-22
 | `.dockerignore` | Exclude build artifacts from context |
 | `scripts/integration-entrypoint.sh` | Entrypoint: starts INDI, runs tests |
 
-No existing files are modified.
+The following existing files are modified: `scripts/install-tycho2.sh`, `astrolabe/mount/indi.py`, and `astrolabe/indi/client.py`.
 
 ---
 
