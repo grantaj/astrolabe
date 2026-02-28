@@ -9,7 +9,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "[integration] Starting indiserver with telescope simulator..."
-indiserver indi_simulator_telescope &
+indiserver indi_simulator_telescope indi_simulator_ccd &
 INDI_PID=$!
 
 echo "[integration] Waiting for INDI device to become available..."
