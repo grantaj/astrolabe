@@ -12,7 +12,7 @@ Date: 2026-02-22
 |---|---|---|---|
 | `test_indi_mount_slew_and_state` | `tests/mount/test_indi_mount.py` | `indiserver`, `indi_simulator_telescope`, `indi_getprop`, `indi_setprop` | None |
 | `test_indi_mount_connect_and_state` | `tests/mount/test_indi_mount.py` | Same as above | None |
-| `test_astap_solve_integration_synthetic` | `tests/solver/test_astap.py` | `astap_cli`, `indiserver`, `indi_simulator_ccd` | D50 star database, Tycho-2 catalog → synthetic FITS |
+| `test_astap_solve_integration_synthetic` | `tests/solver/test_astap.py` | `astap_cli`, `indiserver`, `indi_simulator_ccd` | D05 star database, Tycho-2 catalog → synthetic FITS |
 
 ---
 
@@ -43,17 +43,16 @@ Base image: `ubuntu:24.04` (Noble — matches the INDI PPA `Suites: noble`).
 ### Layer structure (top to bottom)
 
 1. **System packages + INDI PPA**
-   - Install `ca-certificates` first (needed for PPA HTTPS).
+   - First `RUN`: install `ca-certificates` (needed for PPA HTTPS).
    - Write the INDI PPA `.sources` file with embedded GPG key to `/etc/apt/sources.list.d/indi.sources`.
-   - Install: `indi-bin`, `libindi1`, `curl`, `ca-certificates`. Python is managed by `uv` (see layer 5).
+   - Second `RUN`: install `curl`, `indi-bin`, `libindi1`, `unzip`. INDI is version-pinned via a build `ARG` (e.g. `INDI_VERSION=2.1.9+…`). Python is managed by `uv` (see layer 5).
 
-2. **ASTAP CLI** (pinned version)
-   - Download `.deb` from SourceForge (`astap_amd64.deb`).
-   - Install with `dpkg -i` + `apt-get -f install -y`.
-   - Verify: `astap_cli -h`.
+2. **ASTAP CLI** (SHA-256 pinned)
+   - Download `.zip` from SourceForge (`astap_cli_amd64.zip`).
+   - Verify SHA-256 checksum, extract with `unzip -d /usr/bin/`.
 
-3. **ASTAP D50 star database**
-   - Download D50 `.deb` from SourceForge.
+3. **ASTAP D05 star database**
+   - Download D05 `.deb` from SourceForge.
    - Install with `dpkg -i`.
    - Set `ASTAP_DB` env var to installed path.
 
@@ -62,7 +61,7 @@ Base image: `ubuntu:24.04` (Noble — matches the INDI PPA `Suites: noble`).
    - Installed at `/opt/astrolabe/tycho2/`.
 
 5. **Python environment**
-   - Install `uv` via its official installer script (downloaded from GitHub with SHA-256 checksum verification, pinned to a specific release).
+   - Install `uv` via its official installer script (downloaded from GitHub with SHA-256 checksum verification, pinned to a specific release). Set `PATH` to include `/root/.local/bin` so `uv` is available in subsequent layers.
    - Copy `pyproject.toml` + `uv.lock` first (layer caching).
    - Run `uv venv --python 3.11 .venv && uv sync --extra dev --extra tools`.
 
@@ -71,7 +70,7 @@ Base image: `ubuntu:24.04` (Noble — matches the INDI PPA `Suites: noble`).
    - `COPY . .`
 
 7. **Environment variables**
-   - `ASTAP_DB=/opt/astap` is set immediately after the D50 database install (layer 3) so it is available during subsequent build steps.
+   - `ASTAP_DB=/opt/astap` is set immediately after the D05 database install (layer 3) so it is available during subsequent build steps.
    - The remaining variables are set after application code is copied:
    ```
    ASTROLABE_INDI_INTEGRATION=1
@@ -87,7 +86,7 @@ Base image: `ubuntu:24.04` (Noble — matches the INDI PPA `Suites: noble`).
 - **Single stage:** all dependencies are runtime (INDI, ASTAP, Python), so multi-stage would not save image size.
 - **Layer ordering:** system pkgs → ASTAP → database → Tycho-2 → Python deps → app code. Maximises Docker layer cache reuse; the expensive download layers rarely change.
 - **No `USER` switch:** INDI simulators and ASTAP run as root in a disposable CI container. No secrets involved.
-- **Pinned versions:** ASTAP `.deb` pinned to a specific release for reproducible builds. `uv` installer pinned by version and SHA-256 checksum.
+- **Pinned versions:** INDI is version-pinned via a build `ARG`. ASTAP CLI `.zip` is SHA-256 pinned for reproducible builds (the SourceForge URL is not versioned). `uv` installer pinned by version and SHA-256 checksum.
 
 ---
 
