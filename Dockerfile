@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.x
+# syntax=docker/dockerfile:1
 
 FROM ubuntu:24.04
 
@@ -49,26 +49,25 @@ INDI_SOURCES
 
 ARG INDI_VERSION=2.1.9+202602201352~ubuntu24.04.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
         indi-bin=${INDI_VERSION} \
         libindi1=${INDI_VERSION} \
-        curl \
+        unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Layer 2: ASTAP CLI ───────────────────────────────────────────────
-RUN curl -fSL -o /tmp/astap_amd64.deb \
-        "https://sourceforge.net/projects/astap-program/files/linux_installer/astap_amd64.deb/download" \
-    && (dpkg -i /tmp/astap_amd64.deb \
-        || (apt-get update && apt-get -f install -y --no-install-recommends \
-            && rm -rf /var/lib/apt/lists/*)) \
-    && rm /tmp/astap_amd64.deb \
-    && astap_cli -h > /dev/null 2>&1
+# ── Layer 2: ASTAP CLI ──────────────────────────────────────────────
+RUN curl -fSL -o astap_cli_amd64.zip \
+        "https://sourceforge.net/projects/astap-program/files/linux_installer/astap_command-line_version_Linux_amd64.zip/download" \
+    && echo "fca72cff7cf7db2811262710d53e88242d6ef2e74eac444fef95b73244f37e0f astap_cli_amd64.zip" | sha256sum -c - \
+    && unzip astap_cli_amd64.zip -d /usr/bin/ \
+    && rm astap_cli_amd64.zip
 
-# ── Layer 3: ASTAP D50 star database ────────────────────────────────
-RUN curl -fSL -o /tmp/d50_star_database.deb \
-        "https://sourceforge.net/projects/astap-program/files/star_databases/d50_star_database.deb/download" \
-    && dpkg -i /tmp/d50_star_database.deb \
-    && rm /tmp/d50_star_database.deb
-
+# ── Layer 3: ASTAP D05 star database ────────────────────────────────
+RUN curl -fSL -o d05_star_database.deb \
+        "https://sourceforge.net/projects/astap-program/files/star_databases/d05_star_database.deb/download" \
+    && echo "e00b276e86c5673aef862d4fa093e739bd58cad267af916756409770fd0bd8eb d05_star_database.deb" | sha256sum -c - \
+    && dpkg -i d05_star_database.deb \
+    && rm d05_star_database.deb
 ENV ASTAP_DB=/opt/astap
 
 # ── Layer 4: Tycho-2 catalog (~120 MB from CDS Strasbourg) ──────────
@@ -78,7 +77,7 @@ RUN bash scripts/install-tycho2.sh
 
 # ── Layer 5: uv + Python 3.11 + project dependencies ────────────────
 ENV PATH="/root/.local/bin:$PATH"
-RUN curl --proto =https --tlsv1.2 -LsSfO https://github.com/astral-sh/uv/releases/download/0.10.4/uv-installer.sh \
+RUN curl --proto "=https" --tlsv1.2 -LsSfO https://github.com/astral-sh/uv/releases/download/0.10.4/uv-installer.sh \
     && echo "169fd7c68bdd40f80ab25635b1e10adfc8cef58b4935017e8560c87639d4544c uv-installer.sh" | sha256sum -c - \
     && sh uv-installer.sh \
     && rm uv-installer.sh
