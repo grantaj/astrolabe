@@ -251,33 +251,16 @@ def test_slew_to_wraps_ra_jnow(mount):
 
 def test_get_state_jnow(mount):
     mount._connected = True
+    snap = {
+        "Telescope Simulator.EQUATORIAL_EOD_COORD.RA": "6.0",
+        "Telescope Simulator.EQUATORIAL_EOD_COORD.DEC": "45.0",
+        "Telescope Simulator.EQUATORIAL_EOD_COORD._STATE": "Ok",
+        "Telescope Simulator.TELESCOPE_TRACK_STATE.TRACK_ON": "On",
+    }
     with (
-        patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
-        patch("astrolabe.mount.indi.IndiClient.getprop_value") as mock_getprop,
-        patch("astrolabe.mount.indi.IndiClient.getprop_state") as mock_getprop_state,
+        patch("astrolabe.mount.indi.IndiClient.snapshot", return_value=snap),
         patch("astrolabe.mount.indi.jnow_to_icrs") as mock_jnow_to_icrs,
     ):
-
-        def has_prop_mock(prop):
-            if "EQUATORIAL_EOD_COORD" in prop:
-                return True
-            if "TELESCOPE_TRACK_STATE.TRACK_ON" in prop:
-                return True
-            return False
-
-        mock_has_prop.side_effect = has_prop_mock
-
-        def getprop_mock(prop):
-            if "EQUATORIAL_EOD_COORD.RA" in prop:
-                return "6.0"
-            if "EQUATORIAL_EOD_COORD.DEC" in prop:
-                return "45.0"
-            if "TRACK_ON" in prop:
-                return "On"
-            return ""
-
-        mock_getprop.side_effect = getprop_mock
-        mock_getprop_state.return_value = "Ok"
         mock_jnow_to_icrs.return_value = (math.pi / 2, math.pi / 4)
 
         state = mount.get_state()
@@ -287,77 +270,35 @@ def test_get_state_jnow(mount):
         assert math.isclose(state.ra_rad, math.pi / 2)
         assert math.isclose(state.dec_rad, math.pi / 4)
         assert state.slewing is False
-        mock_getprop_state.assert_called_once_with(
-            "Telescope Simulator.EQUATORIAL_EOD_COORD"
-        )
 
 
 def test_get_state_detects_slewing(mount):
     mount._connected = True
+    snap = {
+        "Telescope Simulator.EQUATORIAL_EOD_COORD.RA": "6.0",
+        "Telescope Simulator.EQUATORIAL_EOD_COORD.DEC": "45.0",
+        "Telescope Simulator.EQUATORIAL_EOD_COORD._STATE": "Busy",
+    }
     with (
-        patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
-        patch("astrolabe.mount.indi.IndiClient.getprop_value") as mock_getprop,
-        patch("astrolabe.mount.indi.IndiClient.getprop_state") as mock_getprop_state,
+        patch("astrolabe.mount.indi.IndiClient.snapshot", return_value=snap),
         patch("astrolabe.mount.indi.jnow_to_icrs") as mock_jnow_to_icrs,
     ):
-
-        def has_prop_mock(prop):
-            if "EQUATORIAL_EOD_COORD" in prop:
-                return True
-            return False
-
-        mock_has_prop.side_effect = has_prop_mock
-
-        def getprop_mock(prop):
-            if "EQUATORIAL_EOD_COORD.RA" in prop:
-                return "6.0"
-            if "EQUATORIAL_EOD_COORD.DEC" in prop:
-                return "45.0"
-            return ""
-
-        mock_getprop.side_effect = getprop_mock
-        mock_getprop_state.return_value = "Busy"
         mock_jnow_to_icrs.return_value = (math.pi / 2, math.pi / 4)
 
         state = mount.get_state()
 
         assert state.slewing is True
-        mock_getprop_state.assert_called_once_with(
-            "Telescope Simulator.EQUATORIAL_EOD_COORD"
-        )
 
 
 def test_get_state_j2000(mount):
     mount._connected = True
-    with (
-        patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
-        patch("astrolabe.mount.indi.IndiClient.getprop_value") as mock_getprop,
-        patch("astrolabe.mount.indi.IndiClient.getprop_state") as mock_getprop_state,
-    ):
-
-        def has_prop_mock(prop):
-            if "EQUATORIAL_EOD_COORD" in prop:
-                return False
-            if "EQUATORIAL_COORD" in prop:
-                return True
-            if "TELESCOPE_TRACK_STATE.TRACK_ON" in prop:
-                return True
-            return False
-
-        mock_has_prop.side_effect = has_prop_mock
-
-        def getprop_mock(prop):
-            if "EQUATORIAL_COORD.RA" in prop:
-                return "1.0"
-            if "EQUATORIAL_COORD.DEC" in prop:
-                return "2.0"
-            if "TRACK_ON" in prop:
-                return "On"
-            return ""
-
-        mock_getprop.side_effect = getprop_mock
-        mock_getprop_state.return_value = "Ok"
-
+    snap = {
+        "Telescope Simulator.EQUATORIAL_COORD.RA": "1.0",
+        "Telescope Simulator.EQUATORIAL_COORD.DEC": "2.0",
+        "Telescope Simulator.EQUATORIAL_COORD._STATE": "Ok",
+        "Telescope Simulator.TELESCOPE_TRACK_STATE.TRACK_ON": "On",
+    }
+    with patch("astrolabe.mount.indi.IndiClient.snapshot", return_value=snap):
         state = mount.get_state()
 
         assert state.connected is True
@@ -365,9 +306,6 @@ def test_get_state_j2000(mount):
         assert math.isclose(state.ra_rad, _hours_to_rad(1.0))
         assert math.isclose(state.dec_rad, _degrees_to_rad(2.0))
         assert state.slewing is False
-        mock_getprop_state.assert_called_once_with(
-            "Telescope Simulator.EQUATORIAL_COORD"
-        )
 
 
 def test_set_tracking_enables(mount):
@@ -501,8 +439,7 @@ def test_get_state_auto_connects(mount):
     with (
         patch("astrolabe.mount.indi.IndiClient.wait_for_device"),
         patch("astrolabe.mount.indi.IndiClient.setprop"),
-        patch("astrolabe.mount.indi.IndiClient.has_prop", return_value=False),
-        patch("astrolabe.mount.indi.IndiClient.getprop_value", return_value=""),
+        patch("astrolabe.mount.indi.IndiClient.snapshot", return_value={}),
         patch("astrolabe.mount.indi.time.sleep"),
     ):
         state = mount.get_state()

@@ -138,56 +138,42 @@ class IndiMountBackend(MountBackend):
         if not self._connected:
             self.connect()
 
-        # Determine coordinate property
-        has_jnow = self._client.has_prop(f"{self.device}.EQUATORIAL_EOD_COORD.RA")
-        has_j2000 = self._client.has_prop(f"{self.device}.EQUATORIAL_COORD.RA")
+        snap = self._client.snapshot(self.device)
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+
+        jnow_ra_key = f"{self.device}.EQUATORIAL_EOD_COORD.RA"
+        j2000_ra_key = f"{self.device}.EQUATORIAL_COORD.RA"
+        has_jnow = jnow_ra_key in snap
+        has_j2000 = j2000_ra_key in snap
 
         ra_rad = None
         dec_rad = None
-        now_utc = datetime.datetime.now(datetime.timezone.utc)
 
         if has_jnow:
-            ra_str = self._client.getprop_value(
-                f"{self.device}.EQUATORIAL_EOD_COORD.RA"
+            ra_jnow = _hours_to_rad(float(snap[jnow_ra_key]))
+            dec_jnow = _degrees_to_rad(
+                float(snap[f"{self.device}.EQUATORIAL_EOD_COORD.DEC"])
             )
-            dec_str = self._client.getprop_value(
-                f"{self.device}.EQUATORIAL_EOD_COORD.DEC"
-            )
-            ra_jnow = _hours_to_rad(float(ra_str))
-            dec_jnow = _degrees_to_rad(float(dec_str))
             ra_rad, dec_rad = jnow_to_icrs(ra_jnow, dec_jnow, now_utc)
         elif has_j2000:
-            ra_str = self._client.getprop_value(f"{self.device}.EQUATORIAL_COORD.RA")
-            dec_str = self._client.getprop_value(f"{self.device}.EQUATORIAL_COORD.DEC")
-            ra_rad = _hours_to_rad(float(ra_str))
-            dec_rad = _degrees_to_rad(float(dec_str))
-
-        # Tracking state
-        tracking = False
-        if self._client.has_prop(f"{self.device}.TELESCOPE_TRACK_STATE.TRACK_ON"):
-            track_on = self._client.getprop_value(
-                f"{self.device}.TELESCOPE_TRACK_STATE.TRACK_ON"
+            ra_rad = _hours_to_rad(float(snap[j2000_ra_key]))
+            dec_rad = _degrees_to_rad(
+                float(snap[f"{self.device}.EQUATORIAL_COORD.DEC"])
             )
-            tracking = track_on.lower() == _INDI_ON.lower()
 
-        # Slewing state: observe EQUATORIAL_EOD_COORD (or EQUATORIAL_COORD) property state.
-        # The property state will be "Busy" during a slew operation.
+        track_key = f"{self.device}.TELESCOPE_TRACK_STATE.TRACK_ON"
+        tracking = snap.get(track_key, "").lower() == _INDI_ON.lower()
+
         slewing = False
         if has_jnow:
-            coord_prop = f"{self.device}.EQUATORIAL_EOD_COORD"
+            state_key = f"{self.device}.EQUATORIAL_EOD_COORD._STATE"
         elif has_j2000:
-            coord_prop = f"{self.device}.EQUATORIAL_COORD"
+            state_key = f"{self.device}.EQUATORIAL_COORD._STATE"
         else:
-            coord_prop = None
+            state_key = None
 
-        if coord_prop is not None:
-            try:
-                prop_state = self._client.getprop_state(coord_prop)
-                slewing = prop_state.lower() == _INDI_BUSY.lower()
-            except Exception:
-                logger.debug(
-                    "Failed to read slew state for %s", coord_prop, exc_info=True
-                )
+        if state_key is not None:
+            slewing = snap.get(state_key, "").lower() == _INDI_BUSY.lower()
 
         return MountState(
             connected=True,
