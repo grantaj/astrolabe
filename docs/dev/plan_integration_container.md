@@ -127,7 +127,7 @@ docker run --rm astrolabe-integration --integration -v
 | Risk | Impact | Mitigation |
 |---|---|---|
 | ASTAP SourceForge URL changes | Build fails | Pin exact URL with version. Add clear error message. |
-| Tycho-2 CDS mirror slow/down | Build very slow or fails | `curl -C -` retries. Layer is cached after first build. |
+| Tycho-2 CDS mirror slow/down | Build very slow or fails | `curl -C - --retry 5 --retry-all-errors --retry-delay 3`. Layer is cached after first build. |
 | INDI PPA key rotation | `apt-get update` fails | GPG key embedded in `.sources` file; update Dockerfile when rotated. |
 | Image size (~1–2 GB) | Slow CI pulls | Acceptable for self-contained integration. Data layers are cached. |
 | `indiserver` startup race | Mount tests fail intermittently | Polling loop with timeout in entrypoint ensures readiness. |
