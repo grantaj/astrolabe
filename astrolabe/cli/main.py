@@ -146,6 +146,24 @@ def main():
     polar_parser.add_argument(
         "--ra-rotation-deg", type=float, required=True, help="RA rotation in degrees"
     )
+    polar_parser.add_argument(
+        "--latitude-deg",
+        type=float,
+        required=True,
+        help="Observer latitude in degrees (positive north)",
+    )
+    polar_parser.add_argument(
+        "--exposure",
+        type=float,
+        default=2.0,
+        help="Exposure time in seconds (default: 2.0)",
+    )
+    polar_parser.add_argument(
+        "--settle-time",
+        type=float,
+        default=2.0,
+        help="Settle time after slew in seconds (default: 2.0)",
+    )
 
     guide_parser = subparsers.add_parser("guide", help="Guiding control")
     guide_subparsers = guide_parser.add_subparsers(dest="action", required=True)

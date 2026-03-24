@@ -20,7 +20,7 @@ from astrolabe.services import (
 from astrolabe.planner import Planner, ObserverLocation
 from astrolabe.planner.formatters import format_text as format_plan_text
 from astrolabe.planner.update import update_catalog
-from astrolabe.errors import NotImplementedFeature
+from astrolabe.errors import NotImplementedFeature, ServiceError
 from astrolabe.solver.types import Image, SolveRequest
 from astrolabe.util.format import rad_to_hms, rad_to_dms, rad_to_deg
 
@@ -713,7 +713,12 @@ def run_polar(args) -> int:
     service = PolarAlignService(mount, camera, solver)
 
     try:
-        result = service.run(ra_rotation_rad=math.radians(args.ra_rotation_deg))
+        result = service.run(
+            ra_rotation_rad=math.radians(args.ra_rotation_deg),
+            site_latitude_rad=math.radians(args.latitude_deg),
+            exposure_s=args.exposure,
+            settle_time_s=args.settle_time,
+        )
         if getattr(args, "json", False):
             import json
 
@@ -733,6 +738,20 @@ def run_polar(args) -> int:
         return 0
     except NotImplementedFeature as e:
         return _handle_not_implemented("polar", args, e)
+    except ServiceError as e:
+        if getattr(args, "json", False):
+            import json
+
+            payload = _json_envelope(
+                command="polar",
+                ok=False,
+                data=None,
+                error=str(e),
+            )
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
 
 
 def run_guide(args) -> int:
