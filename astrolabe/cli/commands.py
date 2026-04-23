@@ -277,7 +277,8 @@ def _parse_roi(value: str | None) -> tuple[int, int, int, int] | None:
     parts = [p.strip() for p in value.split(",")]
     if len(parts) != 4:
         raise ValueError("ROI must be in x,y,w,h format")
-    return tuple(int(p) for p in parts)  # type: ignore[return-value]
+    x, y, w, h = (int(p) for p in parts)
+    return (x, y, w, h)
 
 
 def _parse_datetime_arg(value: str | None) -> datetime.datetime | None:

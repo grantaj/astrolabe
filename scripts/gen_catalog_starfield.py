@@ -159,9 +159,9 @@ elif hyg_path.exists():
     print(f"HYG after cone filter: {len(ra_arr)} stars.")
 else:
     # Query Gaia for stars in the field (with local cache)
-    VizierConf.row_limit = row_limit
-    VizierConf.timeout = 300
-    VizierConf.server = "vizier.cfa.harvard.edu"  # alt mirror; swap if needed
+    VizierConf.row_limit = row_limit  # ty: ignore[invalid-assignment]  # ConfigItem descriptor accepts raw values
+    VizierConf.timeout = 300  # ty: ignore[invalid-assignment]
+    VizierConf.server = "vizier.cfa.harvard.edu"  # ty: ignore[invalid-assignment]  # alt mirror; swap if needed
     if cache_path.exists():
         data = np.load(cache_path)
         ra_arr = data["ra"]
