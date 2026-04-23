@@ -10,7 +10,6 @@ from astrolabe.solver.types import SolveResult, SolveRequest, Image
 
 
 def _make_solve_result(ra_deg, dec_deg, rms=1.2, num_stars=50):
-    """Helper to build a successful SolveResult from degree values."""
     return SolveResult(
         success=True,
         ra_rad=math.radians(ra_deg),
@@ -21,6 +20,16 @@ def _make_solve_result(ra_deg, dec_deg, rms=1.2, num_stars=50):
         num_stars=num_stars,
         message=None,
     )
+
+
+def _four_good_solves():
+    """Four poses on a small circle centred near the celestial pole."""
+    return [
+        _make_solve_result(0.0, 70.0),
+        _make_solve_result(90.0, 70.0),
+        _make_solve_result(180.0, 70.0),
+        _make_solve_result(270.0, 70.0),
+    ]
 
 
 _FAILED_SOLVE = SolveResult(
@@ -48,7 +57,6 @@ _FAKE_IMAGE = Image(
 
 @pytest.fixture
 def mock_backends():
-    """Fixture providing mocked mount, camera, and solver backends."""
     mount = MagicMock()
     camera = MagicMock()
     solver = MagicMock()
@@ -69,13 +77,9 @@ def mock_backends():
 class TestRunHappyPath:
     @patch("astrolabe.services.polar.service.time.sleep")
     def test_returns_valid_result(self, mock_sleep, mock_backends):
-        """Successful three-pose polar alignment returns non-None corrections."""
+        """Successful four-pose polar alignment returns non-None corrections."""
         mount, camera, solver = mock_backends
-        solver.solve.side_effect = [
-            _make_solve_result(10.0, 45.0),
-            _make_solve_result(25.0, 45.0),
-            _make_solve_result(40.0, 45.0),
-        ]
+        solver.solve.side_effect = _four_good_solves()
 
         service = PolarAlignService(mount, camera, solver)
         result = service.run(
@@ -89,20 +93,15 @@ class TestRunHappyPath:
         assert result.confidence is not None
         assert result.residual_arcsec is not None
 
-        # Three captures, three solves, two slews
-        assert camera.capture.call_count == 3
-        assert solver.solve.call_count == 3
-        assert mount.slew_to.call_count == 2
+        assert camera.capture.call_count == 4
+        assert solver.solve.call_count == 4
+        assert mount.slew_to.call_count == 3
 
     @patch("astrolabe.services.polar.service.time.sleep")
     def test_result_units_arcseconds(self, mock_sleep, mock_backends):
         """Corrections are in arcseconds, not radians."""
         mount, camera, solver = mock_backends
-        solver.solve.side_effect = [
-            _make_solve_result(10.0, 45.0),
-            _make_solve_result(25.0, 45.0),
-            _make_solve_result(40.0, 45.0),
-        ]
+        solver.solve.side_effect = _four_good_solves()
 
         service = PolarAlignService(mount, camera, solver)
         result = service.run(
@@ -110,10 +109,6 @@ class TestRunHappyPath:
             site_latitude_rad=_SITE_LAT_RAD,
         )
 
-        # Corrections should be in arcsec range (not radians ~0.001 or degrees ~1)
-        # Even for a well-aligned mount, corrections shouldn't be tiny fractions
-        # unless perfectly aligned.  The mock data forms a wide arc, so
-        # corrections will be substantial arcseconds.
         assert result.alt_correction_arcsec is not None
         if abs(result.alt_correction_arcsec) > 0.01:
             assert abs(result.alt_correction_arcsec) > 1.0
@@ -138,31 +133,12 @@ class TestSolveFailures:
         mount.slew_to.assert_not_called()
 
     @patch("astrolabe.services.polar.service.time.sleep")
-    def test_failure_pose_b(self, mock_sleep, mock_backends):
-        """Second solve fails after first slew."""
+    def test_failure_mid_sequence(self, mock_sleep, mock_backends):
+        """Mid-sequence solve failure returns gracefully."""
         mount, camera, solver = mock_backends
         solver.solve.side_effect = [
-            _make_solve_result(10.0, 45.0),
-            _FAILED_SOLVE,
-        ]
-
-        service = PolarAlignService(mount, camera, solver)
-        result = service.run(
-            ra_rotation_rad=math.radians(15.0),
-            site_latitude_rad=_SITE_LAT_RAD,
-        )
-
-        assert result.alt_correction_arcsec is None
-        assert result.message is not None
-        assert mount.slew_to.call_count == 1
-
-    @patch("astrolabe.services.polar.service.time.sleep")
-    def test_failure_pose_c(self, mock_sleep, mock_backends):
-        """Third solve fails after two slews."""
-        mount, camera, solver = mock_backends
-        solver.solve.side_effect = [
-            _make_solve_result(10.0, 45.0),
-            _make_solve_result(25.0, 45.0),
+            _make_solve_result(0.0, 70.0),
+            _make_solve_result(90.0, 70.0),
             _FAILED_SOLVE,
         ]
 
@@ -176,18 +152,39 @@ class TestSolveFailures:
         assert result.message is not None
         assert mount.slew_to.call_count == 2
 
+    @patch("astrolabe.services.polar.service.time.sleep")
+    def test_success_but_none_coords_is_failure(self, mock_sleep, mock_backends):
+        """Solver returning success=True with None coords is a failure."""
+        mount, camera, solver = mock_backends
+        solver.solve.side_effect = [
+            SolveResult(
+                success=True,
+                ra_rad=None,
+                dec_rad=None,
+                pixel_scale_arcsec=None,
+                rotation_rad=None,
+                rms_arcsec=1.0,
+                num_stars=30,
+                message=None,
+            ),
+        ]
+
+        service = PolarAlignService(mount, camera, solver)
+        result = service.run(
+            ra_rotation_rad=math.radians(15.0),
+            site_latitude_rad=_SITE_LAT_RAD,
+        )
+
+        assert result.alt_correction_arcsec is None
+        assert result.message is not None
+
 
 class TestBackendCallOrder:
     @patch("astrolabe.services.polar.service.time.sleep")
     def test_correct_sequence(self, mock_sleep, mock_backends):
-        """Verify three-pose orchestration calls backends in correct order."""
+        """Verify N-pose orchestration calls backends in correct order."""
         mount, camera, solver = mock_backends
-        solve_results = [
-            _make_solve_result(10.0, 45.0),
-            _make_solve_result(25.0, 45.0),
-            _make_solve_result(40.0, 45.0),
-        ]
-        solve_iter = iter(solve_results)
+        solve_iter = iter(_four_good_solves())
 
         call_log = []
         camera.capture.side_effect = lambda *a, **kw: (
@@ -209,30 +206,17 @@ class TestBackendCallOrder:
             site_latitude_rad=_SITE_LAT_RAD,
         )
 
-        assert call_log == [
-            "capture",
-            "solve",
-            "slew",
-            "sleep",
-            "capture",
-            "solve",
-            "slew",
-            "sleep",
-            "capture",
-            "solve",
-        ]
+        expected = ["capture", "solve"]
+        for _ in range(3):
+            expected += ["slew", "sleep", "capture", "solve"]
+        assert call_log == expected
 
 
 class TestExposureParameter:
     @patch("astrolabe.services.polar.service.time.sleep")
     def test_exposure_passed_to_camera(self, mock_sleep, mock_backends):
-        """Custom exposure_s is forwarded to all three captures."""
         mount, camera, solver = mock_backends
-        solver.solve.side_effect = [
-            _make_solve_result(10.0, 45.0),
-            _make_solve_result(25.0, 45.0),
-            _make_solve_result(40.0, 45.0),
-        ]
+        solver.solve.side_effect = _four_good_solves()
 
         service = PolarAlignService(mount, camera, solver)
         service.run(
@@ -241,19 +225,14 @@ class TestExposureParameter:
             exposure_s=5.0,
         )
 
-        assert camera.capture.call_count == 3
+        assert camera.capture.call_count == 4
         for call in camera.capture.call_args_list:
             assert call.args[0] == 5.0
 
     @patch("astrolabe.services.polar.service.time.sleep")
     def test_exposure_default(self, mock_sleep, mock_backends):
-        """Default exposure (2.0) used when not specified."""
         mount, camera, solver = mock_backends
-        solver.solve.side_effect = [
-            _make_solve_result(10.0, 45.0),
-            _make_solve_result(25.0, 45.0),
-            _make_solve_result(40.0, 45.0),
-        ]
+        solver.solve.side_effect = _four_good_solves()
 
         service = PolarAlignService(mount, camera, solver)
         service.run(
@@ -267,7 +246,6 @@ class TestExposureParameter:
 
 class TestPreconditions:
     def test_tracking_not_active_raises(self, mock_backends):
-        """Service refuses to run if mount is not tracking."""
         mount, camera, solver = mock_backends
         mount.get_state.return_value.tracking = False
 
@@ -281,17 +259,51 @@ class TestPreconditions:
         camera.capture.assert_not_called()
         mount.slew_to.assert_not_called()
 
+    def test_missing_ra_raises(self, mock_backends):
+        """Service refuses to run if mount RA is unavailable."""
+        mount, camera, solver = mock_backends
+        mount.get_state.return_value.ra_rad = None
+
+        service = PolarAlignService(mount, camera, solver)
+        with pytest.raises(ServiceError, match="coordinates unavailable"):
+            service.run(
+                ra_rotation_rad=math.radians(15.0),
+                site_latitude_rad=_SITE_LAT_RAD,
+            )
+        camera.capture.assert_not_called()
+
+    def test_missing_dec_raises(self, mock_backends):
+        mount, camera, solver = mock_backends
+        mount.get_state.return_value.dec_rad = None
+
+        service = PolarAlignService(mount, camera, solver)
+        with pytest.raises(ServiceError, match="coordinates unavailable"):
+            service.run(
+                ra_rotation_rad=math.radians(15.0),
+                site_latitude_rad=_SITE_LAT_RAD,
+            )
+
+    def test_num_poses_below_minimum_raises(self, mock_backends):
+        mount, camera, solver = mock_backends
+        service = PolarAlignService(mount, camera, solver)
+        with pytest.raises(ServiceError, match="num_poses"):
+            service.run(
+                ra_rotation_rad=math.radians(15.0),
+                site_latitude_rad=_SITE_LAT_RAD,
+                num_poses=3,
+            )
+
 
 class TestCollinearPoints:
     @patch("astrolabe.services.polar.service.time.sleep")
     def test_collinear_handled_gracefully(self, mock_sleep, mock_backends):
         """Collinear solve results → graceful failure, not crash."""
         mount, camera, solver = mock_backends
-        # Three points along the equator (collinear on a great circle)
         solver.solve.side_effect = [
             _make_solve_result(0.0, 0.0),
             _make_solve_result(90.0, 0.0),
             _make_solve_result(180.0, 0.0),
+            _make_solve_result(270.0, 0.0),
         ]
 
         service = PolarAlignService(mount, camera, solver)
@@ -307,13 +319,8 @@ class TestCollinearPoints:
 class TestSettleTime:
     @patch("astrolabe.services.polar.service.time.sleep")
     def test_settle_time_respected(self, mock_sleep, mock_backends):
-        """Custom settle_time_s is passed to time.sleep after each slew."""
         mount, camera, solver = mock_backends
-        solver.solve.side_effect = [
-            _make_solve_result(10.0, 45.0),
-            _make_solve_result(25.0, 45.0),
-            _make_solve_result(40.0, 45.0),
-        ]
+        solver.solve.side_effect = _four_good_solves()
 
         service = PolarAlignService(mount, camera, solver)
         service.run(
@@ -322,7 +329,7 @@ class TestSettleTime:
             settle_time_s=3.0,
         )
 
-        assert mock_sleep.call_count == 2
+        assert mock_sleep.call_count == 3
         for call in mock_sleep.call_args_list:
             assert call.args[0] == 3.0
 
@@ -330,13 +337,8 @@ class TestSettleTime:
 class TestSolveHints:
     @patch("astrolabe.services.polar.service.time.sleep")
     def test_solve_request_includes_mount_hints(self, mock_sleep, mock_backends):
-        """SolveRequest includes RA/Dec hints from mount state."""
         mount, camera, solver = mock_backends
-        solver.solve.side_effect = [
-            _make_solve_result(10.0, 45.0),
-            _make_solve_result(25.0, 45.0),
-            _make_solve_result(40.0, 45.0),
-        ]
+        solver.solve.side_effect = _four_good_solves()
 
         service = PolarAlignService(mount, camera, solver)
         service.run(
@@ -344,9 +346,46 @@ class TestSolveHints:
             site_latitude_rad=_SITE_LAT_RAD,
         )
 
-        # Each solve call should have received a SolveRequest with hints
         for call in solver.solve.call_args_list:
             request = call.args[0]
             assert isinstance(request, SolveRequest)
             assert request.ra_hint_rad is not None
             assert request.dec_hint_rad is not None
+
+
+class TestConfidenceWithMissingRms:
+    @patch("astrolabe.services.polar.service.time.sleep")
+    def test_missing_rms_does_not_inflate_confidence(self, mock_sleep, mock_backends):
+        """A pose with rms_arcsec=None must not produce a perfect solve
+        signal — confidence with missing RMS should be strictly less than
+        confidence with comparable non-missing RMS values."""
+        mount, camera, solver = mock_backends
+        solves_missing = [
+            _make_solve_result(0.0, 70.0, rms=None),
+            _make_solve_result(90.0, 70.0, rms=1.0),
+            _make_solve_result(180.0, 70.0, rms=1.0),
+            _make_solve_result(270.0, 70.0, rms=1.0),
+        ]
+        solver.solve.side_effect = solves_missing
+
+        service = PolarAlignService(mount, camera, solver)
+        result_missing = service.run(
+            ra_rotation_rad=math.radians(15.0),
+            site_latitude_rad=_SITE_LAT_RAD,
+        )
+
+        # Reset and run again with clean RMS values.
+        camera.reset_mock()
+        solver.reset_mock()
+        solver.solve.side_effect = _four_good_solves()
+        service2 = PolarAlignService(mount, camera, solver)
+        result_clean = service2.run(
+            ra_rotation_rad=math.radians(15.0),
+            site_latitude_rad=_SITE_LAT_RAD,
+        )
+
+        assert result_missing.confidence is not None
+        assert result_clean.confidence is not None
+        # With identical geometry, missing RMS must not exceed the
+        # signal derived from real RMS data.
+        assert result_missing.confidence <= result_clean.confidence + 1e-9

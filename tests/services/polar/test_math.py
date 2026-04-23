@@ -29,7 +29,7 @@ def _make_pose(ra_deg, dec_deg, rms=1.0, minutes_offset=0):
     )
 
 
-def _generate_circle_poses(pole_ra_deg, pole_dec_deg, radius_deg, n=3):
+def _generate_circle_poses(pole_ra_deg, pole_dec_deg, radius_deg, n=4):
     """Generate n poses equally spaced on a small circle with given pole and radius."""
     pole_ra = math.radians(pole_ra_deg)
     pole_dec = math.radians(pole_dec_deg)
@@ -46,7 +46,7 @@ def _generate_circle_poses(pole_ra_deg, pole_dec_deg, radius_deg, n=3):
             math.cos(pole_dec) * math.cos(radius)
             - math.sin(pole_dec) * math.sin(radius) * math.cos(angle),
         )
-        ra = pole_ra + dra
+        ra = (pole_ra + dra) % (2 * math.pi)
         poses.append(
             _make_pose(math.degrees(ra), math.degrees(dec), minutes_offset=i * 5)
         )
@@ -100,10 +100,14 @@ class TestFitPolarAxis:
         assert total_err > math.radians(1.0)
         assert fit.residual_rad < 1e-6
 
-    def test_minimum_three_poses_required(self):
-        """Fewer than 3 poses raises ValueError."""
-        poses = [_make_pose(10.0, 45.0), _make_pose(25.0, 45.0)]
-        with pytest.raises(ValueError, match="at least 3"):
+    def test_minimum_four_poses_required(self):
+        """Fewer than 4 poses raises ValueError."""
+        poses = [
+            _make_pose(10.0, 45.0),
+            _make_pose(25.0, 45.0),
+            _make_pose(40.0, 45.0),
+        ]
+        with pytest.raises(ValueError, match="at least 4"):
             fit_polar_axis(poses, math.radians(45.0))
 
     def test_units_radians(self):
@@ -132,10 +136,10 @@ class TestFitPolarAxis:
 
 
 class TestFitCircleSpherical:
-    def test_three_points_exact(self):
-        """Three points from a known circle → exact fit."""
+    def test_four_points_exact(self):
+        """Four points from a known circle → exact fit, residual ~0."""
         pole_ra_deg, pole_dec_deg, radius_deg = 45.0, 80.0, 15.0
-        poses = _generate_circle_poses(pole_ra_deg, pole_dec_deg, radius_deg)
+        poses = _generate_circle_poses(pole_ra_deg, pole_dec_deg, radius_deg, n=4)
         points = [(p.ra_rad, p.dec_rad) for p in poses]
 
         result = _fit_circle_spherical(points)
@@ -144,33 +148,39 @@ class TestFitCircleSpherical:
         assert abs(math.degrees(result.radius_rad) - radius_deg) < 0.01
         assert result.residual_rad < 1e-6
 
-    def test_four_points_residual(self):
-        """Four points, one perturbed off-circle → non-zero residual."""
+    def test_five_points_residual(self):
+        """Five points, one perturbed off-circle → non-zero residual."""
         pole_ra_deg, pole_dec_deg, radius_deg = 45.0, 80.0, 15.0
-        poses = _generate_circle_poses(pole_ra_deg, pole_dec_deg, radius_deg, n=4)
+        poses = _generate_circle_poses(pole_ra_deg, pole_dec_deg, radius_deg, n=5)
 
-        # Perturb the last point
         points = [(p.ra_rad, p.dec_rad) for p in poses]
-        perturbed_dec = points[3][1] + math.radians(0.5)
-        points[3] = (points[3][0], perturbed_dec)
+        perturbed_dec = points[4][1] + math.radians(0.5)
+        points[4] = (points[4][0], perturbed_dec)
 
         result = _fit_circle_spherical(points)
 
-        # Pole should still be close to true pole
         assert abs(math.degrees(result.pole_dec_rad) - pole_dec_deg) < 1.0
-        # But residual should be non-zero
         assert result.residual_rad > 1e-4
 
+    def test_minimum_four_points(self):
+        """Fewer than 4 points raises ValueError."""
+        points = [
+            (math.radians(0.0), math.radians(80.0)),
+            (math.radians(90.0), math.radians(80.0)),
+            (math.radians(180.0), math.radians(80.0)),
+        ]
+        with pytest.raises(ValueError, match="≥4"):
+            _fit_circle_spherical(points)
+
     def test_collinear_raises(self):
-        """Three points on a great circle (radius ≈ 90°) → ValueError."""
-        # Three points along the celestial equator — they lie on a great
-        # circle (radius = 90°), which is degenerate for small-circle fitting.
+        """Four points on a great circle (radius ≈ 90°) → ValueError."""
         points = [
             (math.radians(0.0), 0.0),
             (math.radians(1.0), 0.0),
             (math.radians(2.0), 0.0),
+            (math.radians(3.0), 0.0),
         ]
-        with pytest.raises(ValueError, match="great circle"):
+        with pytest.raises(ValueError, match="collinear or lie on a great circle"):
             _fit_circle_spherical(points)
 
 
@@ -215,3 +225,36 @@ class TestCorrectionConfidence:
         conf = correction_confidence(fit, poses)
         # Should be noticeably lower than the clean case
         assert conf < 0.7
+
+    def test_missing_rms_does_not_inflate_confidence(self):
+        """Missing rms_arcsec values must be replaced with a conservative
+        penalty (not omitted, not treated as zero), so absent data cannot
+        produce a spuriously perfect solve signal."""
+        from astrolabe.services.polar.math import _MISSING_RMS_PENALTY_ARCSEC
+
+        fit = _CircleFitResult(
+            pole_ra_rad=0.0,
+            pole_dec_rad=math.radians(90.0),
+            radius_rad=math.radians(20.0),
+            residual_rad=math.radians(0.001),
+        )
+        poses_missing = [
+            _make_pose(10.0, 45.0, rms=2.0),
+            _make_pose(20.0, 45.0, rms=None),
+            _make_pose(30.0, 45.0, rms=2.0),
+        ]
+        conf_missing = correction_confidence(fit, poses_missing)
+
+        # Equivalent poses with the penalty value substituted: should match.
+        poses_penalty = [
+            _make_pose(10.0, 45.0, rms=2.0),
+            _make_pose(20.0, 45.0, rms=_MISSING_RMS_PENALTY_ARCSEC),
+            _make_pose(30.0, 45.0, rms=2.0),
+        ]
+        conf_penalty = correction_confidence(fit, poses_penalty)
+        assert math.isclose(conf_missing, conf_penalty, rel_tol=1e-12)
+
+        # And strictly less than confidence with comparable real RMS.
+        poses_clean = [_make_pose(10.0, 45.0, rms=2.0) for _ in range(3)]
+        conf_clean = correction_confidence(fit, poses_clean)
+        assert conf_missing < conf_clean

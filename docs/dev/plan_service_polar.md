@@ -1,10 +1,24 @@
 # Plan: Polar Alignment Service Module
 
 **Date:** 2026-03-01
-**Updated:** 2026-03-24
-**Status:** Implemented
+**Updated:** 2026-04-23
+**Status:** Implemented (revised after PR #29 review)
 **Scope:** Refactor `services/polar.py` → `services/polar/` package with internal structure
-**Breaking Changes:** None
+**Breaking Changes:** None to public API; the service now requires N≥4 poses (default 4) instead of exactly 3.
+
+---
+
+## 0. Revision log (post PR-review)
+
+Changes made in response to review feedback on PR #29:
+
+- **Minimum pose count raised from 3 to 4.** Three non-degenerate points on the sphere uniquely determine a small circle, so the fit residual was structurally zero regardless of method. Four or more points make the residual a meaningful signal of pose-to-pose consistency.
+- **Single least-squares fitter.** The N=3 cross-product specialisation (`_fit_pole_cross`) has been removed. `_fit_circle_spherical()` now always solves `p · v_i = cos(r)` by least-squares over all observations, fixing the dominant component of `p` via the centroid to avoid the singular minimum-norm solution.
+- **Order-invariant fit.** The new formulation depends only on the set of observations, not on their order.
+- **Service hardening.** Mount coordinate availability (`state.ra_rad`, `state.dec_rad`) is validated before any capture and before each slew. Solver results with `success=True` but missing `ra_rad`/`dec_rad` are treated as failures.
+- **Honest confidence.** Missing `rms_arcsec` values are replaced with a conservative penalty (10 arcsec) rather than `0.0`, so absent data cannot inflate confidence. `_PoseObservation.rms_arcsec` is now `float | None`.
+- **Configurable pose count.** `PolarAlignService.run(num_poses=4)` and CLI flag `--num-poses`.
+- **CLI error propagation.** `astrolabe polar` now returns exit code 1 and `ok=false` when the service reports a failure via `PolarResult.message`; the JSON envelope carries a `polar_failed` error block.
 
 ---
 
@@ -24,7 +38,7 @@ The CLI (`cli/commands.py:run_polar`) already wired mount, camera, and solver ba
 
 ### 2.1 Why not two poses?
 
-The architecture doc (`§5.3`) describes a conceptual two-pose flow: capture/solve at pose A, rotate RA, capture/solve at pose B, compute error. This is geometrically sound in theory — if the commanded RA rotation is mechanically exact, two field-centre solves fully constrain the alt/az correction.
+The architecture doc (section 5.3) describes a conceptual two-pose flow: capture/solve at pose A, rotate RA, capture/solve at pose B, compute error. This is geometrically sound in theory — if the commanded RA rotation is mechanically exact, two field-centre solves fully constrain the alt/az correction.
 
 In practice, two poses are insufficient:
 
@@ -39,13 +53,13 @@ When the mount rotates in RA, the field centre traces a small circle on the cele
 1. **No dependence on commanded rotation.** The circle fit derives the axis from the geometry of the three points alone. Backlash and periodic error affect where the points land, not the fit itself.
 2. **A real fit residual.** The deviation of the three points from the best-fit circle is a direct measure of observation consistency. This maps naturally to `residual_arcsec` and `confidence` in `PolarResult`.
 3. **Robustness to a single bad solve.** A failed or inaccurate solve at one pose produces a large fit residual, which the service can detect and report rather than returning a garbage correction.
-4. **Extensibility.** The same `fit_polar_axis()` function works with N≥3 poses. Future work could expose a `num_poses` parameter for higher-precision alignment without changing the math layer.
+4. **Extensibility.** The same `fit_polar_axis()` function works for any N≥4 poses. The service exposes `num_poses` so operators can trade time for precision.
 
 This is consistent with mature implementations (SharpCap, NINA three-point polar alignment, PHD2 drift alignment) that all use three or more samples.
 
-### 2.3 Relationship to `docs/architecture.md §5.3`
+### 2.3 Relationship to `docs/architecture.md section 5.3`
 
-The architecture doc describes the *data flow* (capture → solve → rotate → repeat → compute → output). The three-pose method follows the same flow with one additional rotate+capture+solve step. The public interface (`run(ra_rotation_rad, site_latitude_rad) → PolarResult`) extends the stub signature; `ra_rotation_rad` is the rotation step applied twice (A→B, B→C) for a total rotation of `2 × ra_rotation_rad`.
+The architecture doc describes the *data flow* (capture → solve → rotate → repeat → compute → output). The N-pose method follows the same flow, repeating rotate+capture+solve until `num_poses` observations have been collected. The public interface (`run(ra_rotation_rad, site_latitude_rad, ..., num_poses=4) → PolarResult`) extends the stub signature; `ra_rotation_rad` is applied between each successive pose, for a total rotation of `(num_poses − 1) × ra_rotation_rad`.
 
 ---
 
@@ -116,8 +130,8 @@ class PolarResult:
 ```
 
 **Conformance:**
-- Fields match `docs/interfaces.md §3.3` exactly.
-- All angular corrections in **arcseconds** (user-facing, per `docs/conventions.md §5`).
+- Fields match `docs/interfaces.md section 3.3` exactly.
+- All angular corrections in **arcseconds** (user-facing, per `docs/conventions.md section 5`).
 - Confidence as float in range [0–1].
 
 **Internal types (module-private, prefixed with `_`):**
@@ -128,13 +142,13 @@ class _PoseObservation:
     """Result of a single capture→solve at one RA position."""
     ra_rad: float
     dec_rad: float
-    rms_arcsec: float
+    rms_arcsec: float | None
     timestamp_utc: datetime.datetime
 
 
 @dataclass
 class _CircleFitResult:
-    """Result of fitting a small circle to three or more pose observations."""
+    """Result of fitting a small circle to four or more pose observations."""
     pole_ra_rad: float
     pole_dec_rad: float
     radius_rad: float
@@ -155,7 +169,7 @@ Neither type is re-exported from `__init__.py`.
 **Design invariants:**
 - No backend imports.
 - No side effects.
-- All inputs/outputs in **radians** (internal convention per `docs/conventions.md §2.1`).
+- All inputs/outputs in **radians** (internal convention per `docs/conventions.md section 2.1`).
 - Conversion to arcseconds happens only at the service boundary when constructing `PolarResult`.
 - No external dependencies. Uses only stdlib `math` and basic 3D vector operations (cross-product, dot-product, normalisation) implemented as helpers on `tuple[float, float, float]`.
 
@@ -174,9 +188,9 @@ def fit_polar_axis(
 ) -> tuple[float, float, _CircleFitResult]:
 ```
 
-Top-level entry point. Validates ≥3 poses, delegates to `_fit_circle_spherical()` for the circle fit, then calls `_pole_to_altaz_error()` for the alt/az projection.
+Top-level entry point. Validates ≥4 poses, delegates to `_fit_circle_spherical()` for the circle fit, then calls `_pole_to_altaz_error()` for the alt/az projection.
 
-Returns `(alt_error_rad, az_error_rad, fit_result)`. Raises `ValueError` if fewer than 3 poses.
+Returns `(alt_error_rad, az_error_rad, fit_result)`. Raises `ValueError` if fewer than 4 poses.
 
 #### `_fit_circle_spherical()`
 
@@ -186,45 +200,28 @@ def _fit_circle_spherical(
 ) -> _CircleFitResult:
 ```
 
-Fits a small circle to three or more points on the unit sphere using perpendicular bisecting planes.
+Fits a small circle to four or more points on the unit sphere by least-squares.
 
-**Algorithm (as implemented):**
+**Algorithm (as implemented, revised post-review):**
 
-1. Convert each (RA, Dec) to a Cartesian unit vector.
-2. For each consecutive pair of points, compute the perpendicular bisecting plane: normal = (P_{i+1} - P_i), offset = normal · midpoint.
-3. Close the loop by also computing the bisecting plane for the (last, first) pair. This provides N constraints (instead of N-1), improving numerical stability.
-4. **For exactly 3 points:** use `_fit_pole_cross()` — the cross-product of the first two bisecting-plane normals gives the pole direction directly. This avoids the rank-deficiency that the original plan's least-squares approach would encounter with only 2 planes in a 3D system.
-5. **For N > 3 points:** use `_fit_pole_lstsq()` — solve the overdetermined system via normal equations (A^T A x = A^T b) using Cramer's rule on the resulting 3×3 system.
-6. Choose hemisphere: ensure `dot(pole, centroid_of_points) > 0`.
-7. Radius = mean angular distance from each point to the pole.
-8. **Great-circle detection:** if the fitted radius is within 1° of π/2 (90°), the points lie on or near a great circle. This is degenerate for polar alignment and raises `ValueError`.
-9. Residual = RMS of (angular_distance − radius) across all points.
+1. Convert each (RA, Dec) to a Cartesian unit vector `v_i`.
+2. Every point on a small circle with pole `p` and angular radius `r` satisfies `p · v_i = cos(r)`. Treat `(p_x, p_y, p_z, c = cos r)` as four unknowns.
+3. Compute the centroid of `{v_i}`; fix the component of `p` corresponding to the dominant axis of the centroid (sign taken from the centroid). This avoids the trivial minimum-norm solution that the naive bisecting-plane formulation produces when all observations lie on the unit sphere (where every plane passes through the origin).
+4. Solve the remaining overdetermined 3-unknown linear system (two free components of `p` plus `c`) via normal equations and Cramer's rule.
+5. Normalise `p` to the unit sphere.
+6. Radius = mean angular distance from each observation to `p`.
+7. **Great-circle detection:** if the fitted radius is within 1° of π/2, raise `ValueError`.
+8. Residual = RMS of (angular_distance − radius) across all points.
 
-**Implementation note:** The original plan specified a single least-squares path via Cramer's rule for all N≥3. During implementation, this was found to be numerically singular for N=3 because two bisecting planes yield a rank-2 system in 3D. The cross-product approach for N=3 was adopted as the correct solution. Adding the wrap-around plane (step 3) further improved stability without changing the mathematical result for the exact-fit case.
-
-#### `_fit_pole_cross()`
-
-```python
-def _fit_pole_cross(
-    normals: list[_Vec3],
-    offsets: list[float],
-    vecs: list[_Vec3],
-) -> _Vec3:
-```
-
-Finds the pole via cross-product of two bisecting-plane normals. Used for the N=3 case where two planes define a unique intersection line. Raises `ValueError` if the planes are parallel (collinear points).
+The fit is order-invariant and exclusively least-squares; the previous N=3 cross-product specialisation has been removed. Four poses are the minimum that produces a non-zero residual for inconsistent observations.
 
 #### `_fit_pole_lstsq()`
 
 ```python
-def _fit_pole_lstsq(
-    normals: list[_Vec3],
-    offsets: list[float],
-    vecs: list[_Vec3],
-) -> _Vec3:
+def _fit_pole_lstsq(vecs: list[_Vec3]) -> _Vec3:
 ```
 
-Finds the pole via least-squares for N > 3 points. Solves the normal equations (A^T A x = A^T b) using `_solve_3x3_cramer()`.
+Fits the pole by least-squares over all observations. Raises `ValueError` (via `_solve_3x3_cramer`) when the system is singular (collinear points / great-circle geometry).
 
 #### `_solve_3x3_cramer()`
 
@@ -270,16 +267,15 @@ Final confidence = `sqrt(fit_conf * solve_conf)`.
 ```
 fit_polar_axis()
 ├── _fit_circle_spherical()
-│   ├── _fit_pole_cross()      (N=3)
-│   └── _fit_pole_lstsq()      (N>3)
+│   └── _fit_pole_lstsq()     (least-squares, all N≥4)
 │       └── _solve_3x3_cramer()
 ├── _pole_to_altaz_error()
 └── (correction_confidence() is called by service, not by fit_polar_axis)
 ```
 
 **Constraints:**
-- Per `docs/conventions.md §7`: no mount-frame dependency, no wall-clock dependency.
-- Per `docs/architecture.md §3.1`: no backend imports.
+- Per `docs/conventions.md section 7`: no mount-frame dependency, no wall-clock dependency.
+- Per `docs/architecture.md section 3.1`: no backend imports.
 - All math in radians; unit conversions only at service boundary.
 - No external dependencies. Uses only stdlib `math` and basic 3D vector operations.
 
@@ -287,7 +283,7 @@ fit_polar_axis()
 
 ### 4.4 `astrolabe/services/polar/service.py`
 
-**Purpose:** Orchestration of the three-pose polar alignment workflow.
+**Purpose:** Orchestration of the N-pose polar alignment workflow (N≥4, default 4).
 
 **Class signature:**
 
@@ -386,7 +382,7 @@ Service                    Camera       Solver       Mount
 **Error handling:**
 - Tracking not active → raise `ServiceError` before any capture. Sidereal tracking is required so that ICRS coordinates form a proper circle around the mechanical axis; without it, Earth rotation skews the geometry.
 - Solve failure at any pose → return `PolarResult` with all corrections `None` and descriptive message identifying which pose failed (e.g., "Plate solve failed at pose A"). No slews are attempted after a failed pose.
-- Mount communication error → let `BackendError` propagate to CLI layer (per `docs/architecture.md §7`).
+- Mount communication error → let `BackendError` propagate to CLI layer (per `docs/architecture.md section 7`).
 - If `fit_polar_axis` raises `ValueError` (e.g., great-circle/collinear points), catch and return `PolarResult` with message.
 
 **Configuration:**
@@ -418,7 +414,7 @@ Empty marker file (package declaration).
 | | `test_known_alt_error` | Three poses on a circle whose pole is offset 1° in altitude from the celestial pole | alt_error > 0.5°; residual ≈ 0 |
 | | `test_known_az_error` | Three poses on a circle whose pole is at (RA=90°, Dec=89.5°) | az_error > 0.1°; residual ≈ 0 |
 | | `test_combined_alt_az_error` | Circle pole offset in both alt and az (RA=45°, Dec=88°) | total error > 1° |
-| | `test_minimum_three_poses_required` | Pass two poses to `fit_polar_axis` | `ValueError` raised (match "at least 3") |
+| | `test_minimum_four_poses_required` | Pass three poses to `fit_polar_axis` | `ValueError` raised (match "at least 4") |
 | | `test_units_radians` | Known 1° offset geometry | Output between 0.001 and 0.1 (radians, not degrees/arcsec) |
 | | `test_hemisphere_independence` | Repeat 1° offset test at southern latitude (Dec=-89°, lat=-45°) | Same magnitude as northern case (within 0.1°) |
 | `TestFitCircleSpherical` | `test_three_points_exact` | Three points generated from known circle (pole=45°,80°, radius=15°) | Fitted pole matches; residual ≈ 0 |
@@ -531,19 +527,13 @@ polar_parser.add_argument(
 
 ## 8. Implementation Notes
 
-### 8.1 Circle fitting: cross-product vs. least-squares
+### 8.1 Circle fitting history
 
-The original plan specified a single code path using least-squares via normal equations (A^T A x = A^T b, solved with Cramer's rule) for all N≥3. During implementation, this was found to be numerically singular for N=3:
+The original plan specified a single least-squares path via normal equations (`AᵀA x = Aᵀb`) applied to perpendicular bisecting planes for all N≥3. During implementation this was observed to be rank-deficient for N=3 (only 2 distinct bisecting planes ⇒ 2 equations in 3 unknowns). A cross-product specialisation for N=3 was added, with least-squares reserved for N>3.
 
-- With 3 consecutive points, there are only 2 bisecting planes (N-1=2).
-- Two plane equations in 3D give a rank-2 system — the normal equations matrix A^T A is singular.
-- Cramer's rule correctly detects this as a zero determinant and raises `ValueError`.
+Post-review (PR #29) the whole scheme was replaced. The bisecting-plane-with-midpoint formulation turns out to be degenerate for *any* N when all observations lie on the unit sphere: every bisecting plane passes through the origin (`nᵢ · midᵢ = (|P_j|² − |P_i|²)/2 = 0`), so the normal-equations RHS vector is identically zero and the minimum-norm solution is `x = 0`. The previous N>3 path was saved only by floating-point noise producing a non-zero direction.
 
-**Resolution:** Split the fitting into two paths:
-- **N=3:** `_fit_pole_cross()` — cross-product of two plane normals gives the pole direction directly. Exact and numerically stable.
-- **N>3:** `_fit_pole_lstsq()` — least-squares via normal equations. With ≥3 planes (from ≥4 points plus the wrap-around), the system is full-rank.
-
-Additionally, the wrap-around pair (last→first) is computed for all cases, giving N bisecting planes instead of N-1. For N=3, this means 3 planes; the cross-product uses the first two, and the third provides redundancy. For N>3, the extra constraint improves the least-squares fit.
+The current implementation reformulates the fit directly in terms of the pole equation `p · vᵢ = cos r` with unknowns `(p, c)`, fixes the dominant component of `p` via the observation centroid, and solves the resulting 3-unknown overdetermined system by least-squares. It works uniformly for all N≥4 (the structural minimum for a meaningful residual), is order-invariant, and has no special-case branches.
 
 ### 8.2 Great-circle detection
 
@@ -566,7 +556,7 @@ The plan originally specified `exposure_s: float | None = None` with the camera 
 1. Created `astrolabe/services/polar/` directory.
 2. Created `astrolabe/services/polar/__init__.py` with re-exports.
 3. Created `astrolabe/services/polar/types.py` with `PolarResult`, `_PoseObservation`, `_CircleFitResult`.
-4. Created `astrolabe/services/polar/math.py` with `fit_polar_axis()`, `_fit_circle_spherical()`, `_fit_pole_cross()`, `_fit_pole_lstsq()`, `_solve_3x3_cramer()`, `_pole_to_altaz_error()`, `correction_confidence()`.
+4. Created `astrolabe/services/polar/math.py` with `fit_polar_axis()`, `_fit_circle_spherical()`, `_fit_pole_lstsq()`, `_solve_3x3_cramer()`, `_pole_to_altaz_error()`, `correction_confidence()`.
 5. Created `astrolabe/services/polar/service.py` with `PolarAlignService` class.
 
 ### Phase 2: Flat file replaced
@@ -587,8 +577,8 @@ The plan originally specified `exposure_s: float | None = None` with the camera 
 
 ### Phase 5: Validation
 
-13. `pytest tests/services/polar/` — **25 passed**.
-14. `pytest` (full suite) — **79 passed, 3 skipped** (pre-existing integration skips), 0 failed.
+13. `pytest tests/services/polar/` — **47 passed**.
+14. `pytest` (full suite, excluding pre-existing optional-dep `ty` checks) — **248 passed, 3 skipped**, 0 failed.
 15. Import verification:
     - `from astrolabe.services import PolarAlignService, PolarResult` — OK.
     - `from astrolabe.services.polar import PolarAlignService, PolarResult` — OK.
@@ -608,4 +598,4 @@ The plan originally specified `exposure_s: float | None = None` with the camera 
 | New public types | 0 (only `PolarResult`, already existed) |
 | Breaking changes | 0 |
 
-**Total impact:** Low-risk refactor with no public API breakage. All imports resolve correctly post-migration. The three-pose circle-fitting method provides a real fit residual for confidence estimation, robustness to mechanical error, and extensibility to N>3 poses. CLI updated with required `--latitude-deg` and optional `--exposure`/`--settle-time` arguments.
+**Total impact:** Low-risk refactor with no public API breakage. All imports resolve correctly post-migration. The N-pose circle-fitting method (N≥4, default 4) provides a meaningful fit residual for confidence estimation, honest handling of missing per-solve RMS, and CLI error propagation on service failure. CLI exposes `--latitude-deg`, `--exposure`, `--settle-time`, and `--num-poses`.

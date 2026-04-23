@@ -43,10 +43,6 @@ def _sub(a: _Vec3, b: _Vec3) -> _Vec3:
     return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
 
 
-def _add(a: _Vec3, b: _Vec3) -> _Vec3:
-    return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
-
-
 # --- Coordinate conversions ---
 
 
@@ -72,60 +68,36 @@ def _cart_to_radec(v: _Vec3) -> tuple[float, float]:
 # --- Circle fitting ---
 
 
+MIN_POSES = 4
+_MISSING_RMS_PENALTY_ARCSEC = 10.0
+
+
 def _fit_circle_spherical(
     points: list[tuple[float, float]],
 ) -> _CircleFitResult:
-    """Fit a small circle to three or more points on the unit sphere.
+    """Fit a small circle to four or more points on the unit sphere.
 
-    For each consecutive pair of points, compute the perpendicular
-    bisecting plane (containing all sphere points equidistant from both).
-    The pole of the small circle is the intersection of these planes.
+    Every point on a small circle with pole ``p`` and angular radius ``r``
+    satisfies ``p · v_i = cos(r)``.  Treating ``(p, c = cos r)`` as four
+    unknowns yields a homogeneous-ish linear system that we solve by
+    least squares (fixing the dominant component of ``p`` via the
+    observation centroid to avoid the singular minimum-norm solution).
 
-    For N=3: two bisecting planes yield a unique line via cross-product;
-    the pole is the unit vector along that line.
-    For N>3: the overdetermined system is solved via least-squares
-    (normal equations augmented with a unit-norm constraint).
+    A minimum of four points is required: three points uniquely
+    determine a small circle on the sphere, so the residual is
+    structurally zero and conveys no quality information.
     """
-    if len(points) < 3:
-        raise ValueError(f"Need ≥3 points, got {len(points)}")
+    if len(points) < MIN_POSES:
+        raise ValueError(f"Need ≥{MIN_POSES} points, got {len(points)}")
 
     vecs = [_radec_to_cart(ra, dec) for ra, dec in points]
 
-    # Each consecutive pair defines a bisecting-plane normal and offset.
-    # Plane equation: n · x = d, where n = (P_{i+1} - P_i) and
-    # d = n · midpoint.
-    normals: list[_Vec3] = []
-    offsets: list[float] = []
+    for i in range(len(vecs)):
+        for j in range(i + 1, len(vecs)):
+            if _norm(_sub(vecs[i], vecs[j])) < 1e-12:
+                raise ValueError("Two points are identical")
 
-    for i in range(len(vecs) - 1):
-        p_i = vecs[i]
-        p_j = vecs[i + 1]
-        n = _sub(p_j, p_i)
-        if _norm(n) < 1e-12:
-            raise ValueError("Two consecutive points are identical")
-        mid = _scale(_add(p_i, p_j), 0.5)
-        normals.append(n)
-        offsets.append(_dot(n, mid))
-
-    # Also add the pair (last, first) to close the loop — gives an extra
-    # constraint that improves numerical stability for N=3 and provides
-    # N constraints (instead of N-1) for the least-squares case.
-    n_wrap = _sub(vecs[0], vecs[-1])
-    if _norm(n_wrap) > 1e-12:
-        mid_wrap = _scale(_add(vecs[-1], vecs[0]), 0.5)
-        normals.append(n_wrap)
-        offsets.append(_dot(n_wrap, mid_wrap))
-
-    if len(normals) < 2:
-        raise ValueError("Not enough distinct bisecting planes")
-
-    # For 3 points the cross-product of two plane normals gives the
-    # direction of the pole.  For more points use least-squares.
-    if len(points) == 3:
-        pole_cart = _fit_pole_cross(normals, offsets, vecs)
-    else:
-        pole_cart = _fit_pole_lstsq(normals, offsets, vecs)
-
+    pole_cart = _fit_pole_lstsq(vecs)
     pole_ra, pole_dec = _cart_to_radec(pole_cart)
 
     # Radius = mean angular distance from each point to the pole.
@@ -150,63 +122,57 @@ def _fit_circle_spherical(
     )
 
 
-def _fit_pole_cross(
-    normals: list[_Vec3],
-    offsets: list[float],
-    vecs: list[_Vec3],
-) -> _Vec3:
-    """Find the pole via cross-product of two bisecting-plane normals.
+def _fit_pole_lstsq(vecs: list[_Vec3]) -> _Vec3:
+    """Fit the small-circle pole by least-squares over all observations.
 
-    The pole lies along the intersection line of the two planes.
-    We pick the direction consistent with the centroid of the points.
+    Solves the linear system ``p · v_i = c`` for all ``i`` where
+    ``(p_x, p_y, p_z, c)`` are the unknowns.  To avoid the trivial
+    minimum-norm solution we fix the dominant component of ``p`` (chosen
+    from the centroid of the observations) and solve the resulting
+    3-unknown overdetermined system via normal equations.
     """
-    line_dir = _cross(normals[0], normals[1])
-    if _norm(line_dir) < 1e-12:
-        raise ValueError("Bisecting planes are parallel — points may be collinear")
-    pole = _normalize(line_dir)
-
-    # Choose hemisphere: pole should be on the same side as the points.
     centroid = (
         sum(v[0] for v in vecs) / len(vecs),
         sum(v[1] for v in vecs) / len(vecs),
         sum(v[2] for v in vecs) / len(vecs),
     )
-    if _dot(pole, centroid) < 0:
-        pole = _scale(pole, -1.0)
 
-    return pole
+    i_max = max(range(3), key=lambda k: abs(centroid[k]))
+    sign = 1.0 if centroid[i_max] >= 0 else -1.0
+    other = [k for k in range(3) if k != i_max]
 
-
-def _fit_pole_lstsq(
-    normals: list[_Vec3],
-    offsets: list[float],
-    vecs: list[_Vec3],
-) -> _Vec3:
-    """Find the pole via least-squares for N > 3 points.
-
-    Solves the overdetermined system via normal equations (A^T A x = A^T b).
-    """
+    # Equation per observation: p[other[0]] * v[other[0]]
+    #                         + p[other[1]] * v[other[1]]
+    #                         - c
+    #                         = -sign * v[i_max]
     ata = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
     atb = [0.0, 0.0, 0.0]
-
-    for n, d in zip(normals, offsets):
+    for v in vecs:
+        row = (v[other[0]], v[other[1]], -1.0)
+        rhs = -sign * v[i_max]
         for r in range(3):
             for c in range(3):
-                ata[r][c] += n[r] * n[c]
-            atb[r] += n[r] * d
+                ata[r][c] += row[r] * row[c]
+            atb[r] += row[r] * rhs
 
-    pole_cart = _solve_3x3_cramer(ata, atb)
-    pole = _normalize(pole_cart)
+    p_o0, p_o1, _cos_r = _solve_3x3_cramer(ata, atb)
+    pole = [0.0, 0.0, 0.0]
+    pole[i_max] = sign
+    pole[other[0]] = p_o0
+    pole[other[1]] = p_o1
+    pole_unit = _normalize((pole[0], pole[1], pole[2]))
 
+    # Defensive: if the fixed-axis sign guess disagrees with the
+    # observations' centroid (possible when the arc is tangential to the
+    # pole's dominant axis), flip into the observed hemisphere.
     centroid = (
         sum(v[0] for v in vecs) / len(vecs),
         sum(v[1] for v in vecs) / len(vecs),
         sum(v[2] for v in vecs) / len(vecs),
     )
-    if _dot(pole, centroid) < 0:
-        pole = _scale(pole, -1.0)
-
-    return pole
+    if _dot(pole_unit, centroid) < 0:
+        pole_unit = _scale(pole_unit, -1.0)
+    return pole_unit
 
 
 def _solve_3x3_cramer(m: list[list[float]], b: list[float]) -> _Vec3:
@@ -221,7 +187,10 @@ def _solve_3x3_cramer(m: list[list[float]], b: list[float]) -> _Vec3:
 
     det_a = _det3(m)
     if abs(det_a) < 1e-30:
-        raise ValueError("Singular matrix in circle fit — points may be collinear")
+        raise ValueError(
+            "Singular matrix in circle fit — points may be collinear or "
+            "lie on a great circle"
+        )
 
     results: list[float] = []
     for col in range(3):
@@ -325,8 +294,10 @@ def fit_polar_axis(
         Positive alt_error = raise the polar axis.
         Positive az_error = shift the polar axis east.
     """
-    if len(poses) < 3:
-        raise ValueError(f"Need at least 3 poses for circle fitting, got {len(poses)}")
+    if len(poses) < MIN_POSES:
+        raise ValueError(
+            f"Need at least {MIN_POSES} poses for circle fitting, got {len(poses)}"
+        )
 
     points = [(p.ra_rad, p.dec_rad) for p in poses]
     fit = _fit_circle_spherical(points)
@@ -344,20 +315,22 @@ def correction_confidence(
 ) -> float:
     """Estimate confidence in [0.0, 1.0] from fit quality and solve quality.
 
-    Two independent signals are combined:
+    Two independent signals are combined via geometric mean:
     - Fit residual: how well the points lie on a circle.
     - Per-pose RMS: how precise each plate solve was.
 
-    Both are mapped through exponential decay so that small values yield
-    high confidence and large values yield low confidence.
+    Missing ``rms_arcsec`` values are replaced with a conservative
+    penalty (``_MISSING_RMS_PENALTY_ARCSEC``) rather than omitted, so
+    that absent data cannot inflate the reported confidence.
     """
-    # Fit residual contribution: 10 arcsec residual ≈ 50% confidence
     residual_arcsec = math.degrees(fit_result.residual_rad) * 3600
     fit_conf = math.exp(-residual_arcsec / 14.4)
 
-    # Per-solve RMS contribution: mean RMS of 5 arcsec ≈ 50% confidence
-    mean_rms = sum(p.rms_arcsec for p in poses) / max(len(poses), 1)
+    rms_values = [
+        p.rms_arcsec if p.rms_arcsec is not None else _MISSING_RMS_PENALTY_ARCSEC
+        for p in poses
+    ]
+    mean_rms = sum(rms_values) / max(len(rms_values), 1)
     solve_conf = math.exp(-mean_rms / 7.2)
 
-    # Geometric mean of the two signals
     return math.sqrt(fit_conf * solve_conf)

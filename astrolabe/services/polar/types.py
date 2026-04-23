@@ -17,7 +17,7 @@ class _PoseObservation:
 
     ra_rad: float
     dec_rad: float
-    rms_arcsec: float
+    rms_arcsec: float | None
     timestamp_utc: datetime.datetime
 
 

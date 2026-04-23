@@ -1,6 +1,7 @@
 import argparse
 import sys
 from astrolabe import __version__
+from astrolabe.services.polar import MIN_POSES as _POLAR_MIN_POSES
 from astrolabe.cli.commands import (
     run_doctor,
     run_solve,
@@ -163,6 +164,22 @@ def main():
         type=float,
         default=2.0,
         help="Settle time after slew in seconds (default: 2.0)",
+    )
+
+    def _num_poses(value: str) -> int:
+        n = int(value)
+        if n < _POLAR_MIN_POSES:
+            raise argparse.ArgumentTypeError(
+                f"--num-poses must be ≥{_POLAR_MIN_POSES}, got {n}"
+            )
+        return n
+
+    polar_parser.add_argument(
+        "--num-poses",
+        type=_num_poses,
+        default=_POLAR_MIN_POSES,
+        help=f"Number of capture/solve poses "
+        f"(default: {_POLAR_MIN_POSES}, minimum: {_POLAR_MIN_POSES})",
     )
 
     guide_parser = subparsers.add_parser("guide", help="Guiding control")

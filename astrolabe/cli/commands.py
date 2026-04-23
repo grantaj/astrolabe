@@ -21,6 +21,7 @@ from astrolabe.planner import Planner, ObserverLocation
 from astrolabe.planner.formatters import format_text as format_plan_text
 from astrolabe.planner.update import update_catalog
 from astrolabe.errors import NotImplementedFeature, ServiceError
+from astrolabe.services.polar import MIN_POSES as _POLAR_MIN_POSES
 from astrolabe.solver.types import Image, SolveRequest
 from astrolabe.util.format import rad_to_hms, rad_to_dms, rad_to_deg
 
@@ -718,24 +719,43 @@ def run_polar(args) -> int:
             site_latitude_rad=math.radians(args.latitude_deg),
             exposure_s=args.exposure,
             settle_time_s=args.settle_time,
+            num_poses=getattr(args, "num_poses", _POLAR_MIN_POSES),
+        )
+        success = (
+            result.alt_correction_arcsec is not None
+            and result.az_correction_arcsec is not None
         )
         if getattr(args, "json", False):
             import json
 
+            error = (
+                None
+                if success
+                else {
+                    "code": "polar_failed",
+                    "message": result.message or "polar alignment failed",
+                    "details": None,
+                }
+            )
             payload = _json_envelope(
                 command="polar",
-                ok=True,
+                ok=success,
                 data=result.__dict__,
-                error=None,
+                error=error,
             )
             print(json.dumps(payload, indent=2))
         else:
-            print(f"Altitude correction (arcsec): {result.alt_correction_arcsec}")
-            print(f"Azimuth correction (arcsec): {result.az_correction_arcsec}")
-            print(f"Residual (arcsec): {result.residual_arcsec}")
-            print(f"Confidence: {result.confidence}")
-            print(f"Message: {result.message}")
-        return 0
+            if success:
+                print(f"Altitude correction (arcsec): {result.alt_correction_arcsec}")
+                print(f"Azimuth correction (arcsec): {result.az_correction_arcsec}")
+                print(f"Residual (arcsec): {result.residual_arcsec}")
+                print(f"Confidence: {result.confidence}")
+            else:
+                print(
+                    f"Polar alignment failed: {result.message}",
+                    file=sys.stderr,
+                )
+        return 0 if success else 1
     except NotImplementedFeature as e:
         return _handle_not_implemented("polar", args, e)
     except ServiceError as e:
@@ -746,7 +766,11 @@ def run_polar(args) -> int:
                 command="polar",
                 ok=False,
                 data=None,
-                error=str(e),
+                error={
+                    "code": "service_error",
+                    "message": str(e),
+                    "details": None,
+                },
             )
             print(json.dumps(payload, indent=2))
         else:
