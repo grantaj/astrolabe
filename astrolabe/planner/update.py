@@ -12,10 +12,10 @@ from .types import Target
 
 DEFAULT_OPENNGC_VERSION = "master"
 OPENNGC_BASE_URL = "https://raw.githubusercontent.com/mattiaverga/OpenNGC/{version}/"
-OPENNGC_REQUIRED = {
+OPENNGC_REQUIRED: dict[str, tuple[str, ...]] = {
     "NGC.csv": ("database_files/NGC.csv",),
 }
-OPENNGC_OPTIONAL = {
+OPENNGC_OPTIONAL: dict[str, tuple[str, ...]] = {
     "addendum.csv": ("database_files/addendum.csv",),
 }
 

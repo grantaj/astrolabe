@@ -20,7 +20,8 @@ from astrolabe.services import (
 from astrolabe.planner import Planner, ObserverLocation
 from astrolabe.planner.formatters import format_text as format_plan_text
 from astrolabe.planner.update import update_catalog
-from astrolabe.errors import NotImplementedFeature
+from astrolabe.errors import NotImplementedFeature, ServiceError
+from astrolabe.services.polar import MIN_POSES as _POLAR_MIN_POSES
 from astrolabe.solver.types import Image, SolveRequest
 from astrolabe.util.format import rad_to_hms, rad_to_dms, rad_to_deg
 
@@ -276,7 +277,8 @@ def _parse_roi(value: str | None) -> tuple[int, int, int, int] | None:
     parts = [p.strip() for p in value.split(",")]
     if len(parts) != 4:
         raise ValueError("ROI must be in x,y,w,h format")
-    return tuple(int(p) for p in parts)  # type: ignore[return-value]
+    x, y, w, h = (int(p) for p in parts)
+    return (x, y, w, h)
 
 
 def _parse_datetime_arg(value: str | None) -> datetime.datetime | None:
@@ -713,26 +715,68 @@ def run_polar(args) -> int:
     service = PolarAlignService(mount, camera, solver)
 
     try:
-        result = service.run(ra_rotation_rad=math.radians(args.ra_rotation_deg))
+        result = service.run(
+            ra_rotation_rad=math.radians(args.ra_rotation_deg),
+            site_latitude_rad=math.radians(args.latitude_deg),
+            exposure_s=args.exposure,
+            settle_time_s=args.settle_time,
+            num_poses=getattr(args, "num_poses", _POLAR_MIN_POSES),
+        )
+        success = (
+            result.alt_correction_arcsec is not None
+            and result.az_correction_arcsec is not None
+        )
+        if getattr(args, "json", False):
+            import json
+
+            error = (
+                None
+                if success
+                else {
+                    "code": "polar_failed",
+                    "message": result.message or "polar alignment failed",
+                    "details": None,
+                }
+            )
+            payload = _json_envelope(
+                command="polar",
+                ok=success,
+                data=result.__dict__,
+                error=error,
+            )
+            print(json.dumps(payload, indent=2))
+        else:
+            if success:
+                print(f"Altitude correction (arcsec): {result.alt_correction_arcsec}")
+                print(f"Azimuth correction (arcsec): {result.az_correction_arcsec}")
+                print(f"Residual (arcsec): {result.residual_arcsec}")
+                print(f"Confidence: {result.confidence}")
+            else:
+                print(
+                    f"Polar alignment failed: {result.message}",
+                    file=sys.stderr,
+                )
+        return 0 if success else 1
+    except NotImplementedFeature as e:
+        return _handle_not_implemented("polar", args, e)
+    except ServiceError as e:
         if getattr(args, "json", False):
             import json
 
             payload = _json_envelope(
                 command="polar",
-                ok=True,
-                data=result.__dict__,
-                error=None,
+                ok=False,
+                data=None,
+                error={
+                    "code": "service_error",
+                    "message": str(e),
+                    "details": None,
+                },
             )
             print(json.dumps(payload, indent=2))
         else:
-            print(f"Altitude correction (arcsec): {result.alt_correction_arcsec}")
-            print(f"Azimuth correction (arcsec): {result.az_correction_arcsec}")
-            print(f"Residual (arcsec): {result.residual_arcsec}")
-            print(f"Confidence: {result.confidence}")
-            print(f"Message: {result.message}")
-        return 0
-    except NotImplementedFeature as e:
-        return _handle_not_implemented("polar", args, e)
+            print(f"Error: {e}", file=sys.stderr)
+        return 1
 
 
 def run_guide(args) -> int:
