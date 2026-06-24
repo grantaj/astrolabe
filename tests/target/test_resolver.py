@@ -2,6 +2,7 @@ from pathlib import Path
 
 from astrolabe.services.target.index import (
     TargetIndex,
+    load_alias_csv,
     load_catalog_csv,
     load_hip_subset_csv,
 )
@@ -44,6 +45,34 @@ def test_resolver_hip_exact():
     results = resolver.resolve("HIP 32349")
     assert results
     assert results[0].record.id == "HIP 32349"
+
+
+def test_repo_canopus_alias_has_backing_hip_record():
+    resolver = TargetResolver.from_catalog_paths(
+        core_dso_path=_data_path("catalog_curated.csv"),
+        hip_subset_path=_data_path("hip_subset.csv"),
+        star_aliases_path=_data_path("star_aliases.csv"),
+        bayer_flamsteed_path=_data_path("bayer_flamsteed.csv"),
+        bsc_crosswalk_path=_data_path("bsc_crosswalk.csv"),
+        min_score=0.95,
+    )
+
+    results = resolver.resolve("canopus")
+
+    assert results
+    assert results[0].record.id == "HIP 30438"
+    assert results[0].match_reason == "alias"
+
+
+def test_repo_acrux_alias_has_no_backing_hip_record():
+    aliases = load_alias_csv(_data_path("star_aliases.csv"))
+    hip_records = {
+        record.id.removeprefix("HIP ")
+        for record in load_hip_subset_csv(_data_path("hip_subset.csv"))
+    }
+
+    assert aliases["Acrux"] == "60718"
+    assert aliases["Acrux"] not in hip_records
 
 
 def test_resolver_fuzzy():
