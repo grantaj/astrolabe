@@ -105,6 +105,8 @@ class PointingService:
         )
 
     def _update_model(self, result: SolveResult) -> None:
+        if result.ra_rad is None or result.dec_rad is None:
+            return
         try:
             state = self._mount.get_state()
         except Exception:
@@ -128,7 +130,12 @@ class PointingService:
         return corrected_ra, corrected_dec
 
     def update_model_from_target(
-        self, *, ra_target: float, dec_target: float, result: SolveResult
+        self,
+        *,
+        ra_target: float,
+        dec_target: float,
+        result: SolveResult,
+        weight: float = 0.1,
     ) -> None:
         if result.ra_rad is None or result.dec_rad is None:
             return
@@ -138,7 +145,7 @@ class PointingService:
             ra_solved=result.ra_rad,
             dec_solved=result.dec_rad,
         )
-        self._model.update(d_alpha, d_delta, weight=0.1)
+        self._model.update(d_alpha, d_delta, weight=weight)
         self._model.save(DEFAULT_MODEL_PATH)
 
 

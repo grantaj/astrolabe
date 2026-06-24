@@ -173,6 +173,9 @@ class IndiCameraBackend(CameraBackend):
         )
 
     def _ensure_upload_settings(self) -> None:
+        output_dir = self.output_dir
+        if output_dir is None:
+            return
         self._client.setprop(
             f"{self.device}.UPLOAD_MODE.UPLOAD_LOCAL", "On", kind="s", soft=True
         )
@@ -184,7 +187,7 @@ class IndiCameraBackend(CameraBackend):
         )
         self._client.setprop(
             f"{self.device}.UPLOAD_SETTINGS.UPLOAD_DIR",
-            str(self.output_dir.resolve()),
+            str(output_dir.resolve()),
             soft=True,
         )
         self._client.setprop(

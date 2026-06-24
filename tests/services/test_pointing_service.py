@@ -1,4 +1,5 @@
 import datetime
+import math
 import pytest
 
 from astrolabe.pointing.model import PointingModel
@@ -162,8 +163,8 @@ def test_apply_model_correction():
 
     ra_cmd, dec_cmd = service.apply_model(1.0, 0.5)
 
-    assert ra_cmd != 1.0
-    assert dec_cmd != 0.5
+    assert ra_cmd == pytest.approx(1.0 - 0.01 / math.cos(0.5))
+    assert dec_cmd == pytest.approx(0.5 + 0.02)
 
 
 def test_update_model_from_target():
@@ -188,3 +189,31 @@ def test_update_model_from_target():
         result=solver.result,
     )
     assert service._model.num_samples == 1
+
+
+def test_update_model_from_target_accepts_weight():
+    camera = FakeCamera()
+    solver = FakeSolver(
+        SolveResult(
+            success=True,
+            ra_rad=1.0,
+            dec_rad=1.0,
+            pixel_scale_arcsec=1.0,
+            rotation_rad=0.0,
+            rms_arcsec=1.5,
+            num_stars=8,
+            message=None,
+        )
+    )
+    mount = FakeMount()
+    service = PointingService(mount, camera, solver, model=PointingModel())
+
+    service.update_model_from_target(
+        ra_target=0.9,
+        dec_target=0.8,
+        result=solver.result,
+        weight=1.0,
+    )
+
+    assert service._model.b_alpha_rad == pytest.approx((1.0 - 0.9) * math.cos(0.8))
+    assert service._model.b_delta_rad == pytest.approx(1.0 - 0.8)
