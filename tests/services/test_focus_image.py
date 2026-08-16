@@ -61,6 +61,7 @@ def test_focus_service_consumes_current_indi_camera_fits_path_contract(tmp_path)
     result = FocusService().measure_image(image)
     assert result.valid
     assert result.star_count == 5
+    assert result.hfr_px is not None
     assert 1.5 < result.hfr_px < 3.0
 
 
