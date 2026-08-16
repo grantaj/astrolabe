@@ -13,9 +13,7 @@ def _starfield() -> np.ndarray:
     frame = np.full((128, 128), 1000.0)
     yy, xx = np.indices(frame.shape)
     for y, x in ((25, 25), (28, 95), (65, 65), (96, 32), (94, 102)):
-        frame += 7000.0 * np.exp(
-            -((xx - x) ** 2 + (yy - y) ** 2) / (2.0 * 2.0**2)
-        )
+        frame += 7000.0 * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2.0 * 2.0**2))
     return frame
 
 
@@ -83,9 +81,7 @@ def test_focus_measure_json_preserves_single_object_contract(monkeypatch, capsys
     assert payload["data"]["star_count"] == 5
 
 
-def test_focus_measure_returns_recoverable_failure_for_no_stars(
-    monkeypatch, capsys
-):
+def test_focus_measure_returns_recoverable_failure_for_no_stars(monkeypatch, capsys):
     camera = _FakeCamera(np.full((64, 64), 1000.0))
     monkeypatch.setattr("astrolabe.cli.focus.get_camera_backend", lambda config: camera)
     exit_code = run_focus(_args(json_output=True))
