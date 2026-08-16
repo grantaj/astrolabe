@@ -170,8 +170,9 @@ def _blur_fits(path: Path) -> Path:
     except ImportError as exc:  # noqa: BLE001 - optional dependency for integration
         pytest.skip(f"astropy/numpy required for blur: {exc}")
 
-    hdul = fits.open(path)
-    data = hdul[0].data.astype("float32")
+    with fits.open(path) as hdul:
+        data = hdul[0].data.astype("float32")
+        header = hdul[0].header.copy()
     median = float(np.median(data))
     resid = data - median
     sigma = 1.0
@@ -196,7 +197,7 @@ def _blur_fits(path: Path) -> Path:
     blurred += median
     blurred = np.clip(blurred, data.min(), data.max())
     out_path = path.with_name(path.stem + "_blur.fits")
-    fits.writeto(out_path, blurred, header=hdul[0].header, overwrite=True)
+    fits.writeto(out_path, blurred, header=header, overwrite=True)
     return out_path
 
 

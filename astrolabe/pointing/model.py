@@ -58,8 +58,15 @@ class PointingModel:
     def save(self, path: Path | None = None) -> None:
         path = path or DEFAULT_MODEL_PATH
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as handle:
-            json.dump(self.to_dict(), handle, indent=2)
+        tmp_path = path.with_name(f".{path.name}.tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as handle:
+                json.dump(self.to_dict(), handle, indent=2)
+                handle.flush()
+            tmp_path.replace(path)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
 
     @classmethod
     def load(cls, path: Path | None = None) -> "PointingModel":

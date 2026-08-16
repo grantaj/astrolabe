@@ -51,7 +51,9 @@ class PointingService:
     def sync_current(self, exposure_s: float | None = None) -> PointingResult:
         result = self.solve_current(exposure_s=exposure_s)
         if result.success and result.ra_rad is not None and result.dec_rad is not None:
-            self._update_model(result)
+            # A mount sync changes the mount's coordinate mapping to agree with the
+            # solved sky position. Do not also learn the pre-sync discrepancy into
+            # the persistent pointing model or later gotos would compensate twice.
             self._mount.sync(result.ra_rad, result.dec_rad)
             return PointingResult(
                 success=True,
@@ -90,7 +92,9 @@ class PointingService:
                 and result.ra_rad is not None
                 and result.dec_rad is not None
             ):
-                self._update_model(result)
+                # As in sync_current(), the sync itself corrects the mount model;
+                # keeping the pre-sync delta in our persistent model would apply
+                # the same correction again on a subsequent pointing-aware goto.
                 self._mount.sync(result.ra_rad, result.dec_rad)
                 successes += 1
 
@@ -103,24 +107,6 @@ class PointingService:
             if successes >= target_count
             else "Pointing calibrate incomplete",
         )
-
-    def _update_model(self, result: SolveResult) -> None:
-        if result.ra_rad is None or result.dec_rad is None:
-            return
-        try:
-            state = self._mount.get_state()
-        except Exception:
-            return
-        if state.ra_rad is None or state.dec_rad is None:
-            return
-        d_alpha, d_delta = _tangent_plane_error(
-            ra_target=state.ra_rad,
-            dec_target=state.dec_rad,
-            ra_solved=result.ra_rad,
-            dec_solved=result.dec_rad,
-        )
-        self._model.update(d_alpha, d_delta, weight=0.1)
-        self._model.save(DEFAULT_MODEL_PATH)
 
     def apply_model(self, ra_rad: float, dec_rad: float) -> tuple[float, float]:
         b_alpha, b_delta = self._model.predict()
@@ -152,6 +138,7 @@ class PointingService:
 def _tangent_plane_error(
     *, ra_target: float, dec_target: float, ra_solved: float, dec_solved: float
 ) -> tuple[float, float]:
-    d_alpha = (ra_solved - ra_target) * math.cos(dec_target)
+    d_ra = (ra_solved - ra_target + math.pi) % (2.0 * math.pi) - math.pi
+    d_alpha = d_ra * math.cos(dec_target)
     d_delta = dec_solved - dec_target
     return d_alpha, d_delta

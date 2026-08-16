@@ -138,7 +138,7 @@ Each detector returns:
 - `blocks_learning` (bool)
 - `blocks_centering` (bool)
 
-### 6.1 Unsolveable image
+### 6.1 Unsolvable image
 **Signals:** repeated solve fail, star count near zero, histogram saturated/dark.  
 **Actions:** adjust exposure/gain, bin/downsample, check cap/clouds.
 
@@ -206,7 +206,7 @@ Recovery mode should **disable model updates** and **avoid repeated large slews*
 - How to define the persistent pointing.json schema + on-disk location.
 - Whether to add a dedicated Target Resolver service for object lookup (recommended).
 
-## 11. Seapration of Concerns
+## 11. Separation of Concerns
 Pointing owns the error model and centering loop. We treat both Indi eqmod and the mount itself as "dumb".
 Target resolution (object name → RA/Dec) is a separate service used by `goto`.
 ---

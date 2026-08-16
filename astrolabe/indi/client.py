@@ -7,6 +7,14 @@ import time
 DEVICE_POLL_TIMEOUT_S = 1.0
 
 
+def _parse_state_output(output: str) -> str:
+    line = output.strip().split("\n")[0]
+    if not line:
+        return ""
+    value = line.split("=", 1)[-1].strip()
+    return value.split()[0] if value else ""
+
+
 class IndiClient:
     def __init__(self, host: str, port: int):
         self.host = host
@@ -72,8 +80,6 @@ class IndiClient:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-            line = cp.stdout.strip().split("\n")[0]
-            return line.split()[0] if line else ""
         except subprocess.CalledProcessError:
             cp = subprocess.run(
                 [
@@ -92,7 +98,7 @@ class IndiClient:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-            return cp.stdout.strip()
+        return _parse_state_output(cp.stdout)
 
     def has_prop(self, query: str, *, timeout_s: float = 2.0) -> bool:
         cp = subprocess.run(
@@ -170,6 +176,33 @@ class IndiClient:
             if not soft:
                 raise
             logging.warning(f"Could not set vector {spec} (may be unavailable): {e}")
+
+    def snapshot(self, device: str, *, timeout_s: float = 2.0) -> dict[str, str]:
+        """Fetch all property values and states for a device in one query."""
+        cp = subprocess.run(
+            [
+                "indi_getprop",
+                "-h",
+                self.host,
+                "-p",
+                str(self.port),
+                "-t",
+                str(timeout_s),
+                f"{device}.*.*",
+                f"{device}.*._STATE",
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        result: dict[str, str] = {}
+        for line in cp.stdout.splitlines():
+            eq = line.find("=")
+            if eq < 0:
+                continue
+            result[line[:eq]] = line[eq + 1 :]
+        return result
 
     def wait_for_device(self, device: str, *, timeout_s: float = 10.0) -> None:
         deadline = time.time() + timeout_s

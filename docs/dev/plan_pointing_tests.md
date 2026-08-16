@@ -120,11 +120,11 @@ Use real camera capture and real solver output from simulated star fields.
    - `pointing.json` updated
 
 ### 4.5 Integration: recovery path
-1. Intentionally make image unsolveable (e.g., exposure too short or too long).
+1. Intentionally make image unsolvable (e.g., exposure too short or too long).
 2. Call `pointing recover`.
 3. Assert:
    - success == false or partial
-   - diagnostics include "Unsolveable image" or similar
+   - diagnostics include "Unsolvable image" or similar
    - model not updated
 
 ---
@@ -144,7 +144,7 @@ These are initial thresholds; tune after observing simulator output.
 
 Start with the most actionable, low-ambiguity detectors:
 
-1. Unsolveable image (repeat fails, `num_stars == 0`)
+1. Unsolvable image (repeat fails, `num_stars == 0`)
 2. Low stars / high RMS (soft focus, clouds)
 3. Plate scale mismatch (wrong focal length/binning/ROI)
 4. Non-convergent corrections (backlash/clutch slip)
