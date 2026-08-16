@@ -24,9 +24,7 @@ jobs:
         run: uv sync --extra dev --extra tools
       - name: Lint
         run: uv run ruff check .
-      - name: Format probe
-        run: |
-          uv run ruff format .
-          git diff -- astrolabe/cli/main.py astrolabe/services/focus.py tests/camera/test_pixels.py tests/cli/test_focus.py tests/services/test_focus.py tests/services/test_focus_image.py
+      - name: Format check
+        run: uv run ruff format --check .
       - name: Tests
         run: uv run pytest
