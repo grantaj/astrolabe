@@ -80,9 +80,7 @@ def _effective_noise(
     )
 
 
-def _local_maxima(
-    pixels: np.ndarray, threshold: float
-) -> list[tuple[int, int, float]]:
+def _local_maxima(pixels: np.ndarray, threshold: float) -> list[tuple[int, int, float]]:
     center = pixels[1:-1, 1:-1]
     mask = center > threshold
     neighbors = (
@@ -99,8 +97,7 @@ def _local_maxima(
         mask &= center >= neighbor
     ys, xs = np.nonzero(mask)
     candidates = [
-        (int(y + 1), int(x + 1), float(pixels[y + 1, x + 1]))
-        for y, x in zip(ys, xs)
+        (int(y + 1), int(x + 1), float(pixels[y + 1, x + 1])) for y, x in zip(ys, xs)
     ]
     candidates.sort(key=lambda item: item[2], reverse=True)
     return candidates
@@ -116,8 +113,7 @@ def _suppress_close(
     for candidate in candidates:
         y, x, _ = candidate
         if all(
-            (y - kept_y) ** 2 + (x - kept_x) ** 2 > limit2
-            for kept_y, kept_x, _ in keep
+            (y - kept_y) ** 2 + (x - kept_x) ** 2 > limit2 for kept_y, kept_x, _ in keep
         ):
             keep.append(candidate)
     return keep
@@ -144,12 +140,7 @@ def _measure_star(
 ) -> _StarMeasurement | None:
     radius = config.aperture_radius_px
     height, width = pixels.shape
-    if (
-        x < radius
-        or y < radius
-        or x >= width - radius
-        or y >= height - radius
-    ):
+    if x < radius or y < radius or x >= width - radius or y >= height - radius:
         return None
     if (
         saturation_level is not None
