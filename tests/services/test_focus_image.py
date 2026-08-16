@@ -41,9 +41,7 @@ def _camera_like_starfield() -> np.ndarray:
         (96, 32, 7500),
         (94, 102, 8000),
     ):
-        frame += amplitude * np.exp(
-            -((xx - x) ** 2 + (yy - y) ** 2) / (2.0 * 2.0**2)
-        )
+        frame += amplitude * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2.0 * 2.0**2))
     return frame
 
 
