@@ -90,14 +90,14 @@ def test_terminal_format_distinguishes_all_semantic_states() -> None:
 
 
 def test_audio_config_rejects_nonfinite_or_nonpositive_values() -> None:
-    for kwargs in (
-        {"positive_hz": math.nan},
-        {"far_interval_s": math.inf},
-        {"near_interval_s": 0.0},
-        {"pulse_duration_s": -1.0},
-    ):
-        with pytest.raises(ValueError, match="finite and > 0"):
-            AudioCueConfig(**kwargs)
+    with pytest.raises(ValueError, match="finite and > 0"):
+        AudioCueConfig(positive_hz=math.nan)
+    with pytest.raises(ValueError, match="finite and > 0"):
+        AudioCueConfig(far_interval_s=math.inf)
+    with pytest.raises(ValueError, match="finite and > 0"):
+        AudioCueConfig(near_interval_s=0.0)
+    with pytest.raises(ValueError, match="finite and > 0"):
+        AudioCueConfig(pulse_duration_s=-1.0)
 
 
 def test_audio_config_requires_far_interval_greater_than_near() -> None:
