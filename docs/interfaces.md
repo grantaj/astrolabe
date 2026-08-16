@@ -19,14 +19,17 @@ Represents a captured frame.
 
 Fields (conceptual):
 
-- data: 2D array (implementation-defined)
+- data: backend-defined image payload (for example a file path, in-memory FITS,
+  or decoded 2D pixels)
 - width_px: int
 - height_px: int
 - timestamp_utc: datetime (UTC)
 - exposure_s: float
 - metadata: dict
 
-Image objects are opaque to services except for guiding (which may access pixel data).
+Image objects are opaque to services except image-analysis consumers such as
+focusing and guiding, which may access their payload through camera/imaging
+boundary helpers.
 
 ---
 
@@ -97,7 +100,8 @@ Core logic must only depend on these interfaces.
 
 Responsibilities:
 - Connect to physical camera
-- Capture frames
+- Capture occasional one-shot frames
+- Provide a bounded-overhead live-frame sequence when supported
 
 Interface (conceptual):
 
@@ -112,13 +116,28 @@ capture(
     roi: optional tuple
 ) -> Image
 
+live_frames(
+    exposure_s: float,
+    gain: optional float,
+    binning: optional int,
+    roi: optional tuple,
+    frame_count: optional int
+) -> LiveFrameSession
+
 Notes:
 
 - `capture` returns an `Image` with `data` set to an on-disk path when the backend
   uses local file capture (e.g., INDI upload-to-local).
-- Backends should populate `timestamp_utc` and `exposure_s` reliably.
+- `live_frames` is synchronous and single-consumer. Asking for the next frame
+  applies backpressure; implementations must not grow an unbounded background
+  queue.
+- Only one live session may own a camera backend at a time. Closing it must leave
+  ordinary `capture` usable.
+- INDI live frames use `FitsImageData`, an explicit in-memory uncompressed FITS
+  payload, rather than a temporary file path.
+- Backends should populate dimensions, `timestamp_utc`, and `exposure_s` reliably.
 
-No plate solving logic permitted here.
+No plate solving or image-analysis logic is permitted here.
 
 ---
 

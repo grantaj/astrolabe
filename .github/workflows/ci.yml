@@ -28,3 +28,7 @@ jobs:
         run: uv run ruff format --check .
       - name: Tests
         run: uv run pytest
+      - name: Live camera simulator integration
+        run: |
+          scripts/integration-entrypoint.sh --integration \
+            tests/camera/test_indi_live_integration.py -s
