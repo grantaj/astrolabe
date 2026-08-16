@@ -25,9 +25,7 @@ def synthetic_starfield(
         frame += rng.normal(0.0, noise_sigma, size=shape)
     yy, xx = np.indices(shape)
     for (y, x), amplitude in zip(positions, amplitudes):
-        frame += amplitude * np.exp(
-            -((xx - x) ** 2 + (yy - y) ** 2) / (2.0 * sigma**2)
-        )
+        frame += amplitude * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2.0 * sigma**2))
     return frame
 
 
@@ -57,12 +55,8 @@ def test_broader_psfs_produce_monotonically_larger_hfr():
 
 
 def test_brightness_does_not_materially_change_hfr():
-    dim = analyzer().measure(
-        synthetic_starfield(amplitudes=(2500.0,) * 5, seed=9)
-    )
-    bright = analyzer().measure(
-        synthetic_starfield(amplitudes=(9000.0,) * 5, seed=9)
-    )
+    dim = analyzer().measure(synthetic_starfield(amplitudes=(2500.0,) * 5, seed=9))
+    bright = analyzer().measure(synthetic_starfield(amplitudes=(9000.0,) * 5, seed=9))
     assert valid_hfr(dim) == pytest.approx(valid_hfr(bright), abs=0.15)
 
 
@@ -73,12 +67,8 @@ def test_constant_background_offset_does_not_change_hfr():
 
 
 def test_modest_noise_preserves_focus_ordering():
-    sharp = analyzer().measure(
-        synthetic_starfield(sigma=1.6, noise_sigma=12.0, seed=7)
-    )
-    soft = analyzer().measure(
-        synthetic_starfield(sigma=2.8, noise_sigma=12.0, seed=7)
-    )
+    sharp = analyzer().measure(synthetic_starfield(sigma=1.6, noise_sigma=12.0, seed=7))
+    soft = analyzer().measure(synthetic_starfield(sigma=2.8, noise_sigma=12.0, seed=7))
     assert valid_hfr(sharp) < valid_hfr(soft)
 
 
@@ -86,12 +76,8 @@ def test_median_aggregation_is_robust_to_one_broad_outlier():
     frame = synthetic_starfield()
     yy, xx = np.indices(frame.shape)
     y, x = POSITIONS[-1]
-    ordinary = 4500.0 * np.exp(
-        -((xx - x) ** 2 + (yy - y) ** 2) / (2.0 * 2.0**2)
-    )
-    broad = 4500.0 * np.exp(
-        -((xx - x) ** 2 + (yy - y) ** 2) / (2.0 * 3.5**2)
-    )
+    ordinary = 4500.0 * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2.0 * 2.0**2))
+    broad = 4500.0 * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2.0 * 3.5**2))
     frame = frame - ordinary + broad
     result = analyzer().measure(frame)
     baseline = analyzer().measure(synthetic_starfield())
@@ -132,10 +118,7 @@ def test_strongly_elongated_star_is_rejected():
     frame = synthetic_starfield()
     yy, xx = np.indices(frame.shape)
     frame += 7000.0 * np.exp(
-        -(
-            (xx - 18) ** 2 / (2.0 * 5.0**2)
-            + (yy - 102) ** 2 / (2.0 * 1.0**2)
-        )
+        -((xx - 18) ** 2 / (2.0 * 5.0**2) + (yy - 102) ** 2 / (2.0 * 1.0**2))
     )
     result = analyzer().measure(frame)
     assert result.valid
