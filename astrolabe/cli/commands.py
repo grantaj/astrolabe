@@ -15,11 +15,12 @@ from astrolabe.services import (
     GotoService,
     PolarAlignService,
     GuidingService,
-    AlignmentService,
+    PointingService,
 )
 from astrolabe.planner import Planner, ObserverLocation
 from astrolabe.planner.formatters import format_text as format_plan_text
 from astrolabe.planner.update import update_catalog
+from astrolabe.services.target.update import update_hipparcos, update_bsc_crosswalk
 from astrolabe.errors import NotImplementedFeature, ServiceError
 from astrolabe.services.polar import MIN_POSES as _POLAR_MIN_POSES
 from astrolabe.solver.types import Image, SolveRequest
@@ -193,10 +194,10 @@ def run_solve(args) -> int:
 
     image = Image(
         data=fits_path,
-        width_px=0,  # Placeholder
-        height_px=0,  # Placeholder
+        width_px=0,
+        height_px=0,
         timestamp_utc=datetime.datetime.now(datetime.timezone.utc),
-        exposure_s=0.0,  # Placeholder
+        exposure_s=0.0,
         metadata={},
     )
     search_radius_deg = None
@@ -585,36 +586,152 @@ def run_goto(args) -> int:
     service = GotoService(mount, camera, solver)
 
     try:
-        result = service.center_target(
-            target_ra_rad=math.radians(args.ra_deg),
-            target_dec_rad=math.radians(args.dec_deg),
-            tolerance_arcsec=args.tolerance_arcsec,
-            max_iterations=args.max_iterations,
-        )
-        if getattr(args, "json", False):
-            import json
+        if args.target:
+            from astrolabe.services.target.resolver import TargetResolver
 
-            payload = _json_envelope(
-                command="goto",
-                ok=result.success,
-                data=result.__dict__,
-                error=None
-                if result.success
-                else {
-                    "code": "goto_failed",
-                    "message": result.message or "goto failed",
-                    "details": None,
-                },
+            resolver = TargetResolver.from_repo_data(
+                min_score=config.resolver_min_score
             )
-            print(json.dumps(payload, indent=2))
+            matches = resolver.resolve(args.target)
+            if not matches:
+                print(f"Target not found: {args.target}", file=sys.stderr)
+                return 2
+            target = matches[0].record
+            target_ra_deg = target.ra_deg
+            target_dec_deg = target.dec_deg
+            if not getattr(args, "json", False):
+                print(
+                    f"Resolved '{args.target}' -> {target.name} ({target.id})",
+                    file=sys.stderr,
+                )
         else:
-            print(f"Success: {result.success}")
-            print(f"Final error: {result.final_error_arcsec}")
-            print(f"Iterations: {result.iterations}")
-            print(f"Message: {result.message}")
-        return 0 if result.success else 1
+            if args.ra_deg is None or args.dec_deg is None:
+                print(
+                    "goto requires --target or both --ra-deg and --dec-deg",
+                    file=sys.stderr,
+                )
+                return 2
+            target_ra_deg = args.ra_deg
+            target_dec_deg = args.dec_deg
+        try:
+            result = service.center_target(
+                target_ra_rad=math.radians(target_ra_deg),
+                target_dec_rad=math.radians(target_dec_deg),
+                tolerance_arcsec=args.tolerance_arcsec,
+                max_iterations=args.max_iterations,
+            )
+            if getattr(args, "json", False):
+                import json
+
+                payload = _json_envelope(
+                    command="goto",
+                    ok=result.success,
+                    data=result.__dict__,
+                    error=None
+                    if result.success
+                    else {
+                        "code": "goto_failed",
+                        "message": result.message or "goto failed",
+                        "details": None,
+                    },
+                )
+                print(json.dumps(payload, indent=2))
+            else:
+                print(f"Success: {result.success}")
+                print(f"Final error: {result.final_error_arcsec}")
+                print(f"Iterations: {result.iterations}")
+                print(f"Message: {result.message}")
+            return 0 if result.success else 1
+        except NotImplementedFeature:
+            mount.slew_to(
+                ra_rad=math.radians(target_ra_deg),
+                dec_rad=math.radians(target_dec_deg),
+            )
+            if getattr(args, "json", False):
+                import json
+
+                payload = _json_envelope(
+                    command="goto",
+                    ok=True,
+                    data={
+                        "mode": "fallback_slew",
+                        "ra_deg": target_ra_deg,
+                        "dec_deg": target_dec_deg,
+                    },
+                    error=None,
+                )
+                print(json.dumps(payload, indent=2))
+            else:
+                print("Goto fallback: mount slew issued.")
+            return 0
     except NotImplementedFeature as e:
         return _handle_not_implemented("goto", args, e)
+
+
+def run_resolve(args) -> int:
+    _init_logging(getattr(args, "log_level", None))
+    config = load_config(_config_path_from_args(args))
+    if getattr(args, "dry_run", False):
+        print("--dry-run has no effect for resolve.", file=sys.stderr)
+
+    from astrolabe.services.target.resolver import TargetResolver
+
+    query = " ".join(args.target).strip()
+    if not query:
+        print("resolve requires a target name or catalog ID", file=sys.stderr)
+        return 2
+
+    min_score = args.min_score
+    if min_score is None:
+        min_score = config.resolver_min_score
+
+    resolver = TargetResolver.from_repo_data(min_score=min_score)
+    matches = resolver.resolve(query, limit=args.limit)
+
+    if getattr(args, "json", False):
+        import json
+
+        payload = _json_envelope(
+            command="resolve",
+            ok=bool(matches),
+            data={
+                "query": query,
+                "min_score": min_score,
+                "matches": [
+                    {
+                        "name": match.record.name,
+                        "id": match.record.id,
+                        "ra_deg": match.record.ra_deg,
+                        "dec_deg": match.record.dec_deg,
+                        "score": match.match_score,
+                        "reason": match.match_reason,
+                    }
+                    for match in matches
+                ],
+            },
+            error=None
+            if matches
+            else {
+                "code": "not_found",
+                "message": f"Target not found: {query}",
+                "details": None,
+            },
+        )
+        print(json.dumps(payload, indent=2))
+    else:
+        if not matches:
+            print(f"Target not found: {query}", file=sys.stderr)
+            return 2
+        print(f"Query: {query}")
+        print(f"Min score: {min_score}")
+        for match in matches:
+            print(
+                f"- {match.record.name} ({match.record.id}) "
+                f"RA {match.record.ra_deg:.5f} deg "
+                f"Dec {match.record.dec_deg:.5f} deg "
+                f"score={match.match_score:.2f} reason={match.match_reason}"
+            )
+    return 0 if matches else 2
 
 
 def run_align(args) -> int:
@@ -625,7 +742,7 @@ def run_align(args) -> int:
     solver = get_solver_backend(config)
     if getattr(args, "dry_run", False):
         print("--dry-run has no effect for align.", file=sys.stderr)
-    service = AlignmentService(mount, camera, solver)
+    service = PointingService(mount, camera, solver)
 
     try:
         if args.mode == "solve":
@@ -665,6 +782,94 @@ def run_align(args) -> int:
                 print(f"Stars: {result.num_stars}")
                 print(f"Message: {result.message}")
             return 0 if result.success else 1
+        if args.mode == "goto":
+            if args.target:
+                from astrolabe.services.target.resolver import TargetResolver
+
+                resolver = TargetResolver.from_repo_data(
+                    min_score=config.resolver_min_score
+                )
+                matches = resolver.resolve(args.target)
+                if not matches:
+                    print(f"Target not found: {args.target}", file=sys.stderr)
+                    return 2
+                target = matches[0].record
+                target_ra_deg = target.ra_deg
+                target_dec_deg = target.dec_deg
+            else:
+                if args.ra_deg is None or args.dec_deg is None:
+                    print(
+                        "pointing goto requires --target or both --ra-deg and --dec-deg",
+                        file=sys.stderr,
+                    )
+                    return 2
+                target_ra_deg = args.ra_deg
+                target_dec_deg = args.dec_deg
+
+            target_ra_rad = math.radians(target_ra_deg)
+            target_dec_rad = math.radians(target_dec_deg)
+            corrected_ra, corrected_dec = service.apply_model(
+                target_ra_rad, target_dec_rad
+            )
+            mount.slew_to(corrected_ra, corrected_dec)
+            result = service.solve_current(
+                exposure_s=args.exposure, use_mount_hints=False
+            )
+            if (
+                result.success
+                and result.ra_rad is not None
+                and result.dec_rad is not None
+            ):
+                service.update_model_from_target(
+                    ra_target=target_ra_rad,
+                    dec_target=target_dec_rad,
+                    result=result,
+                )
+                d_ra = (result.ra_rad - target_ra_rad + math.pi) % (
+                    2.0 * math.pi
+                ) - math.pi
+                d_alpha = d_ra * math.cos(target_dec_rad)
+                d_delta = result.dec_rad - target_dec_rad
+                angular_err = math.hypot(d_alpha, d_delta)
+            else:
+                angular_err = None
+
+            if getattr(args, "json", False):
+                import json
+
+                payload = _json_envelope(
+                    command="pointing.goto",
+                    ok=result.success,
+                    data={
+                        "target_ra_deg": target_ra_deg,
+                        "target_dec_deg": target_dec_deg,
+                        "command_ra_deg": math.degrees(corrected_ra),
+                        "command_dec_deg": math.degrees(corrected_dec),
+                        "solve": result.__dict__,
+                        "final_error_arcsec": None
+                        if angular_err is None
+                        else math.degrees(angular_err) * 3600.0,
+                    },
+                    error=None
+                    if result.success
+                    else {
+                        "code": "pointing_goto_failed",
+                        "message": result.message or "pointing goto failed",
+                        "details": None,
+                    },
+                )
+                print(json.dumps(payload, indent=2))
+            else:
+                if result.success:
+                    if angular_err is not None:
+                        print(
+                            f"Final error: {math.degrees(angular_err) * 3600.0:.1f} arcsec"
+                        )
+                    else:
+                        print("Final error: unknown")
+                else:
+                    print(f"Pointing goto failed: {result.message}")
+            return 0 if result.success else 1
         if args.mode == "sync":
             result = service.sync_current(exposure_s=args.exposure)
         elif args.mode == "init":
@@ -681,14 +886,14 @@ def run_align(args) -> int:
             import json
 
             payload = _json_envelope(
-                command=f"align.{args.mode}",
+                command=f"pointing.{args.mode}",
                 ok=result.success,
                 data=result.__dict__,
                 error=None
                 if result.success
                 else {
-                    "code": "align_failed",
-                    "message": result.message or f"align {args.mode} failed",
+                    "code": f"pointing_{args.mode}_failed",
+                    "message": result.message or f"pointing {args.mode} failed",
                     "details": None,
                 },
             )
@@ -921,41 +1126,112 @@ def run_plan(args) -> int:
 
 def run_update(args) -> int:
     _init_logging(getattr(args, "log_level", None))
-    if args.dataset != "catalog":
-        print("Unknown update dataset.", file=sys.stderr)
-        return 2
     if getattr(args, "dry_run", False):
         print("--dry-run has no effect for update.", file=sys.stderr)
 
     try:
-        result = update_catalog(
-            source=args.source,
-            version=args.version,
-            output_path=args.output,
-        )
+        if args.dataset != "catalog":
+            print("Unknown update dataset.", file=sys.stderr)
+            return 2
+
+        show_progress = not getattr(args, "json", False)
+        catalog_dataset = getattr(args, "catalog_dataset", None)
+        results = []
+
+        if catalog_dataset in (None, "openngc"):
+            openngc_result = update_catalog(
+                source=getattr(args, "source", None),
+                version=getattr(args, "version", None),
+                output_path=getattr(args, "output", None),
+                show_progress=show_progress,
+            )
+            results.append(
+                (
+                    "update.catalog.openngc",
+                    openngc_result,
+                    [
+                        "OpenNGC update complete.",
+                        f"Source: {openngc_result['source']}",
+                        f"Cache: {openngc_result['cache_dir']}",
+                        f"Output: {openngc_result['output_path']}",
+                        f"Targets: {openngc_result['targets_written']}",
+                    ],
+                )
+            )
+
+        if catalog_dataset in (None, "hip"):
+            max_mag = getattr(args, "max_mag", None)
+            if max_mag is None:
+                max_mag = load_config(_config_path_from_args(args)).resolver_hip_max_mag
+            hip_result = update_hipparcos(
+                source=getattr(args, "source", None),
+                output_path=getattr(args, "output", None),
+                max_mag=max_mag,
+                verify_ssl=not getattr(args, "insecure", False),
+                show_progress=show_progress,
+            )
+            results.append(
+                (
+                    "update.catalog.hip",
+                    hip_result,
+                    [
+                        "Hipparcos subset update complete.",
+                        f"Source: {hip_result['source']}",
+                        f"Cache: {hip_result['cache_dir']}",
+                        f"Output: {hip_result['output_path']}",
+                        f"Stars: {hip_result['stars_written']}",
+                        f"Max mag: {hip_result['max_mag']}",
+                    ],
+                )
+            )
+
+        if catalog_dataset in (None, "bsc"):
+            bsc_result = update_bsc_crosswalk(
+                source=getattr(args, "source", None),
+                output_path=getattr(args, "output", None),
+                verify_ssl=not getattr(args, "insecure", False),
+                show_progress=show_progress,
+            )
+            results.append(
+                (
+                    "update.catalog.bsc",
+                    bsc_result,
+                    [
+                        "BSC crosswalk update complete.",
+                        f"Source: {bsc_result['source']}",
+                        f"HIP Source: {bsc_result['hip_source']}",
+                        f"Cache: {bsc_result['cache_dir']}",
+                        f"Output: {bsc_result['output_path']}",
+                        f"Aliases: {bsc_result['aliases_written']}",
+                    ],
+                )
+            )
+
+        if not results:
+            print("Unknown catalog dataset.", file=sys.stderr)
+            return 2
+
         if getattr(args, "json", False):
             import json
 
             payload = _json_envelope(
                 command="update.catalog",
                 ok=True,
-                data=result,
+                data={name: data for name, data, _ in results},
                 error=None,
             )
             print(json.dumps(payload, indent=2))
         else:
-            print("Catalog update complete.")
-            print(f"Source: {result['source']}")
-            print(f"Cache: {result['cache_dir']}")
-            print(f"Output: {result['output_path']}")
-            print(f"Targets: {result['targets_written']}")
+            for _, _, summary in results:
+                for line in summary:
+                    print(line)
         return 0
     except Exception as e:
         if getattr(args, "json", False):
             import json
 
             payload = _json_envelope(
-                command="update.catalog",
+                command=f"update.{args.dataset}",
                 ok=False,
                 data=None,
                 error={"code": "update_failed", "message": str(e), "details": None},

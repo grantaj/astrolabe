@@ -36,3 +36,8 @@ sqm = 20.33
 [planner]
 # Optional telescope aperture (mm) used for visibility scoring
 aperture_mm = 203
+
+[resolver]
+catalogs = ["core_dso", "hip_subset", "star_aliases", "bayer_flamsteed"]
+hip_max_mag = 7.0
+min_score = 0.7

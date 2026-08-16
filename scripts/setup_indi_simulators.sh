@@ -3,10 +3,13 @@ set -euo pipefail
 
 HOST="127.0.0.1"
 PORT="7624"
-FOCAL_LENGTH="120"
+FOCAL_LENGTH="200"
 APERTURE="50"
-LIMITING_MAG="20"
+LIMITING_MAG="18"
 NOISE="0"
+SKYGLOW="21"
+X_SIZE="7"
+Y_SIZE="7"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -16,6 +19,9 @@ while [[ $# -gt 0 ]]; do
     --aperture) APERTURE="$2"; shift 2 ;;
     --limiting-mag) LIMITING_MAG="$2"; shift 2 ;;
     --noise) NOISE="$2"; shift 2 ;;
+    --skyglow) SKYGLOW="$2"; shift 2 ;;
+    --x-size) X_SIZE="$2"; shift 2 ;;
+    --y-size) Y_SIZE="$2"; shift 2 ;;
     *)
       echo "Unknown arg: $1"
       exit 2
@@ -48,6 +54,9 @@ indi_setprop -h "$HOST" -p "$PORT" "CCD Simulator.SCOPE_INFO.APERTURE=$APERTURE"
 echo "[info] Adjusting simulator star settings..."
 indi_setprop -h "$HOST" -p "$PORT" "CCD Simulator.SIMULATOR_SETTINGS.SIM_LIMITINGMAG=$LIMITING_MAG"
 indi_setprop -h "$HOST" -p "$PORT" "CCD Simulator.SIMULATOR_SETTINGS.SIM_NOISE=$NOISE"
+indi_setprop -h "$HOST" -p "$PORT" "CCD Simulator.SIMULATOR_SETTINGS.SIM_SKYGLOW=$SKYGLOW"
+indi_setprop -h "$HOST" -p "$PORT" "CCD Simulator.SIMULATOR_SETTINGS.SIM_XSIZE=$X_SIZE"
+indi_setprop -h "$HOST" -p "$PORT" "CCD Simulator.SIMULATOR_SETTINGS.SIM_YSIZE=$Y_SIZE"
 
 echo "[info] Saving CCD simulator config..."
 indi_setprop -h "$HOST" -p "$PORT" "CCD Simulator.CONFIG_PROCESS.CONFIG_SAVE=On"

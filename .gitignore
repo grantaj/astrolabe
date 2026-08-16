@@ -84,6 +84,8 @@ docs/_build/
 # PyBuilder
 .pybuilder/
 target/
+!astrolabe/services/target/
+!tests/target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
