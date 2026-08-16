@@ -1,3 +1,4 @@
+import datetime
 import json
 from types import SimpleNamespace
 
@@ -29,7 +30,7 @@ class _FakeCamera:
             data=self.pixels,
             width_px=self.pixels.shape[1],
             height_px=self.pixels.shape[0],
-            timestamp_utc=None,
+            timestamp_utc=datetime.datetime.now(datetime.timezone.utc),
             exposure_s=exposure_s,
             metadata={},
         )
