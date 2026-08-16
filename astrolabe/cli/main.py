@@ -239,9 +239,7 @@ def main():
         "--exposure", type=float, help="Exposure time when capturing from camera"
     )
     focus_measure.add_argument("--gain", type=float, help="Camera gain")
-    focus_measure.add_argument(
-        "--bin", dest="binning", type=int, help="Binning factor"
-    )
+    focus_measure.add_argument("--bin", dest="binning", type=int, help="Binning factor")
     focus_measure.add_argument("--roi", help="ROI as x,y,w,h")
     focus_measure.add_argument(
         "--min-stars",
