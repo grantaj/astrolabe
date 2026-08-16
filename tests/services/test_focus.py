@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from astrolabe.services.focus import FocusAnalyzer, FocusConfig
+from astrolabe.services.focus import FocusAnalyzer, FocusConfig, FocusMeasurement
 
 
 POSITIONS = ((28, 28), (28, 98), (92, 60), (88, 104), (64, 82))
@@ -35,17 +35,22 @@ def analyzer(**kwargs):
     return FocusAnalyzer(FocusConfig(**kwargs))
 
 
+def valid_hfr(result: FocusMeasurement) -> float:
+    assert result.valid
+    assert result.hfr_px is not None
+    return result.hfr_px
+
+
 def test_gaussian_star_hfr_is_close_to_half_flux_radius():
     result = analyzer().measure(synthetic_starfield(sigma=2.0))
     expected = 2.0 * math.sqrt(2.0 * math.log(2.0))
-    assert result.valid
-    assert result.hfr_px == pytest.approx(expected, abs=0.4)
+    assert valid_hfr(result) == pytest.approx(expected, abs=0.4)
     assert result.star_count == 5
 
 
 def test_broader_psfs_produce_monotonically_larger_hfr():
     hfrs = [
-        analyzer().measure(synthetic_starfield(sigma=sigma, seed=index)).hfr_px
+        valid_hfr(analyzer().measure(synthetic_starfield(sigma=sigma, seed=index)))
         for index, sigma in enumerate((1.5, 2.0, 3.0), start=1)
     ]
     assert hfrs[0] < hfrs[1] < hfrs[2]
@@ -58,15 +63,13 @@ def test_brightness_does_not_materially_change_hfr():
     bright = analyzer().measure(
         synthetic_starfield(amplitudes=(9000.0,) * 5, seed=9)
     )
-    assert dim.valid and bright.valid
-    assert dim.hfr_px == pytest.approx(bright.hfr_px, abs=0.15)
+    assert valid_hfr(dim) == pytest.approx(valid_hfr(bright), abs=0.15)
 
 
 def test_constant_background_offset_does_not_change_hfr():
     low = analyzer().measure(synthetic_starfield(background=100.0, seed=4))
     high = analyzer().measure(synthetic_starfield(background=10000.0, seed=4))
-    assert low.valid and high.valid
-    assert low.hfr_px == pytest.approx(high.hfr_px, abs=0.1)
+    assert valid_hfr(low) == pytest.approx(valid_hfr(high), abs=0.1)
 
 
 def test_modest_noise_preserves_focus_ordering():
@@ -76,8 +79,7 @@ def test_modest_noise_preserves_focus_ordering():
     soft = analyzer().measure(
         synthetic_starfield(sigma=2.8, noise_sigma=12.0, seed=7)
     )
-    assert sharp.valid and soft.valid
-    assert sharp.hfr_px < soft.hfr_px
+    assert valid_hfr(sharp) < valid_hfr(soft)
 
 
 def test_median_aggregation_is_robust_to_one_broad_outlier():
@@ -93,8 +95,7 @@ def test_median_aggregation_is_robust_to_one_broad_outlier():
     frame = frame - ordinary + broad
     result = analyzer().measure(frame)
     baseline = analyzer().measure(synthetic_starfield())
-    assert result.valid and baseline.valid
-    assert result.hfr_px == pytest.approx(baseline.hfr_px, abs=0.25)
+    assert valid_hfr(result) == pytest.approx(valid_hfr(baseline), abs=0.25)
 
 
 def test_hot_pixel_is_rejected():
@@ -148,6 +149,7 @@ def test_no_stars_returns_explicit_invalid_measurement():
     assert not result.valid
     assert result.hfr_px is None
     assert result.star_count == 0
+    assert result.message is not None
     assert "usable stars" in result.message
 
 
@@ -169,10 +171,12 @@ def test_non_finite_pixels_are_rejected_deterministically(bad_value):
     result = analyzer().measure(frame)
     assert not result.valid
     assert result.hfr_px is None
+    assert result.message is not None
     assert "non-finite" in result.message
 
 
 def test_non_2d_input_is_invalid():
     result = analyzer().measure(np.zeros((2, 2, 2)))
     assert not result.valid
+    assert result.message is not None
     assert "2D monochrome" in result.message
