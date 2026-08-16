@@ -33,9 +33,7 @@ def _write_u16_fits(path: Path, pixels: np.ndarray) -> None:
 
 
 def test_load_fits_pixels_handles_unsigned_16_bit_indi_style_image(tmp_path):
-    expected = np.array(
-        [[0, 1, 32768], [40000, 50000, 65535]], dtype=np.uint16
-    )
+    expected = np.array([[0, 1, 32768], [40000, 50000, 65535]], dtype=np.uint16)
     path = tmp_path / "camera.fits"
     _write_u16_fits(path, expected)
     frame = load_fits_pixels(path)
