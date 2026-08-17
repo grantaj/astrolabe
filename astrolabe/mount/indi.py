@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import datetime
 import logging
-import math
 import time
 
 from astrolabe.indi.client import IndiClient
 from astrolabe.errors import BackendError
+from astrolabe.util.math import (
+    degrees_to_rad as _degrees_to_rad,
+    hours_to_rad as _hours_to_rad,
+    normalize_angle_rad,
+    rad_to_degrees as _rad_to_degrees,
+    rad_to_hours as _rad_to_hours,
+)
+
 from .base import MountBackend, MountState
 
 logger = logging.getLogger(__name__)
@@ -20,12 +27,6 @@ try:
 except ImportError:
     ASTROPY_AVAILABLE = False
 
-# Coordinate conversion constants
-_RAD_TO_HOURS = 12.0 / math.pi
-_RAD_TO_DEGREES = 180.0 / math.pi
-_HOURS_TO_RAD = math.pi / 12.0
-_DEGREES_TO_RAD = math.pi / 180.0
-
 # Mount I/O wait times
 _CONNECT_WAIT_S = 0.2
 _CONNECT_TIMEOUT_S = 10.0
@@ -38,22 +39,6 @@ _SLEW_STATE_TIMEOUT_S = 20.0
 _INDI_ON = "On"
 _INDI_OFF = "Off"
 _INDI_BUSY = "Busy"
-
-
-def _rad_to_hours(rad: float) -> float:
-    return rad * _RAD_TO_HOURS
-
-
-def _rad_to_degrees(rad: float) -> float:
-    return rad * _RAD_TO_DEGREES
-
-
-def _hours_to_rad(hours: float) -> float:
-    return hours * _HOURS_TO_RAD
-
-
-def _degrees_to_rad(degrees: float) -> float:
-    return degrees * _DEGREES_TO_RAD
 
 
 def icrs_to_jnow(
@@ -188,7 +173,7 @@ class IndiMountBackend(MountBackend):
         if not self._connected:
             self.connect()
 
-        ra_rad = ra_rad % (2.0 * math.pi)
+        ra_rad = normalize_angle_rad(ra_rad)
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         has_jnow = self._client.has_prop(f"{self.device}.EQUATORIAL_EOD_COORD.RA")
         has_j2000 = self._client.has_prop(f"{self.device}.EQUATORIAL_COORD.RA")
@@ -228,7 +213,7 @@ class IndiMountBackend(MountBackend):
 
         if has_jnow:
             ra_jnow, dec_jnow = icrs_to_jnow(ra_rad, dec_rad, now_utc)
-            ra_jnow = ra_jnow % (2.0 * math.pi)
+            ra_jnow = normalize_angle_rad(ra_jnow)
             self._client.setprop_vector(
                 self.device,
                 "EQUATORIAL_EOD_COORD",
@@ -280,7 +265,7 @@ class IndiMountBackend(MountBackend):
         if not self._connected:
             self.connect()
 
-        ra_rad = ra_rad % (2.0 * math.pi)
+        ra_rad = normalize_angle_rad(ra_rad)
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         has_jnow = self._client.has_prop(f"{self.device}.EQUATORIAL_EOD_COORD.RA")
         has_j2000 = self._client.has_prop(f"{self.device}.EQUATORIAL_COORD.RA")
@@ -299,7 +284,7 @@ class IndiMountBackend(MountBackend):
 
         if has_jnow:
             ra_jnow, dec_jnow = icrs_to_jnow(ra_rad, dec_rad, now_utc)
-            ra_jnow = ra_jnow % (2.0 * math.pi)
+            ra_jnow = normalize_angle_rad(ra_jnow)
             self._client.setprop_vector(
                 self.device,
                 "EQUATORIAL_EOD_COORD",
