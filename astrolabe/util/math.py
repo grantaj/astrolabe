@@ -61,8 +61,7 @@ def angular_separation_rad(
     precision requirements; clamping protects ``acos`` from floating-point
     excursions just outside its domain.
     """
-    cos_sep = (
-        math.sin(dec1_rad) * math.sin(dec2_rad)
-        + math.cos(dec1_rad) * math.cos(dec2_rad) * math.cos(ra1_rad - ra2_rad)
-    )
+    cos_sep = math.sin(dec1_rad) * math.sin(dec2_rad) + math.cos(dec1_rad) * math.cos(
+        dec2_rad
+    ) * math.cos(ra1_rad - ra2_rad)
     return math.acos(clamp_unit(cos_sep))
