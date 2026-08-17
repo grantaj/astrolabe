@@ -1,6 +1,8 @@
 import datetime
 import math
 
+from astrolabe.util.math import angular_separation_rad, clamp_unit, normalize_angle_rad
+
 
 def _to_julian_date(dt: datetime.datetime) -> float:
     if dt.tzinfo is None:
@@ -32,20 +34,16 @@ def days_since_j2000(dt: datetime.datetime) -> float:
     return _to_julian_date(dt) - 2451545.0
 
 
-def _normalize_angle_rad(angle: float) -> float:
-    return angle % (2.0 * math.pi)
-
-
 def _gmst_rad(dt: datetime.datetime) -> float:
     jd = _to_julian_date(dt)
     d = jd - 2451545.0
     gmst_hours = 18.697374558 + 24.06570982441908 * d
     gmst_rad = math.radians((gmst_hours % 24.0) * 15.0)
-    return _normalize_angle_rad(gmst_rad)
+    return normalize_angle_rad(gmst_rad)
 
 
 def local_sidereal_time_rad(dt: datetime.datetime, longitude_deg: float) -> float:
-    return _normalize_angle_rad(_gmst_rad(dt) + math.radians(longitude_deg))
+    return normalize_angle_rad(_gmst_rad(dt) + math.radians(longitude_deg))
 
 
 def ra_dec_to_alt_az(
@@ -56,16 +54,16 @@ def ra_dec_to_alt_az(
     dt: datetime.datetime,
 ) -> tuple[float, float]:
     lst = local_sidereal_time_rad(dt, lon_deg)
-    ha = _normalize_angle_rad(lst - ra_rad)
+    ha = normalize_angle_rad(lst - ra_rad)
     sin_alt = math.sin(dec_rad) * math.sin(lat_rad) + math.cos(dec_rad) * math.cos(
         lat_rad
     ) * math.cos(ha)
-    alt = math.asin(max(-1.0, min(1.0, sin_alt)))
+    alt = math.asin(clamp_unit(sin_alt))
     az = math.atan2(
         -math.sin(ha),
         math.tan(dec_rad) * math.cos(lat_rad) - math.sin(lat_rad) * math.cos(ha),
     )
-    az = _normalize_angle_rad(az)
+    az = normalize_angle_rad(az)
     return alt, az
 
 
@@ -82,7 +80,7 @@ def sun_ra_dec_rad(dt: datetime.datetime) -> tuple[float, float]:
     eps = math.radians(23.439 - 0.0000004 * n)
     ra = math.atan2(math.cos(eps) * math.sin(lam), math.cos(lam))
     dec = math.asin(math.sin(eps) * math.sin(lam))
-    return _normalize_angle_rad(ra), dec
+    return normalize_angle_rad(ra), dec
 
 
 def moon_ra_dec_rad(dt: datetime.datetime) -> tuple[float, float]:
@@ -97,19 +95,11 @@ def moon_ra_dec_rad(dt: datetime.datetime) -> tuple[float, float]:
     sin_dec = math.sin(beta) * math.cos(eps) + math.cos(beta) * math.sin(
         eps
     ) * math.sin(lam)
-    dec = math.asin(max(-1.0, min(1.0, sin_dec)))
+    dec = math.asin(clamp_unit(sin_dec))
     y = math.sin(lam) * math.cos(eps) - math.tan(beta) * math.sin(eps)
     x = math.cos(lam)
     ra = math.atan2(y, x)
-    return _normalize_angle_rad(ra), dec
-
-
-def angular_separation_rad(ra1: float, dec1: float, ra2: float, dec2: float) -> float:
-    cos_sep = math.sin(dec1) * math.sin(dec2) + math.cos(dec1) * math.cos(
-        dec2
-    ) * math.cos(ra1 - ra2)
-    cos_sep = max(-1.0, min(1.0, cos_sep))
-    return math.acos(cos_sep)
+    return normalize_angle_rad(ra), dec
 
 
 def moon_illumination_fraction(dt: datetime.datetime) -> float:
