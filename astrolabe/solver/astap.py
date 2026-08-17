@@ -1,12 +1,18 @@
 import subprocess
 import re
-import math
 from pathlib import Path
 from typing import Optional
 from .types import SolveRequest, SolveResult
 from .base import SolverBackend
 import tempfile
 import os
+
+from astrolabe.util.math import (
+    degrees_to_rad,
+    normalize_angle_rad,
+    rad_to_degrees,
+    rad_to_hours,
+)
 
 DEFAULT_ASTAP_TIMEOUT_S = 60
 
@@ -57,15 +63,15 @@ class AstapSolverBackend(SolverBackend):
             if self.database_path:
                 cmd += ["-d", self.database_path]
             if request.ra_hint_rad is not None and request.dec_hint_rad is not None:
-                ra_rad = request.ra_hint_rad % (2.0 * math.pi)
-                ra_hours = math.degrees(ra_rad) / 15.0
-                dec_deg = math.degrees(request.dec_hint_rad)
+                ra_rad = normalize_angle_rad(request.ra_hint_rad)
+                ra_hours = rad_to_hours(ra_rad)
+                dec_deg = rad_to_degrees(request.dec_hint_rad)
                 spd_deg = 90.0 - dec_deg
                 cmd += ["-ra", str(ra_hours), "-spd", str(spd_deg)]
             if request.scale_hint_arcsec is not None:
                 cmd += ["-scale", str(request.scale_hint_arcsec)]
             if request.search_radius_rad is not None:
-                radius_deg = math.degrees(request.search_radius_rad)
+                radius_deg = rad_to_degrees(request.search_radius_rad)
                 cmd += ["-radius", str(radius_deg)]
             if request.extra_options:
                 for k, v in request.extra_options.items():
@@ -119,16 +125,16 @@ class AstapSolverBackend(SolverBackend):
                     for line in f:
                         if line.startswith("CRVAL1="):
                             ra_deg = float(line.split("=")[1])
-                            ra_rad = math.radians(ra_deg)
+                            ra_rad = degrees_to_rad(ra_deg)
                         elif line.startswith("CRVAL2="):
                             dec_deg = float(line.split("=")[1])
-                            dec_rad = math.radians(dec_deg)
+                            dec_rad = degrees_to_rad(dec_deg)
                         elif line.startswith("CDELT1="):
                             scale1 = abs(float(line.split("=")[1])) * 3600
                         elif line.startswith("CDELT2="):
                             scale2 = abs(float(line.split("=")[1])) * 3600
                         elif line.startswith("CROTA1="):
-                            rotation_rad = math.radians(float(line.split("=")[1]))
+                            rotation_rad = degrees_to_rad(float(line.split("=")[1]))
                         elif line.startswith("PLTSOLVD=") and "T" in line:
                             pass  # solved
                         elif line.startswith("WARNING="):
