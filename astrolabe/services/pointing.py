@@ -3,6 +3,7 @@ import math
 
 from astrolabe.solver.types import SolveRequest, SolveResult
 from astrolabe.pointing.model import PointingModel, DEFAULT_MODEL_PATH
+from astrolabe.util.math import normalize_angle_rad
 
 
 @dataclass
@@ -110,9 +111,8 @@ class PointingService:
 
     def apply_model(self, ra_rad: float, dec_rad: float) -> tuple[float, float]:
         b_alpha, b_delta = self._model.predict()
-        corrected_ra = ra_rad - b_alpha / math.cos(dec_rad)
+        corrected_ra = normalize_angle_rad(ra_rad - b_alpha / math.cos(dec_rad))
         corrected_dec = dec_rad - b_delta
-        corrected_ra = corrected_ra % (2.0 * math.pi)
         return corrected_ra, corrected_dec
 
     def update_model_from_target(
