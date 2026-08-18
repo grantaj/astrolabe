@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from astrolabe.camera.base import FitsImageData
 from astrolabe.camera.indi_live import IndiLiveFrameSession, _BlobFrame
+from astrolabe.indi import IndiClient
 
 
 def _fits(width: int = 64, height: int = 48) -> bytes:
@@ -20,14 +21,6 @@ def _fits(width: int = 64, height: int = 48) -> bytes:
     ]
     header = "".join(card.ljust(80) for card in cards).encode("ascii")
     return header.ljust(2880, b" ")
-
-
-class _FakeClient:
-    def snapshot(self, device: str) -> dict[str, str]:
-        return {}
-
-    def setprop(self, key: str, value: str, *, kind: str, soft: bool) -> None:
-        pass
 
 
 class _FakeTransport:
@@ -54,13 +47,15 @@ class _FakeTransport:
 
 def test_bounded_session_closes_when_final_frame_is_delivered():
     transport = _FakeTransport()
+    client = MagicMock(spec=IndiClient)
+    client.snapshot.return_value = {}
     released: list[bool] = []
 
     with patch(
         "astrolabe.camera.indi_live._IndiBlobTransport", return_value=transport
     ):
         frames = IndiLiveFrameSession(
-            client=_FakeClient(),
+            client=client,
             host="127.0.0.1",
             port=7624,
             device="CCD Simulator",
