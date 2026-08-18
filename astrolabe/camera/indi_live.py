@@ -333,7 +333,7 @@ class IndiLiveFrameSession(LiveFrameSession):
             raise
 
         self._frame_index += 1
-        return Image(
+        image = Image(
             data=FitsImageData(blob.data),
             width_px=width,
             height_px=height,
@@ -347,6 +347,9 @@ class IndiLiveFrameSession(LiveFrameSession):
                 "frame_sequence": self._frame_index,
             },
         )
+        if self._frame_count is not None and self._frame_index >= self._frame_count:
+            self.close()
+        return image
 
     def close(self) -> None:
         if self._closed:
