@@ -46,6 +46,24 @@ class AudioCue:
     continuous: bool = False
 
 
+def _validate_feedback_state(state: FeedbackState) -> None:
+    """Validate proximity invariants shared by terminal and audio presentation."""
+    if not state.valid:
+        return
+
+    if state.direction is FeedbackDirection.UNKNOWN:
+        if state.proximity is not None:
+            raise ValueError("unknown feedback state must not have proximity")
+        return
+
+    if state.proximity is None:
+        raise ValueError(f"{state.direction.value} feedback state requires proximity")
+    if not math.isfinite(state.proximity) or not 0.0 <= state.proximity <= 1.0:
+        raise ValueError("feedback proximity must be finite and in [0, 1]")
+    if state.direction is FeedbackDirection.CENTERED and state.proximity != 1.0:
+        raise ValueError("centered feedback state requires proximity 1.0")
+
+
 class AudioCueMapper:
     """Map semantic feedback state to parking-sensor-style audio cues."""
 
@@ -55,6 +73,8 @@ class AudioCueMapper:
     def map(self, state: FeedbackState) -> AudioCue | None:
         if not state.valid:
             return None
+
+        _validate_feedback_state(state)
 
         if state.direction is FeedbackDirection.CENTERED:
             return AudioCue(
@@ -71,8 +91,7 @@ class AudioCueMapper:
                 interval_s=self.config.unknown_interval_s,
             )
 
-        if state.proximity is None:
-            raise ValueError("signed feedback state requires proximity")
+        assert state.proximity is not None
         frequency = (
             self.config.positive_hz
             if state.direction is FeedbackDirection.POSITIVE
@@ -94,6 +113,8 @@ def format_feedback(state: FeedbackState) -> str:
         return "! stale"
     if not state.valid:
         return "! invalid"
+
+    _validate_feedback_state(state)
 
     marker = {
         FeedbackDirection.NEGATIVE: "-",

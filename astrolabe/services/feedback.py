@@ -118,6 +118,17 @@ class FeedbackSession:
             )
             return self._last_state
 
+        if (
+            self._last_update_s is not None
+            and now_s - self._last_update_s > self.config.stale_after_s
+        ):
+            self._filtered_guidance = None
+            self._last_state = FeedbackState(
+                direction=FeedbackDirection.UNKNOWN,
+                proximity=None,
+                valid=False,
+            )
+
         self._last_update_s = now_s
         if guidance is None:
             self._filtered_guidance = None

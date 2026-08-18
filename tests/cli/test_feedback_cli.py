@@ -105,14 +105,56 @@ def test_audio_config_requires_far_interval_greater_than_near() -> None:
         AudioCueConfig(far_interval_s=0.1, near_interval_s=0.2)
 
 
-def test_audio_rejects_signed_state_without_proximity() -> None:
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        FeedbackState(
+            direction=FeedbackDirection.POSITIVE,
+            proximity=None,
+            valid=True,
+            guidance=1.0,
+        ),
+        FeedbackState(
+            direction=FeedbackDirection.CENTERED,
+            proximity=None,
+            valid=True,
+            guidance=0.0,
+        ),
+        FeedbackState(
+            direction=FeedbackDirection.UNKNOWN,
+            proximity=0.5,
+            valid=True,
+        ),
+        FeedbackState(
+            direction=FeedbackDirection.NEGATIVE,
+            proximity=math.nan,
+            valid=True,
+            guidance=-1.0,
+        ),
+        FeedbackState(
+            direction=FeedbackDirection.POSITIVE,
+            proximity=-0.1,
+            valid=True,
+            guidance=1.0,
+        ),
+        FeedbackState(
+            direction=FeedbackDirection.POSITIVE,
+            proximity=1.1,
+            valid=True,
+            guidance=1.0,
+        ),
+        FeedbackState(
+            direction=FeedbackDirection.CENTERED,
+            proximity=0.9,
+            valid=True,
+            guidance=0.0,
+        ),
+    ],
+)
+def test_presenters_reject_malformed_valid_state(malformed: FeedbackState) -> None:
     mapper = AudioCueMapper()
-    malformed = FeedbackState(
-        direction=FeedbackDirection.POSITIVE,
-        proximity=None,
-        valid=True,
-        guidance=1.0,
-    )
 
-    with pytest.raises(ValueError, match="requires proximity"):
+    with pytest.raises(ValueError):
         mapper.map(malformed)
+    with pytest.raises(ValueError):
+        format_feedback(malformed)

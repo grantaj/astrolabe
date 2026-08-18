@@ -43,13 +43,23 @@ def test_proximity_increases_monotonically_as_guidance_decreases() -> None:
 
 
 def test_proximity_is_continuous_at_tolerance_boundary() -> None:
-    session = FeedbackSession(FeedbackConfig(tolerance=1.0, useful_range=10.0))
+    session = FeedbackSession(
+        FeedbackConfig(
+            tolerance=1.0,
+            useful_range=10.0,
+            center_hysteresis_fraction=0.0,
+        )
+    )
 
     inside = session.update(1.0)
     outside = session.update(1.000001)
 
+    expected_outside = 1.0 - 0.000001 / 9.0
     assert inside.proximity == pytest.approx(1.0)
-    assert outside.proximity == pytest.approx(1.0, abs=1e-6)
+    assert outside.direction is FeedbackDirection.POSITIVE
+    assert outside.proximity is not None
+    assert outside.proximity < 1.0
+    assert outside.proximity == pytest.approx(expected_outside, abs=1e-12)
 
 
 def test_unknown_guidance_does_not_invent_direction_or_proximity() -> None:
@@ -82,6 +92,27 @@ def test_unknown_resets_smoothing_history() -> None:
     state = session.update(-2.0)
 
     assert state.guidance == pytest.approx(-2.0)
+
+
+def test_stale_gap_resets_smoothing_and_direction_history() -> None:
+    clock = FakeClock()
+    session = FeedbackSession(
+        FeedbackConfig(
+            tolerance=0.1,
+            useful_range=20.0,
+            smoothing_alpha=0.5,
+            direction_hysteresis=10.0,
+            stale_after_s=2.0,
+        ),
+        clock=clock,
+    )
+    assert session.update(10.0).direction is FeedbackDirection.POSITIVE
+
+    clock.now = 2.1
+    state = session.update(-8.0)
+
+    assert state.guidance == pytest.approx(-8.0)
+    assert state.direction is FeedbackDirection.NEGATIVE
 
 
 def test_center_hysteresis_prevents_target_chatter() -> None:
