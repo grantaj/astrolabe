@@ -1,13 +1,7 @@
 import math
 from typing import Tuple
 
-
-def rad_to_deg(rad: float) -> float:
-    return math.degrees(rad)
-
-
-def rad_to_arcsec(rad: float) -> float:
-    return math.degrees(rad) * 3600.0
+from .math import rad_to_arcsec, rad_to_degrees as rad_to_deg, rad_to_hours
 
 
 def _wrap_hours(hours: float) -> float:
@@ -36,14 +30,14 @@ def _split_hms(hours: float, precision: int) -> Tuple[int, int, float]:
 
 
 def rad_to_hms(rad: float, precision: int = 2) -> str:
-    hours = math.degrees(rad) / 15.0
+    hours = rad_to_hours(rad)
     h, m, s = _split_hms(hours, precision)
     s_fmt = f"{s:0{3 + precision}.{precision}f}"
     return f"{h:02d}:{m:02d}:{s_fmt}"
 
 
 def rad_to_dms(rad: float, precision: int = 2) -> str:
-    deg = math.degrees(rad)
+    deg = rad_to_deg(rad)
     sign_val, d, m, s = _split_dms(deg, precision)
     sign = "-" if sign_val < 0 else "+"
     s_fmt = f"{s:0{3 + precision}.{precision}f}"

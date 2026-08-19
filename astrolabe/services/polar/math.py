@@ -5,6 +5,13 @@ No backend imports. No side effects. All angles in radians.
 
 import math
 
+from astrolabe.util.math import (
+    angular_separation_rad,
+    clamp_unit,
+    normalize_angle_rad,
+    rad_to_arcsec,
+)
+
 from .types import _CircleFitResult, _PoseObservation
 
 # --- 3D vector helpers (tuples of 3 floats) ---
@@ -58,10 +65,8 @@ def _radec_to_cart(ra_rad: float, dec_rad: float) -> _Vec3:
 
 def _cart_to_radec(v: _Vec3) -> tuple[float, float]:
     """Convert a Cartesian unit vector to (RA, Dec) in radians."""
-    dec = math.asin(max(-1.0, min(1.0, v[2])))
-    ra = math.atan2(v[1], v[0])
-    if ra < 0:
-        ra += 2 * math.pi
+    dec = math.asin(clamp_unit(v[2]))
+    ra = normalize_angle_rad(math.atan2(v[1], v[0]))
     return ra, dec
 
 
@@ -101,7 +106,9 @@ def _fit_circle_spherical(
     pole_ra, pole_dec = _cart_to_radec(pole_cart)
 
     # Radius = mean angular distance from each point to the pole.
-    ang_dists = [math.acos(max(-1.0, min(1.0, _dot(pole_cart, v)))) for v in vecs]
+    ang_dists = [
+        angular_separation_rad(pole_ra, pole_dec, ra, dec) for ra, dec in points
+    ]
     radius = sum(ang_dists) / len(ang_dists)
 
     # A radius near π/2 means the points lie on a great circle, which
@@ -263,7 +270,7 @@ def _pole_to_altaz_error(
     if up_norm < 1e-12:
         # Observer is at the pole — altitude and azimuth are degenerate.
         # Return the total angular error as altitude, zero azimuth.
-        total = math.acos(max(-1.0, min(1.0, _dot(target_cart, pole_cart))))
+        total = angular_separation_rad(0.0, target_dec, pole_ra_rad, pole_dec_rad)
         return total, 0.0
 
     up = _normalize(up_raw)
@@ -323,7 +330,7 @@ def correction_confidence(
     penalty (``_MISSING_RMS_PENALTY_ARCSEC``) rather than omitted, so
     that absent data cannot inflate the reported confidence.
     """
-    residual_arcsec = math.degrees(fit_result.residual_rad) * 3600
+    residual_arcsec = rad_to_arcsec(fit_result.residual_rad)
     fit_conf = math.exp(-residual_arcsec / 14.4)
 
     rms_values = [

@@ -1,13 +1,11 @@
-import math
 import time
 
 from astrolabe.errors import ServiceError
 from astrolabe.solver.types import SolveRequest
+from astrolabe.util.math import rad_to_arcsec
 
 from .math import MIN_POSES, correction_confidence, fit_polar_axis
 from .types import PolarResult, _PoseObservation
-
-_RAD_TO_ARCSEC = 180.0 / math.pi * 3600.0
 
 
 class PolarAlignService:
@@ -60,9 +58,9 @@ class PolarAlignService:
         confidence = correction_confidence(fit, poses)
 
         return PolarResult(
-            alt_correction_arcsec=alt_err * _RAD_TO_ARCSEC,
-            az_correction_arcsec=az_err * _RAD_TO_ARCSEC,
-            residual_arcsec=fit.residual_rad * _RAD_TO_ARCSEC,
+            alt_correction_arcsec=rad_to_arcsec(alt_err),
+            az_correction_arcsec=rad_to_arcsec(az_err),
+            residual_arcsec=rad_to_arcsec(fit.residual_rad),
             confidence=confidence,
         )
 
