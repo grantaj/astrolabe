@@ -51,9 +51,7 @@ def test_bounded_session_closes_when_final_frame_is_delivered():
     client.snapshot.return_value = {}
     released: list[bool] = []
 
-    with patch(
-        "astrolabe.camera.indi_live._IndiBlobTransport", return_value=transport
-    ):
+    with patch("astrolabe.camera.indi_live._IndiBlobTransport", return_value=transport):
         frames = IndiLiveFrameSession(
             client=client,
             host="127.0.0.1",
