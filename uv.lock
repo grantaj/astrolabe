@@ -8,6 +8,7 @@ version = "0.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "matplotlib" },
+    { name = "numpy" },
 ]
 
 [package.optional-dependencies]
@@ -27,6 +28,7 @@ requires-dist = [
     { name = "astropy", marker = "extra == 'tools'" },
     { name = "astroquery", marker = "extra == 'tools'" },
     { name = "matplotlib" },
+    { name = "numpy" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.6" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
