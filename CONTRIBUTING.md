@@ -70,13 +70,23 @@ Additive changes are preferred over breaking changes.
 
 ## 5. Dependencies
 
-New dependencies should be:
+Astrolabe minimises **total complexity, not dependency count**.
 
--   Lightweight
--   Well-maintained
--   Justified by clear benefit
+-   Keep the mandatory dependency surface small. A core dependency must
+    support pervasive instrument functionality and earn its installation
+    and maintenance cost.
+-   Keep specialised capabilities optional and behind Astrolabe interfaces
+    where practical.
+-   Prefer a mature, well-maintained library over reimplementing a
+    substantial body of established specialist functionality merely to
+    remain dependency-free.
+-   Keep small, stable, domain-specific algorithms and mathematical
+    primitives in Astrolabe when they are clearer to own than to outsource.
+-   Do not add abstraction layers whose only purpose is to hide a
+    dependency.
 
-Avoid pulling in large frameworks.
+In short: **minimal dependency surface; no dependency without leverage;
+no reimplementation for purity.**
 
 ------------------------------------------------------------------------
 
