@@ -110,8 +110,9 @@ def load_fits_pixels(path: str | Path) -> PixelFrame:
 
     saturation_level = None
     if bitpix > 0:
-        raw_max = float(np.iinfo(dtype).max)
-        saturation_level = raw_max * bscale + bzero
+        raw_info = np.iinfo(dtype)
+        raw_saturation = raw_info.max if bscale >= 0 else raw_info.min
+        saturation_level = float(raw_saturation) * bscale + bzero
 
     return PixelFrame(
         pixels=pixels,
