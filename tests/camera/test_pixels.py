@@ -41,6 +41,34 @@ def test_load_fits_pixels_handles_unsigned_16_bit_indi_style_image(tmp_path):
     assert frame.saturation_level == 65535.0
 
 
+def test_load_fits_pixels_negative_bscale_uses_raw_minimum_for_saturation(tmp_path):
+    raw = np.array([[-32768, -1], [0, 32767]], dtype=">i2")
+    path = tmp_path / "negative-scale.fits"
+    cards = [
+        _card("SIMPLE", "T"),
+        _card("BITPIX", "16"),
+        _card("NAXIS", "2"),
+        _card("NAXIS1", "2"),
+        _card("NAXIS2", "2"),
+        _card("BSCALE", "-1"),
+        _card("BZERO", "0"),
+        b"END".ljust(80),
+    ]
+    header = b"".join(cards)
+    header += b" " * ((-len(header)) % 2880)
+    payload = raw.tobytes(order="C")
+    payload += b"\0" * ((-len(payload)) % 2880)
+    path.write_bytes(header + payload)
+
+    frame = load_fits_pixels(path)
+
+    np.testing.assert_array_equal(
+        frame.pixels,
+        np.array([[32768.0, 1.0], [0.0, -32767.0]]),
+    )
+    assert frame.saturation_level == 32768.0
+
+
 def test_image_to_pixels_accepts_in_memory_camera_frame():
     pixels = np.arange(16, dtype=np.uint16).reshape((4, 4))
     image = Image(
