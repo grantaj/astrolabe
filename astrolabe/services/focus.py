@@ -32,6 +32,10 @@ class FocusConfig:
             raise ValueError("min_footprint_pixels must be at least 1")
         if self.max_elongation < 1:
             raise ValueError("max_elongation must be at least 1")
+        if self.saturation_level is not None and (
+            not math.isfinite(self.saturation_level) or self.saturation_level <= 0
+        ):
+            raise ValueError("saturation_level must be a positive finite value")
         if not 0 < self.saturation_fraction <= 1:
             raise ValueError("saturation_fraction must be in (0, 1]")
 
@@ -269,9 +273,12 @@ class FocusAnalyzer:
         threshold = background + self.config.detection_sigma * effective_noise
         raw_candidates = _local_maxima(pixels, threshold)
         candidates = _suppress_close(raw_candidates, self.config.min_separation_px)
+        configured_saturation = self.config.saturation_level
         inferred_saturation = _inferred_saturation_level(
             original,
-            saturation_level or self.config.saturation_level,
+            configured_saturation
+            if configured_saturation is not None
+            else saturation_level,
         )
 
         accepted: list[_StarMeasurement] = []
