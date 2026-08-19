@@ -3,7 +3,12 @@ import math
 import numpy as np
 import pytest
 
-from astrolabe.services.focus import FocusAnalyzer, FocusConfig, FocusMeasurement
+from astrolabe.services.focus import (
+    FocusAnalyzer,
+    FocusConfig,
+    FocusMeasurement,
+    _suppress_close,
+)
 
 
 POSITIONS = ((28, 28), (28, 98), (92, 60), (88, 104), (64, 82))
@@ -104,6 +109,57 @@ def test_saturated_integer_star_is_rejected():
     assert result.valid
     assert result.star_count == 4
     assert result.rejected_star_count >= 1
+
+
+def test_configured_saturation_level_overrides_frame_metadata():
+    frame = synthetic_starfield(
+        amplitudes=(10000.0, 4000.0, 6000.0, 3500.0, 4500.0),
+        background=0.0,
+        noise_sigma=1.0,
+    )
+    result = analyzer(min_stars=4, saturation_level=8000.0).measure(
+        frame,
+        saturation_level=65535.0,
+    )
+    assert result.valid
+    assert result.star_count == 4
+    assert result.rejected_star_count >= 1
+
+
+@pytest.mark.parametrize("bad_level", [0.0, -1.0, np.nan, np.inf, -np.inf])
+def test_invalid_configured_saturation_level_is_rejected(bad_level):
+    with pytest.raises(ValueError, match="saturation_level"):
+        FocusConfig(saturation_level=bad_level)
+
+
+def test_comparable_close_peaks_are_rejected_as_blends():
+    positions = ((28, 28), (28, 32), (28, 98), (92, 60), (88, 104), (64, 82))
+    frame = synthetic_starfield(
+        sigma=1.0,
+        amplitudes=(6000.0, 5500.0, 4000.0, 6000.0, 3500.0, 4500.0),
+        positions=positions,
+        noise_sigma=1.0,
+    )
+    result = analyzer(
+        min_stars=4,
+        min_separation_px=0.0,
+        blend_radius_px=5.0,
+    ).measure(frame)
+    assert result.valid
+    assert result.star_count == 4
+    assert result.rejected_star_count >= 2
+
+
+def test_duplicate_candidate_suppression_keeps_brightest_detection():
+    candidates = [
+        (10, 10, 100.0),
+        (10, 12, 90.0),
+        (30, 30, 80.0),
+    ]
+    assert _suppress_close(candidates, min_separation_px=3.0) == [
+        (10, 10, 100.0),
+        (30, 30, 80.0),
+    ]
 
 
 def test_edge_truncated_star_is_rejected():
