@@ -1,6 +1,7 @@
 import datetime
 
 import numpy as np
+import pytest
 
 from astrolabe.camera.base import CameraBackend, LiveFrameSession
 from astrolabe.services.focus import (
@@ -9,7 +10,11 @@ from astrolabe.services.focus import (
     FocusMeasurement,
     FocusService,
 )
-from astrolabe.services.focus_monitor import FocusMonitor, FocusTrendEstimator
+from astrolabe.services.focus_monitor import (
+    FocusMonitor,
+    FocusMonitorSession,
+    FocusTrendEstimator,
+)
 from astrolabe.solver.types import Image
 
 
@@ -42,6 +47,23 @@ class _FakeSession(LiveFrameSession):
 
     def close(self) -> None:
         self.closed = True
+
+
+class _RaisingSession(LiveFrameSession):
+    def __init__(self, exc: BaseException) -> None:
+        self._exc = exc
+        self.closed = False
+
+    def __next__(self) -> Image:
+        raise self._exc
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _InterruptingFocusService(FocusService):
+    def measure_image(self, image) -> FocusMeasurement:
+        raise KeyboardInterrupt
 
 
 class _FakeCamera(CameraBackend):
@@ -112,6 +134,26 @@ def test_focus_monitor_consumes_live_frames_and_closes_session():
     assert results[1].hfr_px < results[0].hfr_px
     assert camera.live_calls == [(0.1, 12.0, 2, (1, 2, 64, 64), 2)]
     assert camera.session.closed
+
+
+def test_focus_monitor_closes_session_when_frame_iteration_fails():
+    frames = _RaisingSession(RuntimeError("frame failed"))
+    monitor = FocusMonitorSession(frames, FocusService())
+
+    with pytest.raises(RuntimeError, match="frame failed"):
+        next(monitor)
+
+    assert frames.closed
+
+
+def test_focus_monitor_closes_session_when_measurement_is_interrupted():
+    frames = _FakeSession([_image(_starfield(2.5))])
+    monitor = FocusMonitorSession(frames, _InterruptingFocusService())
+
+    with pytest.raises(KeyboardInterrupt):
+        next(monitor)
+
+    assert frames.closed
 
 
 def test_focus_trend_estimator_uses_robust_recent_hfr_without_mutating_measurement():

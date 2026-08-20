@@ -79,10 +79,13 @@ class FocusMonitorSession(Iterator[FocusMeasurement]):
             raise StopIteration
         try:
             image = next(self._frames)
+            return self._focus.measure_image(image)
         except StopIteration:
             self.close()
             raise
-        return self._focus.measure_image(image)
+        except BaseException:
+            self.close()
+            raise
 
     def close(self) -> None:
         if self._closed:
