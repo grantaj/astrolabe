@@ -16,7 +16,7 @@ For each monochrome frame it:
 
 An unusable frame is an explicit invalid measurement. Astrolabe does not reuse a stale HFR or invent a value when too few stars are usable.
 
-The mathematical analyser is backend-independent and accepts 2D numeric pixels. Camera/file conversion remains at the camera/imaging boundary. The current INDI camera backend returns a FITS path in `Image.data`; focus measurement supports that existing contract as well as in-memory NumPy arrays.
+The mathematical analyser is backend-independent and accepts 2D numeric pixels. Camera/file conversion remains at the camera/imaging boundary. Focus measurement supports the existing on-disk FITS-path camera contract, in-memory NumPy arrays, and the in-memory `FitsImageData` produced by live camera sessions.
 
 ## CLI
 
@@ -32,10 +32,22 @@ Or capture one frame from the configured camera and measure it:
 astrolabe focus measure --exposure 0.5 --bin 2 --roi 0,0,640,480
 ```
 
-Useful controls include `--min-stars`, `--detection-sigma`, and an optional explicit `--saturation-level`. Global `--json` preserves Astrolabe's normal single-object JSON envelope; an invalid star field is a recoverable failure with the measurement details included.
+For manual focusing, consume the low-latency live camera path continuously:
+
+```bash
+astrolabe focus monitor --exposure 0.2 --bin 2 --roi 0,0,640,480
+```
+
+The monitor prints one concise line per frame with HFR, accepted-star count, scatter, and—once enough recent valid samples exist—a robust `improving`, `stable`, or `worsening` trend. Invalid frames are reported explicitly and reset the trend history so old measurements are not presented as current guidance. Stop with Ctrl-C. `--frames N` is available for a bounded run.
+
+Useful controls include `--min-stars`, `--detection-sigma`, and an optional explicit `--saturation-level`.
+
+Global `--json` preserves Astrolabe's normal single-object JSON envelope for `focus measure`. The continuous `focus monitor` command is deliberately human-interactive and rejects `--json` with one structured error object rather than creating an NDJSON stream.
 
 ## Scope boundary
 
 HFR is an image-quality metric, not a signed physical focus error. A raw HFR value therefore must not be sent to the generic manual-adjustment feedback service as though it told the user which direction to turn the focuser.
 
-A future position-aware optimiser can combine focus position with HFR history to infer a signed correction. Likewise, continuous low-latency focus monitoring depends on the live-frame camera capability tracked separately in issue #40. The focus analyser itself remains independent of either transport or focuser hardware.
+The monitor's `improving` / `stable` / `worsening` label is descriptive only: it compares recent HFR measurements and does not imply a signed physical focuser correction. A future position-aware optimiser can combine focus position with HFR history to infer such a correction.
+
+Live monitoring uses the camera-owned synchronous live-frame session from issue #40. Focus remains independent of INDI details and focuser hardware.
