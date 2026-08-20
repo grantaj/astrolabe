@@ -11,7 +11,7 @@ Astrolabe probes for standard equatorial coordinate properties:
 1. `EQUATORIAL_EOD_COORD` — epoch-of-date/apparent-style coordinates;
 2. `EQUATORIAL_COORD` — J2000-style coordinates.
 
-When the EOD property is used, Astrolabe converts between its canonical ICRS representation and the mount-native epoch-of-date representation at the mount boundary. When the J2000 property is available, no unnecessary time-dependent conversion is introduced.
+Current `main` prefers `EQUATORIAL_EOD_COORD` when both are available. When the EOD property is selected, Astrolabe converts between its canonical ICRS representation and the mount-native epoch-of-date representation at the mount boundary. If only the J2000 property is available, Astrolabe uses the canonical coordinates directly without an unnecessary time-dependent conversion.
 
 ## Slew semantics
 
