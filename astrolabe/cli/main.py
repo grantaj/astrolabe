@@ -16,6 +16,7 @@ from astrolabe.cli.commands import (
     run_plan,
     run_update,
 )
+from astrolabe.cli.focus import run_focus
 
 
 def main():
@@ -228,6 +229,36 @@ def main():
         f"(default: {_POLAR_MIN_POSES}, minimum: {_POLAR_MIN_POSES})",
     )
 
+    focus_parser = subparsers.add_parser("focus", help="Measure focus quality")
+    focus_subparsers = focus_parser.add_subparsers(dest="action", required=True)
+    focus_measure = focus_subparsers.add_parser(
+        "measure", help="Measure multi-star half-flux radius once"
+    )
+    focus_measure.add_argument("--in", dest="input_fits", help="Input FITS file")
+    focus_measure.add_argument(
+        "--exposure", type=float, help="Exposure time when capturing from camera"
+    )
+    focus_measure.add_argument("--gain", type=float, help="Camera gain")
+    focus_measure.add_argument("--bin", dest="binning", type=int, help="Binning factor")
+    focus_measure.add_argument("--roi", help="ROI as x,y,w,h")
+    focus_measure.add_argument(
+        "--min-stars",
+        type=int,
+        default=3,
+        help="Minimum usable stars required (default: 3)",
+    )
+    focus_measure.add_argument(
+        "--detection-sigma",
+        type=float,
+        default=5.0,
+        help="Detection threshold above background noise (default: 5.0)",
+    )
+    focus_measure.add_argument(
+        "--saturation-level",
+        type=float,
+        help="Explicit sensor saturation level; normally inferred from FITS",
+    )
+
     guide_parser = subparsers.add_parser("guide", help="Guiding control")
     guide_subparsers = guide_parser.add_subparsers(dest="action", required=True)
 
@@ -357,6 +388,9 @@ def main():
 
     if args.command == "polar":
         return run_polar(args)
+
+    if args.command == "focus":
+        return run_focus(args)
 
     if args.command == "guide":
         return run_guide(args)
