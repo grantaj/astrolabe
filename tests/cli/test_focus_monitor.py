@@ -15,9 +15,7 @@ def _starfield(sigma: float) -> np.ndarray:
     frame = np.full((128, 128), 1000.0)
     yy, xx = np.indices(frame.shape)
     for y, x in ((25, 25), (28, 95), (65, 65), (96, 32), (94, 102)):
-        frame += 7000.0 * np.exp(
-            -((xx - x) ** 2 + (yy - y) ** 2) / (2.0 * sigma**2)
-        )
+        frame += 7000.0 * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2.0 * sigma**2))
     return frame
 
 
