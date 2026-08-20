@@ -2,10 +2,14 @@ from .base import MountBackend, MountState
 from .indi import IndiMountBackend
 
 
-def get_mount_backend(config):
+def get_mount_backend(config) -> MountBackend:
     backend = config.mount_backend
     if backend == "indi":
-        return IndiMountBackend(config)
+        return IndiMountBackend(
+            host=config.indi_host,
+            port=config.indi_port,
+            device=config.mount_device,
+        )
     raise ValueError(f"Unsupported mount backend: {backend}")
 
 
