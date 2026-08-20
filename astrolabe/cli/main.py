@@ -231,32 +231,48 @@ def main():
 
     focus_parser = subparsers.add_parser("focus", help="Measure focus quality")
     focus_subparsers = focus_parser.add_subparsers(dest="action", required=True)
+
+    def _add_focus_frame_args(focus_command):
+        focus_command.add_argument(
+            "--exposure", type=float, help="Exposure time when capturing from camera"
+        )
+        focus_command.add_argument("--gain", type=float, help="Camera gain")
+        focus_command.add_argument(
+            "--bin", dest="binning", type=int, help="Binning factor"
+        )
+        focus_command.add_argument("--roi", help="ROI as x,y,w,h")
+        focus_command.add_argument(
+            "--min-stars",
+            type=int,
+            default=3,
+            help="Minimum usable stars required (default: 3)",
+        )
+        focus_command.add_argument(
+            "--detection-sigma",
+            type=float,
+            default=5.0,
+            help="Detection threshold above background noise (default: 5.0)",
+        )
+        focus_command.add_argument(
+            "--saturation-level",
+            type=float,
+            help="Explicit sensor saturation level; normally inferred from FITS",
+        )
+
     focus_measure = focus_subparsers.add_parser(
         "measure", help="Measure multi-star half-flux radius once"
     )
     focus_measure.add_argument("--in", dest="input_fits", help="Input FITS file")
-    focus_measure.add_argument(
-        "--exposure", type=float, help="Exposure time when capturing from camera"
+    _add_focus_frame_args(focus_measure)
+
+    focus_monitor = focus_subparsers.add_parser(
+        "monitor", help="Continuously report live focus quality"
     )
-    focus_measure.add_argument("--gain", type=float, help="Camera gain")
-    focus_measure.add_argument("--bin", dest="binning", type=int, help="Binning factor")
-    focus_measure.add_argument("--roi", help="ROI as x,y,w,h")
-    focus_measure.add_argument(
-        "--min-stars",
+    _add_focus_frame_args(focus_monitor)
+    focus_monitor.add_argument(
+        "--frames",
         type=int,
-        default=3,
-        help="Minimum usable stars required (default: 3)",
-    )
-    focus_measure.add_argument(
-        "--detection-sigma",
-        type=float,
-        default=5.0,
-        help="Detection threshold above background noise (default: 5.0)",
-    )
-    focus_measure.add_argument(
-        "--saturation-level",
-        type=float,
-        help="Explicit sensor saturation level; normally inferred from FITS",
+        help="Stop after N frames instead of running until interrupted",
     )
 
     guide_parser = subparsers.add_parser("guide", help="Guiding control")
