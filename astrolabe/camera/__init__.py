@@ -1,5 +1,5 @@
+from .base import CameraBackend, FitsImageData, LiveFrameSession
 from .indi import IndiCameraBackend
-from .base import CameraBackend
 
 
 def get_camera_backend(config) -> CameraBackend:
@@ -16,4 +16,10 @@ def get_camera_backend(config) -> CameraBackend:
     raise ValueError(f"Unknown camera backend: {backend}")
 
 
-__all__ = ["CameraBackend", "IndiCameraBackend", "get_camera_backend"]
+__all__ = [
+    "CameraBackend",
+    "FitsImageData",
+    "IndiCameraBackend",
+    "LiveFrameSession",
+    "get_camera_backend",
+]

@@ -4,28 +4,15 @@ import datetime
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional
 
-from astrolabe.solver.types import Image
+from astrolabe.errors import BackendError
 from astrolabe.indi import IndiClient
-from .base import CameraBackend
+from astrolabe.solver.types import Image
+
+from .base import CameraBackend, LiveFrameSession
+from .indi_live import IndiLiveFrameSession
 
 DEFAULT_CAPTURE_TIMEOUT_S = 60.0
-CCD_FILE_PATH_RETRY_COUNT = 10
-CCD_FILE_PATH_RETRY_SLEEP_S = 0.2
-
-
-def _wait_for_mtime_increase(
-    path: Path, prev_mtime: Optional[float], timeout_s: float
-) -> float:
-    deadline = time.time() + timeout_s
-    while time.time() < deadline:
-        if path.exists():
-            mt = path.stat().st_mtime
-            if prev_mtime is None or mt > prev_mtime:
-                return mt
-        time.sleep(0.1)
-    raise RuntimeError(f"Timed out waiting for {path} to update")
 
 
 class IndiCameraBackend(CameraBackend):
@@ -47,21 +34,21 @@ class IndiCameraBackend(CameraBackend):
         self.use_guider_exposure = use_guider_exposure
         self._connected = False
         self._gain_prop: str | None = None
+        self._live_session: IndiLiveFrameSession | None = None
 
     def connect(self) -> None:
         self._client.wait_for_device(self.device)
         self._client.setprop(f"{self.device}.CONNECTION.CONNECT", "On", soft=False)
         time.sleep(0.2)
-        if self._client.has_prop(f"{self.device}.CCD_GAIN.GAIN"):
-            self._gain_prop = "CCD_GAIN.GAIN"
-        elif self._client.has_prop(f"{self.device}.CCD_GAIN.VALUE"):
-            self._gain_prop = "CCD_GAIN.VALUE"
+        self._resolve_gain_property()
         if self.output_dir is not None:
             self.output_dir.mkdir(parents=True, exist_ok=True)
             self._ensure_upload_settings()
         self._connected = True
 
     def disconnect(self) -> None:
+        if self._live_session is not None:
+            self._live_session.close()
         if not self._connected:
             return
         self._client.setprop(f"{self.device}.CONNECTION.DISCONNECT", "On", soft=True)
@@ -70,25 +57,33 @@ class IndiCameraBackend(CameraBackend):
     def is_connected(self) -> bool:
         return self._connected
 
-    def capture(
-        self,
-        exposure_s: float,
-        gain: float | None = None,
-        binning: int | None = None,
-        roi: tuple[int, int, int, int] | None = None,
-    ) -> Image:
-        if not self._connected:
-            self.connect()
-        elif self.output_dir is not None:
-            # Some simulators reset upload mode/prefix between captures.
-            self._ensure_upload_settings()
+    def _resolve_gain_property(self) -> None:
+        if self._gain_prop is not None:
+            return
+        if self._client.has_prop(f"{self.device}.CCD_GAIN.GAIN"):
+            self._gain_prop = "CCD_GAIN.GAIN"
+        elif self._client.has_prop(f"{self.device}.CCD_GAIN.VALUE"):
+            self._gain_prop = "CCD_GAIN.VALUE"
 
+    @staticmethod
+    def _validate_capture_controls(
+        gain: float | None,
+        binning: int | None,
+        roi: tuple[int, int, int, int] | None,
+    ) -> None:
+        if binning is not None and binning <= 0:
+            raise ValueError("binning must be > 0")
+        if roi is not None and (roi[2] <= 0 or roi[3] <= 0):
+            raise ValueError("ROI width and height must be > 0")
+
+    def _configure_capture_controls(
+        self,
+        gain: float | None,
+        binning: int | None,
+        roi: tuple[int, int, int, int] | None,
+    ) -> None:
         if gain is not None:
-            if self._gain_prop is None:
-                if self._client.has_prop(f"{self.device}.CCD_GAIN.GAIN"):
-                    self._gain_prop = "CCD_GAIN.GAIN"
-                elif self._client.has_prop(f"{self.device}.CCD_GAIN.VALUE"):
-                    self._gain_prop = "CCD_GAIN.VALUE"
+            self._resolve_gain_property()
             if self._gain_prop is not None:
                 self._client.setprop(
                     f"{self.device}.{self._gain_prop}", str(gain), soft=True
@@ -99,7 +94,7 @@ class IndiCameraBackend(CameraBackend):
                 f"{self.device}.CCD_BINNING.HOR_BIN", str(binning), soft=True
             )
             self._client.setprop(
-                f"{self.device}.CCD_BINNING.VERT_BIN", str(binning), soft=True
+                f"{self.device}.CCD_BINNING.VER_BIN", str(binning), soft=True
             )
 
         if roi is not None:
@@ -108,6 +103,23 @@ class IndiCameraBackend(CameraBackend):
             self._client.setprop(f"{self.device}.CCD_FRAME.Y", str(y), soft=True)
             self._client.setprop(f"{self.device}.CCD_FRAME.WIDTH", str(w), soft=True)
             self._client.setprop(f"{self.device}.CCD_FRAME.HEIGHT", str(h), soft=True)
+
+    def capture(
+        self,
+        exposure_s: float,
+        gain: float | None = None,
+        binning: int | None = None,
+        roi: tuple[int, int, int, int] | None = None,
+    ) -> Image:
+        if self._live_session is not None:
+            raise BackendError("camera is owned by an active live-frame session")
+        if not self._connected:
+            self.connect()
+        elif self.output_dir is not None:
+            # Some simulators reset upload mode/prefix between captures.
+            self._ensure_upload_settings()
+
+        self._configure_capture_controls(gain, binning, roi)
 
         file_path_prop = f"{self.device}.CCD_FILE_PATH.FILE_PATH"
         base_path: Path | None = None
@@ -188,6 +200,41 @@ class IndiCameraBackend(CameraBackend):
                 "use_guider_exposure": self.use_guider_exposure,
             },
         )
+
+    def live_frames(
+        self,
+        exposure_s: float,
+        gain: float | None = None,
+        binning: int | None = None,
+        roi: tuple[int, int, int, int] | None = None,
+        frame_count: int | None = None,
+    ) -> LiveFrameSession:
+        if self._live_session is not None:
+            raise BackendError("camera already has an active live-frame session")
+        if not self._connected:
+            self.connect()
+        self._validate_capture_controls(gain, binning, roi)
+
+        def release() -> None:
+            self._live_session = None
+            if self.output_dir is not None:
+                self._ensure_upload_settings()
+
+        session = IndiLiveFrameSession(
+            client=self._client,
+            host=self.host,
+            port=self.port,
+            device=self.device,
+            use_guider_exposure=self.use_guider_exposure,
+            exposure_s=exposure_s,
+            frame_count=frame_count,
+            configure_camera=lambda: self._configure_capture_controls(
+                gain, binning, roi
+            ),
+            on_close=release,
+        )
+        self._live_session = session
+        return session
 
     def _ensure_upload_settings(self) -> None:
         output_dir = self.output_dir
