@@ -70,13 +70,40 @@ Additive changes are preferred over breaking changes.
 
 ## 5. Dependencies
 
-New dependencies should be:
+Astrolabe minimises **total complexity, not dependency count**.
 
--   Lightweight
--   Well-maintained
--   Justified by clear benefit
+-   Keep the mandatory dependency surface small. A core dependency must
+    support pervasive instrument functionality and earn its installation
+    and maintenance cost.
+-   Keep specialised capabilities optional and behind Astrolabe interfaces
+    where practical.
+-   Prefer a mature, well-maintained library over reimplementing a
+    substantial body of established specialist functionality merely to
+    remain dependency-free.
+-   Keep small, stable, domain-specific algorithms and mathematical
+    primitives in Astrolabe when they are clearer to own than to outsource.
+-   Do not add abstraction layers whose only purpose is to hide a
+    dependency.
 
-Avoid pulling in large frameworks.
+The same discipline applies **inside Astrolabe**. Treat each substantial
+capability as if it were an external dependency:
+
+-   Give it a small, coherent public surface and depend on sibling public
+    contracts rather than their implementation details.
+-   Keep its dependency surface no broader than its responsibility requires;
+    avoid cycles and accidental sideways ownership.
+-   Keep configuration, filesystem, presentation, and hardware side effects
+    at explicit boundaries. Only composition roots should know broadly about
+    the application.
+-   Use extractability as a design test: a well-factored capability should be
+    movable without redesigning its interface. This is a heuristic, not a
+    goal to create separate packages.
+-   Do not add interfaces, wrappers, service containers, or packaging splits
+    merely to satisfy architectural purity.
+
+In short: **minimal dependency surface; no dependency without leverage;
+no reimplementation for purity. Every substantial capability should behave
+like a good dependency.**
 
 ------------------------------------------------------------------------
 
