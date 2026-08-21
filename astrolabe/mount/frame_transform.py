@@ -4,14 +4,8 @@ import datetime
 from dataclasses import dataclass
 import math
 
-try:
-    from astropy.coordinates import FK5, SkyCoord
-    from astropy.time import Time
-    import astropy.units as u
-
-    ASTROPY_AVAILABLE = True
-except ImportError:
-    ASTROPY_AVAILABLE = False
+import erfa
+import numpy as np
 
 
 def _validate_equatorial_coordinate(*, ra_rad: float, dec_rad: float) -> None:
@@ -28,12 +22,53 @@ def _require_utc(time_utc: datetime.datetime) -> None:
         raise ValueError("frame transformation time must be timezone-aware UTC")
 
 
-def _require_astropy() -> None:
-    if not ASTROPY_AVAILABLE:
-        raise RuntimeError(
-            "astropy is required for coordinate frame conversion. "
-            "Install with: pip install astropy"
-        )
+def _axis_rotation(angle_rad: float, axis: str) -> np.ndarray:
+    """Return the rotation convention used by Astropy's FK5 frame-bias matrix."""
+    s = math.sin(angle_rad)
+    c = math.cos(angle_rad)
+    if axis == "x":
+        return np.array([[1.0, 0.0, 0.0], [0.0, c, s], [0.0, -s, c]])
+    if axis == "y":
+        return np.array([[c, 0.0, -s], [0.0, 1.0, 0.0], [s, 0.0, c]])
+    if axis == "z":
+        return np.array([[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]])
+    raise ValueError(f"unknown rotation axis: {axis}")
+
+
+def _icrs_to_fk5_bias_matrix() -> np.ndarray:
+    """Return the fixed ICRS→FK5 frame-bias matrix from USNO Circular 179."""
+    mas_to_rad = math.radians(1.0 / 3_600_000.0)
+    eta0 = -19.9 * mas_to_rad
+    xi0 = 9.1 * mas_to_rad
+    da0 = -22.9 * mas_to_rad
+    return (
+        _axis_rotation(-eta0, "x") @ _axis_rotation(xi0, "y") @ _axis_rotation(da0, "z")
+    )
+
+
+_ICRS_TO_FK5_BIAS = _icrs_to_fk5_bias_matrix()
+
+
+def _tt_jd(time_utc: datetime.datetime) -> tuple[float, float]:
+    """Convert an explicit UTC datetime to the two-part TT Julian date ERFA needs."""
+    seconds = time_utc.second + time_utc.microsecond / 1_000_000.0
+    utc1, utc2 = erfa.dtf2d(
+        "UTC",
+        time_utc.year,
+        time_utc.month,
+        time_utc.day,
+        time_utc.hour,
+        time_utc.minute,
+        seconds,
+    )
+    tai1, tai2 = erfa.utctai(utc1, utc2)
+    return erfa.taitt(tai1, tai2)
+
+
+def _icrs_to_epoch_matrix(time_utc: datetime.datetime) -> np.ndarray:
+    tt1, tt2 = _tt_jd(time_utc)
+    _, precession, _ = erfa.bp06(tt1, tt2)
+    return precession @ _ICRS_TO_FK5_BIAS
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -65,16 +100,13 @@ def icrs_to_epoch_of_date(
     if not isinstance(coordinate, IcrsCoordinate):
         raise TypeError("coordinate must be an IcrsCoordinate")
     _require_utc(time_utc)
-    _require_astropy()
-    c = SkyCoord(
-        ra=coordinate.ra_rad * u.rad,
-        dec=coordinate.dec_rad * u.rad,
-        frame="icrs",
-    )
-    epoch_of_date = c.transform_to(FK5(equinox=Time(time_utc)))
+
+    vector = erfa.s2c(coordinate.ra_rad, coordinate.dec_rad)
+    transformed = _icrs_to_epoch_matrix(time_utc) @ vector
+    ra_rad, dec_rad = erfa.c2s(transformed)
     return EpochOfDateCoordinate(
-        ra_rad=float(epoch_of_date.ra.rad),
-        dec_rad=float(epoch_of_date.dec.rad),
+        ra_rad=float(erfa.anp(ra_rad)),
+        dec_rad=float(dec_rad),
     )
 
 
@@ -85,16 +117,13 @@ def epoch_of_date_to_icrs(
     if not isinstance(coordinate, EpochOfDateCoordinate):
         raise TypeError("coordinate must be an EpochOfDateCoordinate")
     _require_utc(time_utc)
-    _require_astropy()
-    c = SkyCoord(
-        ra=coordinate.ra_rad * u.rad,
-        dec=coordinate.dec_rad * u.rad,
-        frame=FK5(equinox=Time(time_utc)),
-    )
-    icrs = c.transform_to("icrs")
+
+    vector = erfa.s2c(coordinate.ra_rad, coordinate.dec_rad)
+    transformed = _icrs_to_epoch_matrix(time_utc).T @ vector
+    ra_rad, dec_rad = erfa.c2s(transformed)
     return IcrsCoordinate(
-        ra_rad=float(icrs.ra.rad),
-        dec_rad=float(icrs.dec.rad),
+        ra_rad=float(erfa.anp(ra_rad)),
+        dec_rad=float(dec_rad),
     )
 
 
