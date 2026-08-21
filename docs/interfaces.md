@@ -1,427 +1,131 @@
-# Interfaces
+# Logical interfaces
 
-This document defines the logical interfaces between Astrolabe modules.
+This document describes the current logical boundaries that other Astrolabe capabilities may depend on. It is intentionally narrower than a roadmap: future APIs belong in GitHub issues, not here.
 
-These interfaces enforce architectural separation between:
-- Hardware backends (camera, solver, mount)
-- Core services (pointing, target, polar, guiding)
-- CLI layer
+All coordinate/unit rules come from `conventions.md`.
 
-All conventions referenced here follow `docs/conventions.md`.
+## Shared data at capability boundaries
 
----
+### Image
 
-# 1. Core Data Types
+Current `main` represents a captured frame with the camera-owned `Image` value, exported as `astrolabe.camera.Image` and concretely defined in `astrolabe.camera.types`. It contains a backend-defined payload, dimensions, UTC timestamp, exposure, and metadata.
 
-## 1.1 Image
+A compatibility alias remains at `astrolabe.solver.types.Image` for older callers, but new camera/solver/focus code should depend on the camera-owned public surface rather than treating solver as the owner of captured images.
 
-Represents a captured frame. `Image` is owned and exported by the camera
-capability; solver, focus, guiding, and other consumers depend on that
-captured-frame contract.
+Camera live frames may carry `FitsImageData` as the payload; ordinary INDI one-shot capture may carry an on-disk FITS path. Consumers must use the camera/imaging boundary rather than import INDI details.
 
-Fields (conceptual):
+### SolveRequest / SolveResult
 
-- data: backend-defined image payload (for example a file path, in-memory FITS,
-  or decoded 2D pixels)
-- width_px: int
-- height_px: int
-- timestamp_utc: datetime (UTC)
-- exposure_s: float
-- metadata: dict
+Solver-owned request/result values are the stable solver boundary.
 
-Image objects are opaque to services except image-analysis consumers such as
-focusing and guiding, which may access their payload through camera/imaging
-boundary helpers.
+`SolveRequest` carries an image plus optional position/scale/parity/search/timeout hints. `SolveResult` carries success, solved ICRS RA/Dec, scale, rotation, RMS, matched-star count, and optional diagnostic output.
 
----
+All celestial coordinates at this boundary are radians in Astrolabe's canonical frame.
 
-## 1.2 SolveResult
+### MountState
 
-Returned by SolverBackend.
+`MountState` reports connection, optional RA/Dec, tracking, slewing, and UTC timestamp. Coordinates returned by a mount backend are converted to Astrolabe's canonical frame before leaving the backend.
 
-All angular values are in **radians** (ICRS).
+## Backend contracts
 
-Fields:
+### CameraBackend
 
-- success: bool
-- ra_rad: float
-- dec_rad: float
-- pixel_scale_arcsec: float
-- rotation_rad: float
-- rms_arcsec: float
-- num_stars: int
-- message: optional string
+Current public operations:
 
-If success == False, other fields may be None.
+```text
+connect()
+disconnect()
+is_connected()
+capture(exposure_s, gain=None, binning=None, roi=None) -> Image
+live_frames(..., frame_count=None) -> LiveFrameSession   # optional capability
+```
 
----
+`LiveFrameSession` is synchronous, single-consumer, closeable, and provides backpressure. A backend that does not support it may reject the optional capability. See `live_camera.md`.
 
-## 1.3 SolveRequest
+Camera code owns camera/device semantics. It does not perform plate solving, pointing, polar alignment, or focus policy.
 
-Represents inputs to the solver.
+### SolverBackend
 
-Fields (conceptual):
+```text
+solve(SolveRequest) -> SolveResult
+is_available() -> diagnostic mapping
+```
 
-- image: Image
-- ra_hint_rad: optional float
-- dec_hint_rad: optional float
-- scale_hint_arcsec: optional float
-- parity_hint: optional int
-- search_radius_rad: optional float
-- timeout_s: optional float
-- extra_options: optional dict
+A solver backend translates external units/formats into the common solver result. It does not control the mount or implement pointing policy.
 
----
+### MountBackend
 
-## 1.4 MountState
+Current public operations:
 
-Represents mount state in internal frame (ICRS).
-
-Fields:
-
-- connected: bool
-- ra_rad: float
-- dec_rad: float
-- tracking: bool
-- slewing: bool
-- timestamp_utc: datetime
-
-Mount backends must convert from mount-native frame to ICRS before returning.
-
----
-
-# 2. Backend Interfaces
-
-Backends isolate hardware or external tools.
-
-Core logic must only depend on these interfaces.
-
----
-
-## 2.1 CameraBackend
-
-Responsibilities:
-- Connect to physical camera
-- Capture occasional one-shot frames
-- Provide a bounded-overhead live-frame sequence when supported
-
-Interface (conceptual):
-
-connect() -> None
-disconnect() -> None
-is_connected() -> bool
-
-capture(
-    exposure_s: float,
-    gain: optional float,
-    binning: optional int,
-    roi: optional tuple
-) -> Image
-
-live_frames(
-    exposure_s: float,
-    gain: optional float,
-    binning: optional int,
-    roi: optional tuple,
-    frame_count: optional int
-) -> LiveFrameSession
-
-Notes:
-
-- `capture` returns an `Image` with `data` set to an on-disk path when the backend
-  uses local file capture (e.g., INDI upload-to-local).
-- `live_frames` is synchronous and single-consumer. Asking for the next frame
-  applies backpressure; implementations must not grow an unbounded background
-  queue.
-- Only one live session may own a camera backend at a time. Closing it must leave
-  ordinary `capture` usable.
-- INDI live frames use `FitsImageData`, an explicit in-memory uncompressed FITS
-  payload, rather than a temporary file path.
-- Backends should populate dimensions, `timestamp_utc`, and `exposure_s` reliably.
-
-No plate solving or image-analysis logic is permitted here.
-
----
-
-## 2.2 SolverBackend
-
-Responsibilities:
-- Run plate solving
-- Parse results into SolveResult
-
-Interface:
-
-solve(request: SolveRequest) -> SolveResult
-
-Solver must return results in ICRS (J2000-equivalent) coordinates.
-
-Solver backends handle unit conversions required by external tools (e.g., degrees/hours),
-but must expose and accept radians at the interface boundary.
-
-Solver must not perform mount logic.
-
----
-
-## 2.3 MountBackend
-
-Responsibilities:
-- Connect to mount
-- Provide primitive motion commands
-- Convert coordinate frames at boundary
-
-Interface:
-
-connect() -> None
-disconnect() -> None
-is_connected() -> bool
-
+```text
+connect()
+disconnect()
+is_connected()
 get_state() -> MountState
+slew_to(ra_rad, dec_rad)
+sync(ra_rad, dec_rad)
+stop()
+park()
+set_tracking(enabled)
+pulse_guide(ra_ms, dec_ms)
+```
 
-slew_to(ra_rad: float, dec_rad: float) -> None
-sync(ra_rad: float, dec_rad: float) -> None
-set_tracking(enabled: bool) -> None
-stop() -> None
-park() -> None
+`slew_to` and `sync` accept canonical ICRS/radian coordinates. Mount-native epoch/unit/property conversion stays inside the mount capability.
 
-pulse_guide(ra_ms: float, dec_ms: float) -> None
+## Current service surfaces
 
-Notes:
+Services orchestrate capability contracts and own domain policy/math, not hardware APIs or terminal presentation.
 
-- slew_to and sync expect ICRS inputs.
-- Backend performs ICRS → apparent conversion internally.
-- Backend may require site latitude/longitude/elevation for frame conversion.
-- set_tracking controls mount sidereal tracking: enabled=True starts tracking, enabled=False stops.
-- Auto-connect: All state-reading and state-modifying operations (get_state, slew_to, sync,
-  set_tracking, park, pulse_guide) connect the mount if not already connected. stop() and
-  disconnect() never auto-connect.
-- pulse_guide uses milliseconds duration convention.
-- Positive RA pulse increases RA tracking rate temporarily.
-- Positive DEC pulse increases declination.
-- Slewing detection: Backend observes coordinate property state to detect active slews.
-  When slew is in progress, the coordinate property state becomes "Busy".
+### PointingService
 
----
+The coherent pointing capability is exported from `astrolabe.pointing`. `PointingService` receives a `PointingModel` explicitly and exposes operations equivalent to:
 
-# 3. Service Interfaces
+```text
+solve_current(exposure_s=None, use_mount_hints=True) -> SolveResult
+sync_current(exposure_s=None) -> PointingResult
+initial_alignment(target_count, exposure_s=None, max_attempts=None) -> PointingResult
+apply_model(ra_rad, dec_rad) -> (ra_rad, dec_rad)
+update_model_from_target(...) -> None
+```
 
-Services orchestrate backends.
+Pointing persistence is explicit: `load_pointing_model(path)` and `save_pointing_model(model, path)` are separate pointing-owned helpers, while the application composition layer chooses the path (including the default `~/.astrolabe/pointing.json`). Ordinary model/service use does not implicitly read or write the filesystem.
 
-They contain math and policy but no hardware-specific code.
+### PolarAlignService
 
----
+The polar service performs a multiple-pose capture/solve sequence, fits the mount rotation axis, and returns signed mechanical altitude/azimuth correction estimates with residual/confidence information. It consumes mount/camera/solver contracts and contains no INDI/ASTAP-specific code.
 
-## 3.1 PointingService
+Its detailed geometry and pose-count constraints are implementation/test concerns; the CLI exposes the supported controls.
 
-Responsibilities:
-- Closed-loop centering
-- Pointing model updates (session + persistent)
-- Diagnostics and recovery workflows
+### Focus
 
-Interface (conceptual):
+The focus capability exposes backend-independent multi-star HFR analysis, one-shot measurement, and a bounded live monitoring workflow over the camera-owned live-frame session. `FocusMeasurement` explicitly distinguishes valid and invalid measurements and reports HFR/scatter/star counts.
 
-where(
-    exposure_s: optional float
-) -> SolveResult
+The monitor may classify recent valid HFR history as `improving`, `stable`, or `worsening`, but this is descriptive image-quality trend information only. HFR/trend is not a signed focuser correction and must not be passed to manual-adjustment feedback as if direction were known. See `focus.md`.
 
-center_target(
-    target_ra_rad: float,
-    target_dec_rad: float,
-    tolerance_arcsec: float,
-    max_iterations: int
-) -> PointingResult
+### TargetResolver
 
-calibrate(
-    target_count: int,
-    exposure_s: optional float,
-    max_attempts: optional int
-) -> PointingResult
+The target resolver provides deterministic offline resolution from user/catalog names to normalized target matches/records. Callers should depend on its public service surface rather than planner catalog internals.
 
-recover(
-    exposure_s: optional float
-) -> PointingResult
+### Feedback
 
-status() -> PointingStatus
+The feedback service maps signed/unknown adjustment state into generic feedback semantics. Platform-specific rendering/audio is a presentation concern outside the domain service.
 
-diagnose() -> DiagnosticReport
+### Planner
 
-PointingResult (conceptual):
-- success: bool
-- solves_attempted: int
-- solves_succeeded: int
-- final_error_arcsec: optional float
-- message: optional string
-- exit_reason: optional string
+The planner accepts an observing window/location/constraints and returns ranked structured target recommendations. It is offline-first in normal operation; network acquisition belongs to explicit update commands/providers rather than the planning calculation.
 
-PointingStatus (conceptual):
-- confidence: float (0–1)
-- model_state: str (e.g., "session", "persistent", "none")
-- active_warnings: list[str]
-- last_solve_quality: optional dict
+## Placeholder services on current main
 
-DiagnosticReport (conceptual):
-- findings: list[DiagnosticFinding]
+`GotoService.center_target(...)` and the guiding service methods are present as architectural/CLI placeholders but currently raise `NotImplementedFeature`.
 
-DiagnosticFinding (conceptual):
-- severity: str (INFO/WARN/ERROR)
-- label: str
-- evidence: dict
-- suggested_actions: list[str]
-- blocks_learning: bool
-- blocks_centering: bool
+Do not build new code against imagined completed behaviour from old planning documents. Their future implementation is defined by current GitHub issues.
 
----
+## Error boundary
 
-## 3.2 TargetResolverService
+Astrolabe uses structured application errors (`AstrolabeError` and specializations such as backend/service/not-implemented failures). Backends/services do not print to stdout; the CLI owns presentation and exit-code mapping.
 
-Responsibilities:
-- Resolve object names to ICRS coordinates
-- Provide normalized target objects for services
+## Interface-change discipline
 
-Interface (conceptual):
+These boundaries exist to prevent implementation dependencies from spreading. Change them when a concrete capability requires it, not to satisfy abstract uniformity.
 
-resolve(
-    target: str
-) -> TargetResult
-
-TargetResult (conceptual):
-- success: bool
-- ra_rad: float
-- dec_rad: float
-- message: optional string
-
----
-
-## 3.3 PolarAlignService
-
-Responsibilities:
-- Perform polar alignment routine
-- Compute altitude and azimuth corrections
-
-Interface:
-
-run(
-    ra_rotation_rad: float
-) -> PolarResult
-
-PolarResult:
-
-- alt_correction_arcsec: float
-- az_correction_arcsec: float
-- residual_arcsec: float
-- confidence: float (0–1)
-- message: optional string
-
-All corrections are relative mechanical adjustments.
-
----
-
-## 3.4 GuidingService
-
-Responsibilities:
-- Star detection
-- Calibration
-- Closed-loop guiding
-
-Interface:
-
-calibrate(duration_s: float) -> CalibrationResult
-
-start(
-    aggression: float,
-    min_move_arcsec: float
-) -> None
-
-stop() -> None
-
-status() -> GuidingStatus
-
-GuidingStatus:
-
-- running: bool
-- rms_arcsec: float
-- star_lost: bool
-- last_error_arcsec: float
-
-Guiding loop must use radians internally and report arcseconds externally.
-
----
-
-# 4. Planner
-
-Responsibilities:
-- Provide a curated, feasible, actionable list of targets for a time window + location
-- Apply feasibility constraints (sun, altitude, moon separation)
-- Provide sectioned output (showpieces, seasonal highlights, solar system, bonus/challenge)
-
-Interface:
-
-plan(
-    window_start_utc: optional datetime,
-    window_end_utc: optional datetime,
-    location: optional ObserverLocation,
-    constraints: optional PlannerConstraints
-) -> PlannerResult
-
-Planner defaults:
-- window: now → +3h
-- sun_altitude_max_deg: -12
-- min_altitude_deg: 30
-- min_duration_min: 30
-- moon_separation_min_deg: 35
-- moon_separation_strict_deg: 45 (when moon illumination > 50%)
-
-PlannerResult (conceptual):
-
-- window_start_utc: datetime
-- window_end_utc: datetime
-- location: ObserverLocation
-- sections: list of PlannerSection
-- message: optional string
-
-PlannerEntry (conceptual):
-
-- id: str
-- name: str
-- target_type: str
-- best_time_utc: datetime
-- peak_altitude_deg: float
-- time_above_min_alt_min: float
-- moon_separation_deg: float
-- moon_illumination: float
-- score: float (0–100)
-- score_components: dict (normalized factors)
-- notes: list[str]
-- difficulty: str (easy / medium / hard)
-
----
-
-# 5. Error Model
-
-Backends should raise structured exceptions or return error objects.
-
-Services decide:
-
-- Retry vs fail
-- User-facing messaging
-- Exit codes via CLI
-
-No backend should print directly to stdout.
-
-Preferred exception hierarchy (conceptual):
-
-- AstrolabeError
-  - BackendError
-  - ServiceError
-  - NotImplementedFeature
-
----
-
-# 6. Invariants
-
-- All internal angles are radians.
-- All internal coordinates are ICRS.
-- Mount frame conversion happens only inside MountBackend.
-- Services are backend-agnostic.
-- CLI depends only on service interfaces.
-
-Any change to these interfaces must be treated as a breaking architectural change.
+If current code and this document disagree, current code/tests define implemented behaviour and the mismatch should be corrected here. Planned replacement interfaces must remain in GitHub issues until implemented.

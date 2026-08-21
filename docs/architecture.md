@@ -1,235 +1,113 @@
 # Architecture
 
-This document defines Astrolabe’s high-level architecture, module boundaries, and layering rules.
+Astrolabe is a small command-line instrument built from capabilities with narrow ownership boundaries. The objective is not architectural uniformity; it is to keep hardware/time-dependent complexity at explicit edges and keep domain logic testable.
 
-Goal: keep the system **instrument-like** — small, reliable, and testable — with clean separation between
-core logic and hardware backends.
+For coordinate/unit invariants, see `conventions.md`. For dependency and internal-component policy, see `../CONTRIBUTING.md`.
 
----
+## Capability map
 
-## 1. High-level design
+```text
+CLI / application composition
+    |
+    +--> camera --------> INDI transport
+    +--> mount ---------> INDI transport + mount-owned frame transform
+    +--> solver --------> external/in-process solver backend
+    +--> target resolver
+    +--> planner
+    `--> services
+          +--> pointing
+          +--> polar
+          +--> focus
+          +--> feedback
+          +--> goto      (placeholder on current main)
+          `--> guiding   (placeholder on current main)
 
-Astrolabe is a CLI application composed of:
-
-- **Backends** (hardware / external tooling adapters)
-- **Services** (pure orchestration + math; backend-agnostic)
-- **CLI** (argument parsing + output formatting)
-
-The system is designed so that core logic can be tested with simulated backends.
-
----
-
-## 2. Repository layout (intended)
-
-```
-astrolabe/
-  camera/        # camera backends + capture helpers
-  solver/        # plate solving backends + solve parsing
-  mount/         # mount backends + mount boundary conversions
-  services/
-    pointing/    # closed-loop centering + solve-based pointing model
-    target/      # target resolution (object name -> RA/Dec)
-    polar/       # polar alignment routine + guidance
-    guide/       # guiding loop + calibration + controller
-  planner/       # target planning (catalogs + filters + scoring)
-  cli/           # command handlers, formatting, exit codes
-  config/        # config parsing + validation
-  util/          # shared math/utilities (no backend deps)
-docs/
-  conventions.md
-  architecture.md
+leaf utilities: util/*
 ```
 
----
+The CLI/application layer is the composition root. It may know broadly about configuration and multiple capabilities in order to assemble them. Individual capabilities should not.
 
-## 3. Layering rules (hard constraints)
+## Hard layering rules
 
-These rules prevent accidental coupling.
+### Hardware and external tools stay behind capability boundaries
 
-### 3.1 No backend imports in core logic
-- `services/*` and `util/*` must not import INDI or any hardware-specific libraries directly.
-- All hardware interactions occur via backend interfaces defined in `docs/interfaces.md`.
+Services must not import INDI or solver-specific implementations directly. Camera, mount, and solver backends translate between external representations and Astrolabe contracts.
 
-### 3.2 Time-dependent coordinate conversion belongs at the mount boundary
-- Internal frame is **ICRS/J2000** (see `docs/conventions.md`).
-- Conversion ICRS → apparent (JNow) happens only inside `mount/*` backends.
+The shared `astrolabe.indi` layer owns low-level INDI transport mechanics. Device semantics remain with camera or mount rather than moving into a generic INDI device framework.
 
-### 3.3 CLI is thin
-- `cli/*` only:
-  - parses args
-  - calls services
-  - formats output (human + `--json`)
-  - maps errors to exit codes
+### Mount frame conversion stays with the mount
 
-### 3.4 Services are composable and deterministic
-- Services should be deterministic given:
-  - backend responses
-  - config values
-  - explicit timestamps (if required at boundaries)
+Astrolabe's canonical celestial frame is ICRS/J2000-equivalent. A mount backend may need epoch-of-date/apparent coordinates. That time-dependent transformation remains mount-owned and must not leak into services.
 
----
+A mount that natively accepts the canonical frame should avoid unnecessary transformation.
 
-## 4. Core modules
+### Services own domain orchestration, not platform effects
 
-### 4.1 Camera module (`camera/`)
-Responsibilities:
-- Connect to camera backend (initially via INDI).
-- Capture frames with basic controls:
-  - exposure, gain, binning, ROI
-- Save frames (optional) and return image objects for downstream use.
+Services combine capability contracts and domain mathematics. They must remain testable with fakes and should not own terminal rendering, platform audio, filesystem policy, or global configuration unless that side effect is intrinsically part of the capability.
 
-Non-responsibilities:
-- No plate solving logic.
-- No mount logic.
+### CLI stays thin
 
-### 4.2 Solver module (`solver/`)
-Responsibilities:
-- Run plate solving backend (ASTAP, astrometry.net, etc.).
-- Parse results and return a **SolveResult** in internal conventions.
+The CLI parses arguments, composes dependencies, invokes capabilities/services, renders human or JSON output, and maps failures to exit codes. Domain algorithms do not belong in the CLI.
 
-Non-responsibilities:
-- No mount control.
-- No goto logic.
+### Utilities are leaves
 
-### 4.3 Mount module (`mount/`)
-Responsibilities:
-- Connect to mount backend (initially via INDI/EQMod).
-- Provide mount primitives:
-  - get_state, slew_to, stop, sync
-  - pulse guiding (RA/DEC)
-- Perform coordinate conversion at boundary:
-  - Internal ICRS ↔ mount expected frame
+`util/*` contains genuinely shared low-level primitives. It must not become a generic `core` dumping ground or import upward into application capabilities.
 
-Non-responsibilities:
-- No closed-loop goto policy.
-- No polar alignment algorithm.
-- No guiding controller logic.
+## Internal dependency principle
 
-### 4.4 Services (`services/`)
-Services orchestrate backends to implement features.
+Only composition roots should know broadly about the application. Every substantial capability should otherwise behave like a good dependency: a small coherent public surface, narrow sibling dependencies, explicit side effects, and no accidental implementation leakage. Extractability is a design test, not a packaging goal.
 
-#### `services/pointing/`
-- Closed-loop centering using:
-  - mount slew
-  - capture
-  - solve
-  - compute error
-  - correction slew
-- Pointing model updates (session + persistent) with confidence gates.
-- Diagnostics and recovery workflows.
+The authoritative dependency/internal-component policy is in `CONTRIBUTING.md`; this document deliberately does not restate its full checklist.
 
-#### `services/target/`
-- Resolve object names to ICRS coordinates.
-- Provide normalized target objects for downstream services.
+## Current capability ownership
 
-#### `services/polar/`
-- Polar alignment routine using:
-  - capture + solve at pose A
-  - rotate RA axis by Δ
-  - capture + solve at pose B
-  - compute mount axis misalignment
-  - output alt/az correction guidance + confidence
+### Camera
 
-#### `services/guide/`
-- Guiding:
-  - star detection / centroiding
-  - calibration (pixel → arcsec mapping, RA/DEC response)
-  - controller (P/PI)
-  - pulse guide outputs
-  - star-lost handling, bounds
+Owns camera connection/capture, the camera-owned `Image` contract, and the synchronous live-frame session. One-shot capture remains appropriate for occasional solving; the live path exists for interactive consumers such as focus monitoring. See `live_camera.md`.
 
----
+### Solver
 
-## 5. Data flows
+Owns `SolveRequest -> SolveResult` and backend-specific invocation/result translation. Services consume the solver contract and do not know whether the implementation is ASTAP or another backend.
 
-### 5.1 Plate solving flow
-```
-Camera.capture → Image → Solver.solve → SolveResult(ICRS)
-```
+### Mount
 
-### 5.2 Closed-loop pointing flow
-```
-Target(ICRS) → Mount.slew_to(target)
-           → loop:
-               Camera.capture → Solver.solve → current(ICRS)
-               error = target - current
-               if |error| < tolerance: done
-               Mount.slew_to(corrected_target)
-```
+Owns primitive mount operations, mount-native INDI semantics, explicit mount-specific construction inputs, and coordinate-frame conversion at the mount boundary. Application configuration is translated into those inputs at the composition root.
 
-### 5.3 Polar alignment flow (conceptual)
-```
-Pose A:
-  capture → solve → field centre A (ICRS)
-Rotate RA by Δ:
-Pose B:
-  capture → solve → field centre B (ICRS)
+### Target resolution
 
-Compute:
-  mount RA axis projection vs true pole
-Output:
-  ALT correction (arcsec/arcmin + direction)
-  AZ  correction (arcsec/arcmin + direction)
-  confidence / residual
-```
+Owns offline normalization and resolution of user/catalog target names into coordinates suitable for downstream operations.
 
-### 5.4 Guiding flow (conceptual)
-```
-Guide loop at ~1–2 Hz:
-  capture → detect star(s) → centroid shift (pixels)
-  map pixels → angular error (radians / arcsec)
-  controller → pulse durations (ms)
-  mount.pulse_guide(ra_ms, dec_ms)
-```
+### Pointing
 
----
+Current `main` has one coherent `astrolabe.pointing` capability exporting `PointingModel`, `PointingService`, and explicit pointing-specific persistence helpers. The model is pure prediction/update state; `PointingService` receives a model explicitly; loading/saving the default `~/.astrolabe/pointing.json` file is an application-composition concern rather than an implicit service side effect.
 
-## 6. Concurrency model (minimal)
+### Polar alignment
 
-Astrolabe is primarily synchronous for commands.
+Owns solve-based polar-axis measurement and correction geometry. Current measurement uses multiple solved poses and requires enough observations for a meaningful fit; algorithmic details belong in the implementation/tests rather than this high-level document.
 
-Guiding introduces a loop:
-- Guiding runs as a controlled loop in-process (initially).
-- Other commands should not run concurrently with guiding unless explicitly supported.
-- Shared access to mount/camera must be serialized.
+### Focus
 
-Initial rule: **one active session owns the mount + camera**.
+Owns backend-independent stellar sharpness analysis plus the bounded live focus-monitor workflow. HFR and trend labels describe image quality; they are not a signed focuser correction. See `focus.md`.
 
----
+### Feedback
 
-## 7. Error handling principles
+Owns generic semantic/manual-adjustment feedback state. Platform rendering/audio belongs at presentation boundaries rather than in domain services.
 
-- Backends return structured errors (with reason codes).
-- Services decide:
-  - retryable vs fatal
-  - user-actionable messaging
-- CLI maps to exit codes and prints:
-  - human-readable summary
-  - optional JSON with error details
+### Planner
 
----
+Owns offline-first target selection/scoring. It is intentionally separable from camera/mount control and remains post-MVP in product priority even though substantial functionality exists.
 
-## 8. Testability strategy (architectural)
+## Concurrency and ownership
 
-- Provide fake backends for camera/solver/mount:
-  - deterministic images / deterministic solve results
-  - simulated mount state and response
-- Unit tests focus on:
-  - coordinate math
-  - error computation
-  - controller behaviour
-- Integration tests focus on:
-  - backend adapters
-  - parsing solver outputs
+Astrolabe is primarily synchronous. Interactive loops should use bounded, explicit ownership rather than application-wide async infrastructure.
 
----
+Initial operational rule: one active session owns a hardware resource at a time. In particular, a live camera session is single-consumer and excludes ordinary capture until it is closed.
 
-## 9. Architectural invariants
+## Testing boundary
 
-- Internal frame is ICRS/J2000.
-- Internal units are radians.
-- All mount frame conversions happen only inside mount backends.
-- Services remain backend-agnostic.
-- CLI remains thin and stable.
+- pure/domain mathematics: deterministic unit tests;
+- services: lightweight fake backends where practical;
+- backend semantics: focused adapter tests;
+- end-to-end external-tool/device behaviour: explicitly marked integration tests.
 
-Any violation of these invariants is considered architectural regression.
+Architectural regressions include hardware imports in services, mount-frame conversion outside the mount boundary, broad application configuration leaking into capabilities, hidden side effects in ordinary domain APIs, or presentation policy leaking into domain services.

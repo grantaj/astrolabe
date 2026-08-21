@@ -1,91 +1,64 @@
 # Vision
 
-Astrolabe is a minimal, instrument-like command-line tool for telescope
-control and astrometric operations.
+Astrolabe is a minimal, instrument-like command-line tool for telescope operation and astrometric assistance.
 
-It is designed to do a small number of critical tasks well, with
-precision and clarity.
+It exists to make a small number of observing tasks precise, deterministic, scriptable, and understandable without becoming a general astrophotography platform.
 
-------------------------------------------------------------------------
+## Purpose
 
-## 1. Purpose
+Astrolabe's core direction includes:
 
-Astrolabe exists to provide:
+- reliable local plate solving;
+- deterministic mount control;
+- solve-assisted pointing and centering;
+- polar-alignment measurement and guidance;
+- stable guiding;
+- focused instrument utilities such as stellar focus measurement;
+- an offline-first, observer-oriented target planner.
 
--   Reliable plate solving
--   Deterministic mount control
--   Solve-as-you-go pointing with closed-loop centering
--   Clear polar alignment guidance
--   Stable guiding
--   A curated, observer-oriented target planner (post-MVP)
+Some of these capabilities are intentionally post-MVP or still incomplete. Current implementation status belongs in code/tests and `README.md`, not in this vision document.
 
-It prioritizes correctness, composability, and scriptability over
-feature breadth.
+## Design character
 
-------------------------------------------------------------------------
+Astrolabe should remain:
 
-## 2. Design Principles
+- **CLI-first** — designed for terminal use and automation;
+- **modular** — hardware/external implementations stay behind capability boundaries;
+- **deterministic** — explicit outputs, stable automation contracts, bounded failure modes;
+- **minimal** — no feature or abstraction without clear operational leverage;
+- **testable** — core/domain behaviour can be exercised without physical hardware;
+- **instrument-like** — precise and operationally legible rather than feature-rich.
 
-Astrolabe should be:
-
--   **CLI-first** -- designed for terminal use and automation
--   **Modular** -- hardware backends are swappable
--   **Deterministic** -- explicit outputs and stable JSON contracts
--   **Minimal** -- avoid feature creep and unnecessary abstractions
--   **Testable** -- core logic independent of hardware
-
-------------------------------------------------------------------------
-
-## 3. Non-Goals
+## Non-goals
 
 Astrolabe is not:
 
--   A planetarium
--   A GUI application
--   A full astrophotography workflow suite
--   A scheduler or observatory automation system
--   A replacement for large ecosystem tools
+- a GUI application or planetarium;
+- a full image acquisition/processing workflow suite;
+- an observatory scheduler or automation platform;
+- a general astronomy framework;
+- a replacement for mature specialist tools when a clean backend boundary can use them instead.
 
-If a feature does not directly improve solving, pointing, polar
-alignment, or guiding, it likely does not belong in Astrolabe.
+Scope should be judged by whether a feature materially improves Astrolabe as a compact telescope/observing instrument, not by whether it can be made to fit a menu.
 
-------------------------------------------------------------------------
+## MVP definition
 
-## 4. MVP Definition (v0)
+The original v0 usability target remains a useful baseline:
 
-Astrolabe v0 is considered usable when a user can:
+1. connect to camera and mount;
+2. capture and plate-solve an image;
+3. slew and center a target via solve-based correction;
+4. perform polar alignment with actionable guidance;
+5. guide stably for a useful observing interval.
 
-1.  Connect to camera and mount
-2.  Capture and plate-solve an image
-3.  Slew and center a target via closed-loop correction
-4.  Perform polar alignment with actionable guidance
-5.  Guide stably for at least 10 minutes
+Implemented post-MVP capabilities do not redefine this historical baseline, and this document should not be used as a live status checklist.
 
-Anything beyond this is post-MVP.
+## Long-term direction
 
-------------------------------------------------------------------------
+Astrolabe may grow when additions preserve architectural clarity, keep dependencies justified, and leave generic/hardware/platform complexity at explicit boundaries.
 
-## 5. Long-Term Direction
+The central design rule is:
 
-Astrolabe may grow carefully in the future, but only if additions:
+> Time-dependent, hardware-specific, and platform-specific complexity belongs at explicit boundaries. Domain logic should remain clean, stable, and mathematically explicit.
 
--   Preserve architectural clarity
--   Maintain small dependency surface
--   Do not introduce GUI complexity
--   Do not entangle core logic with hardware specifics
-
-The project should remain focused and instrument-like --- more precision
-tool than feature platform.
-
-------------------------------------------------------------------------
-
-## 6. Philosophy
-
-Astrolabe follows a simple rule:
-
-> Time-dependent or hardware-specific complexity belongs at the
-> boundary.\
-> Core logic should remain clean, stable, and mathematically explicit.
-
-This document serves as a guardrail against scope drift and
-architectural erosion.
+For current architecture and dependency policy, see `architecture.md` and `../CONTRIBUTING.md`.

@@ -1,484 +1,83 @@
-# CLI Specification
+# CLI contract
 
-This document defines Astrolabe’s command-line interface (CLI) surface.
+Astrolabe's CLI is a stable automation boundary. This document records the contract and current command topology without duplicating every argparse option.
 
-The CLI is designed to be:
-- scriptable
-- deterministic
-- stable across versions
+For exhaustive flags and defaults, the executable parser is authoritative:
 
-The CLI layer must remain thin: parse args → call services → format output.
-
----
-
-# 1. Command structure
-
-Top-level:
-
-```
-astrolabe <command> [<subcommand>] [options]
+```bash
+astrolabe --help
+astrolabe <command> --help
+astrolabe <command> <subcommand> --help
 ```
 
-Global options (available on all commands):
+## Global form
 
-- `--config <path>`        Path to config file
-- `--json`                 Emit machine-readable JSON output
-- `--log-level <level>`    debug|info|warn|error
-- `--timeout <seconds>`    Operation timeout (best-effort)
-- `--dry-run`              Do not move mount; simulate actions where possible
-  (currently a no-op for `solve`, `doctor`, and `view`)
-
----
-
-# 2. Exit codes
-
-- `0`  Success
-- `1`  Recoverable failure (e.g., solve failed, star lost, timeout)
-- `2`  Fatal failure (e.g., cannot connect to device, invalid config, internal error)
-
----
-
-# 3. Output contract
-
-## 3.1 Human output
-Default output is concise, readable status messages.
-
-## 3.2 JSON output (`--json`)
-When `--json` is set, stdout must emit a single JSON object.
-
-All JSON outputs must include:
-
-- `ok` (bool)
-- `command` (string)
-- `timestamp_utc` (ISO-8601 string)
-- `data` (object or null)
-- `error` (object or null)
-
-Error object (when ok=false):
-
-- `code` (string)            stable reason identifier
-- `message` (string)         human-readable summary
-- `details` (object|null)    optional structured fields
-
-The CLI must not emit other text to stdout in `--json` mode.
-
-Note: For subcommands, `command` may include a dotted suffix (e.g., `pointing.where`, `mount.status`).
-Logs may go to stderr.
-
----
-
-# 4. Commands
-
-Note: The commands below exist in the CLI, but several are currently stubs and return
-`not_implemented` errors until the underlying services are implemented.
-
-Note: `--dry-run` is currently a no-op for commands added in the skeleton (mount/goto/pointing/polar/guide/plan).
-
-## 4.1 `capture`
-
-Capture a single frame from the configured camera.
-
-```
-astrolabe capture [options]
+```text
+astrolabe [global options] <command> [<subcommand>] [options]
 ```
 
-Options:
-- `--exposure <seconds>` (required unless default configured)
-- `--gain <value>`
-- `--bin <n>`
-- `--roi <x,y,w,h>`
-- `--out <path>`   Save image to disk (optional)
-- `--json`          Emit machine-readable JSON output
+Global options currently include `--config`, `--json`, `--log-level`, `--timeout`, `--dry-run`, and `--version`.
 
-JSON data (example fields):
-- `path` (if saved)
-- `exposure_s`
-- `timestamp_utc`
-- `width_px`, `height_px`
+`--dry-run` is best-effort and command-specific; code/tests define whether a particular operation currently honours it. Never infer safety solely from the presence of the global flag.
 
----
+## Exit codes
 
-## 4.2 `solve`
+- `0` — success;
+- `1` — recoverable operational failure;
+- `2` — fatal/configuration/usage/internal failure where the command maps it as such.
 
-Plate-solve a frame (default: last captured, or provided path).
+Commands that expose not-yet-implemented services report a structured `not_implemented` failure rather than pretending to succeed.
 
-```
-astrolabe solve [<path>] [--in <path>]
-```
+## JSON output
 
-Options:
-- `<path>`             Input image path (optional)
-- `--in <path>`        Input image path (optional, overrides positional)
-- `--search-radius-deg <deg>`   Search radius in degrees (overrides config)
-- `--verbose`          Include solver output on failure
+The stable contract for global `--json` is one JSON object on stdout, with logs and diagnostics confined to stderr.
 
-JSON data:
-- `success`
-- `ra_rad`, `dec_rad`
-- `pixel_scale_arcsec`
-- `rotation_rad`
-- `rms_arcsec`
-- `num_stars`
+The envelope contains:
 
----
-
-## 4.3 `doctor`
-
-System diagnostics for local dependencies and configuration.
-
-```
-astrolabe doctor
+```text
+ok             bool
+timestamp_utc  ISO-8601 UTC timestamp
+command        operation identifier
+data           object or null
+error          object or null
 ```
 
-Options:
-- `--json`           Emit machine-readable JSON output
+When present, `error` contains a stable reason `code`, human-readable `message`, and optional `details`.
 
-Human output:
-- A status report of config, INDI server connectivity, solver availability, and backend presence.
+Most current command result/error paths use this envelope through the shared CLI output/runtime machinery. A small set of legacy early-validation or command-specific failures still violate the contract by emitting bare stderr with no JSON object; fixing those implementation gaps is tracked in GitHub issue #72. They are defects against this contract, not a second supported output mode.
 
-Exit codes:
-- `0` when all checks pass
-- `1` when any check fails
+Do not introduce NDJSON/streaming output under the global `--json` flag without deliberately changing this contract.
 
----
+## Current command topology
 
-## 4.4 `mount`
+The topology below reflects current `main`. Use `--help` for exact arguments.
 
-Mount management and primitives.
+| Command | Subcommands / purpose | Current status |
+| --- | --- | --- |
+| `doctor` | local configuration/backend diagnostics | implemented |
+| `capture` | capture one camera frame | implemented |
+| `solve` | plate-solve a FITS image | implemented |
+| `view` | inspect a FITS file; optional graphical display | implemented |
+| `mount` | `status`, `slew`, `track`, `park`, `stop` | implemented |
+| `resolve` | resolve target names/catalog IDs offline | implemented |
+| `goto` | target resolution + closed-loop service, currently falling back to a plain mount slew | partial / fallback |
+| `pointing` | `solve`, `sync`, `init`, `goto` | implemented |
+| `align` | deprecated alias for `pointing` | compatibility alias |
+| `polar` | N-pose polar-axis measurement/correction estimate | implemented |
+| `focus` | `measure` one-shot multi-star HFR; `monitor` live HFR/trend reporting | implemented |
+| `guide` | `calibrate`, `start`, `stop`, `status` | CLI present; service placeholder |
+| `plan` | offline-first target planning | implemented |
+| `update catalog` | all/default catalog updates; `openngc`, `hip`, `bsc` subsets | implemented |
 
-### `mount status`
-```
-astrolabe mount status
-```
+### A few non-obvious current boundaries
 
-JSON data:
-- `connected`
-- `ra_rad`, `dec_rad`
-- `tracking`, `slewing`
-- `timestamp_utc`
+- `view` takes its FITS input via `--in` on current `main`.
+- `polar` requires an RA rotation and observer latitude; it also exposes exposure/settling and pose-count controls.
+- `focus measure` accepts either `--in` FITS input or camera-capture controls. `focus monitor` consumes the camera-owned live-frame path, may be bounded with `--frames N`, and deliberately rejects global `--json` with one structured error rather than creating an NDJSON stream.
+- `pointing` currently uses `solve`, `sync`, `init`, and `goto`; older names such as `where`, `calibrate`, `recover`, `status`, and `diagnose` are not part of the current parser.
 
-Note: `mount status` may require a live backend connection depending on the backend implementation.
+## Stability rule
 
-### `mount slew`
-```
-astrolabe mount slew --ra-deg <deg> --dec-deg <deg>
-```
+Command names, primary flags, JSON field names, and exit-code semantics are public automation surface once relied upon. Prefer additive evolution. A refactor must characterize existing observable CLI behaviour before changing plumbing.
 
-Options:
-- `--ra-deg <value>`   Degrees
-- `--dec-deg <value>`  Degrees
-
-### `mount stop`
-```
-astrolabe mount stop
-```
-
-### `mount park`
-```
-astrolabe mount park
-```
-
----
-
-## 4.5 `goto`
-
-Closed-loop centering of a target. Provide either `--target` or explicit coordinates.
-
-```
-astrolabe goto [options]
-```
-
-Options:
-- `--target <value>`              Target name or catalog ID
-- `--ra-deg <value>`              Target RA in degrees
-- `--dec-deg <value>`             Target Dec in degrees
-- `--tolerance-arcsec <value>`    Default 30.0
-- `--max-iterations <n>`          Default 5
-
-JSON data:
-- `success`
-- `iterations`
-- `final_error_arcsec`
-
----
-
-## 4.6 `resolve`
-
-Resolve a target name or catalog ID to coordinates.
-
-```
-astrolabe resolve [options] <target>
-```
-
-Options:
-- `--limit <n>`           Default 5
-- `--min-score <value>`   Override minimum match score
-
-JSON data:
-- `query`
-- `min_score`
-- `matches` (name/id/ra_deg/dec_deg/score/reason)
-
----
-
-## 4.7 `update`
-
-Optional dataset updates.
-
-### `update catalog`
-```
-astrolabe update catalog [options]
-```
-
-Updates all default catalogs (OpenNGC + HIP + BSC crosswalk).
-
-### `update catalog openngc`
-```
-astrolabe update catalog openngc [options]
-```
-
-Options:
-- `--source <path|url>`   Custom OpenNGC source
-- `--version <tag>`       OpenNGC release tag/commit
-- `--output <path>`       Output path for curated catalog
-
-### `update catalog hip`
-```
-astrolabe update catalog hip [options]
-```
-
-Options:
-- `--source <path|url>`   Hipparcos catalog source
-- `--output <path>`       Output path for hip_subset.csv
-- `--max-mag <value>`     Maximum V magnitude
-- `--insecure`            Disable SSL verification
-
-### `update catalog bsc`
-```
-astrolabe update catalog bsc [options]
-```
-
-Options:
-- `--source <path|url>`   BSC catalog source
-- `--output <path>`       Output path for bsc_crosswalk.csv
-- `--insecure`            Disable SSL verification
-
----
-
-## 4.8 `pointing`
-
-Pointing actions (solve-as-you-go model).
-
-Note: `align` is a deprecated alias for `pointing`.
-
-### `pointing where`
-```
-astrolabe pointing where [options]
-```
-
-Options:
-- `--exposure <seconds>`
-
-JSON data:
-- Same fields as `solve` (SolveResult)
-
-### `pointing calibrate`
-```
-astrolabe pointing calibrate [options]
-```
-
-Options:
-- `--exposure <seconds>`
-- `--targets <n>`
-- `--max-attempts <n>`
-
-JSON data:
-- `success`
-- `solves_attempted`
-- `solves_succeeded`
-- `final_error_arcsec`
-- `exit_reason`
-
-### `pointing goto`
-```
-astrolabe pointing goto [options]
-```
-
-Options:
-- `--target <value>`              Target name or catalog ID
-- `--ra-deg <value>`              Target RA in degrees
-- `--dec-deg <value>`             Target Dec in degrees
-- `--exposure <seconds>`          Exposure time for solve
-
-JSON data:
-- `target_ra_deg`
-- `target_dec_deg`
-- `command_ra_deg`
-- `command_dec_deg`
-- `solve` (SolveResult)
-- `final_error_arcsec`
-
-### `pointing recover`
-```
-astrolabe pointing recover [options]
-```
-
-Options:
-- `--exposure <seconds>`
-
-JSON data:
-- `success`
-- `solves_attempted`
-- `solves_succeeded`
-- `final_error_arcsec`
-- `exit_reason`
-
-### `pointing status`
-```
-astrolabe pointing status
-```
-
-JSON data:
-- `confidence`
-- `model_state`
-- `active_warnings`
-- `last_solve_quality`
-
-### `pointing diagnose`
-```
-astrolabe pointing diagnose
-```
-
-JSON data:
-- `findings`
-
----
-
-## 4.7 `polar`
-
-Run polar alignment routine and output mechanical adjustment guidance.
-
-```
-astrolabe polar --ra-rotation-deg <deg>
-```
-
-Options:
-- `--ra-rotation-deg <deg>`   RA rotation amount for solving
-
-JSON data:
-- `alt_correction_arcsec`
-- `az_correction_arcsec`
-- `residual_arcsec`
-- `confidence`
-
-Human output must include directionality (e.g., “raise ALT”, “move AZ east/west”)
-based on configured hemisphere/site conventions.
-
----
-
-## 4.8 `guide`
-
-Guiding control.
-
-### `guide calibrate`
-```
-astrolabe guide calibrate [options]
-```
-
-Options:
-- `--duration <seconds>`
-
-JSON data:
-- calibration parameters (implementation-defined, stable keys once chosen)
-
-### `guide start`
-```
-astrolabe guide start [options]
-```
-
-Options:
-- `--aggression <0..1>`
-- `--min-move-arcsec <arcsec>`
-
-### `guide status`
-```
-astrolabe guide status
-```
-
-JSON data:
-- `running`
-- `rms_arcsec`
-- `star_lost`
-- `last_error_arcsec`
-
-### `guide stop`
-```
-astrolabe guide stop
-```
-
----
-
-## 4.9 `plan`
-
-Plan observing targets.
-
-```
-astrolabe plan [options]
-```
-
-Options:
-- `--start-utc <iso>`    Window start (ISO-8601, accepts `Z`)
-- `--end-utc <iso>`      Window end (ISO-8601, accepts `Z`)
-- `--start-local <iso>`  Window start (local time ISO-8601)
-- `--end-local <iso>`    Window end (local time ISO-8601)
-- `--mode <visual|photo>` Planning mode (default: visual)
-- `--limit <n>`          Limit total number of targets
-- `--verbose`            Include detailed numeric output
-- `--lat <deg>`          Observer latitude degrees
-- `--lon <deg>`          Observer longitude degrees
-- `--elev <m>`           Observer elevation meters
-- `--json`
-
----
-
-## 4.10 `update`
-
-Update optional datasets.
-
-```
-astrolabe update catalog [options]
-```
-
-Options:
-- `--source <path|url>`   OpenNGC CSV file or base URL/path
-- `--version <tag>`       OpenNGC release tag or commit hash
-- `--output <path>`       Output curated catalog CSV
-- `--json`
-
----
-
-## 4.11 `view`
-
-Display FITS header and optionally render the image for inspection.
-
-```
-astrolabe view <path> [--show]
-```
-
-Options:
-- `<path>`           Input FITS file path
-- `--show`           Display image window (requires matplotlib)
-
-# 5. Stability rules
-
-- Command names and primary flags are stable once released.
-- JSON field names are stable once released.
-- Any breaking change requires a major version bump.
-
----
-
-# 6. Safety
-
-- `--dry-run` must never move the mount.
-- Potentially hazardous operations must support `--timeout` and `mount stop`.
-- Guiding must stop cleanly on errors (star lost, mount comms failure).
+When this document and executable help differ, treat that as documentation drift: current code/tests define implemented behaviour and this file should be corrected rather than inventing compatibility for stale prose.

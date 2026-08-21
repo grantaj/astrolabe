@@ -1,182 +1,108 @@
 # Astrolabe
 
-Astrolabe is a minimal, Linux-first command-line tool for telescope mount control, plate solving, polar alignment, and guiding.
+Astrolabe is a minimal, Linux-first command-line instrument for telescope control and astrometric operations.
 
-It is designed to be small, scriptable, deterministic, and reliable — not a full imaging suite or planetarium replacement.
+It is designed to be small, scriptable, deterministic, and reliable rather than a full imaging suite, planetarium, scheduler, or GUI application.
 
-Astrolabe focuses on doing a small number of things well.
+## What is on `main`
 
----
+Current implemented capabilities include:
 
-## Philosophy
+- INDI camera capture, including a bounded-overhead live-frame path;
+- local plate solving through the solver backend abstraction (ASTAP by default);
+- INDI mount status, slew, tracking, park, stop, sync, and pulse-guide primitives;
+- offline target resolution;
+- solve/sync/initial-alignment/pointing-aware goto operations;
+- N-pose solve-based polar-axis measurement and mechanical correction estimates;
+- multi-star HFR focus measurement and bounded live focus monitoring;
+- an offline-first observing-target planner and catalog update tools.
+
+The closed-loop `GotoService` and guiding service are still placeholders on current `main`. The top-level `goto` command currently falls back to issuing a plain mount slew when closed-loop centering is unavailable; guiding commands report `not_implemented`.
+
+For the exact command surface, use `astrolabe --help` and the relevant subcommand `--help`. `docs/cli.md` records the stable CLI contract without duplicating every parser flag.
+
+## Design principles
 
 Astrolabe is:
 
-- CLI-first
-- Modular (camera, solver, mount backends are swappable)
-- Scriptable (`--json` output for automation)
-- Deterministic (clear exit codes, explicit failure states)
-- Lightweight
+- **CLI-first** — intended for terminal use and automation;
+- **modular** — camera, solver, mount, and service capabilities have explicit boundaries;
+- **scriptable** — `--json` provides a stable single-object machine-readable envelope;
+- **deterministic** — failures and exit states are explicit;
+- **instrument-like** — precision and operational clarity matter more than feature count.
 
-Astrolabe is not:
+See `docs/README.md` for which repository documents are authoritative, `docs/vision.md` for scope, and `CONTRIBUTING.md` for development and dependency policy.
 
-- A GUI application
-- A planetarium
-- A scheduler
-- A full astrophotography workflow manager
+## Development setup
 
----
+Astrolabe currently targets Linux, with Ubuntu/Debian as the primary environment.
 
-## Current Scope (MVP)
+### System dependencies
 
-Astrolabe aims to provide:
-
-- Camera capture
-- Plate solving
-- Mount connection and control
-- Closed-loop goto (plate-solve centering)
-- Polar alignment guidance
-- Guiding via pulse corrections
-- Target planning (planner; currently stubbed)
-
----
-
-## Target Environment
-
-- Linux (Ubuntu/Debian primary target)
-- SkyWatcher mounts (via INDI / EQMod initially)
-- QHY cameras (via INDI initially)
-- Local plate solving (ASTAP or astrometry.net)
-
-Support for additional hardware depends on backend compatibility.
-
----
-
-## Quickstart (Conceptual)
+Install INDI using the packaging appropriate for your distribution. On Ubuntu, the official INDI PPA can be used:
 
 ```bash
-# Capture an image
-astrolabe capture --exposure 2.0
+sudo add-apt-repository ppa:mutlaqja/ppa
+sudo apt update
+sudo apt install indi-full
+```
 
-# Plate solve a specific image
-astrolabe solve testdata/raw/sample1.fits
+The CCD Simulator also uses GSC data when generating synthetic star fields:
 
-# Mount status (stub)
-astrolabe mount status
+```bash
+sudo apt install gsc gsc-data
+```
 
-# Slew to coordinates (stub)
-astrolabe mount slew --ra-deg 161.2625 --dec-deg -59.6844
+ASTAP is the default plate-solver backend. Install its Linux CLI and a suitable star database from the ASTAP project.
 
-# Center target using closed-loop solve (stub)
-astrolabe goto --ra-deg 161.2625 --dec-deg -59.6844
+### Python environment
 
-# Run polar alignment routine (stub)
-astrolabe polar --ra-rotation-deg 30
+The repository uses `uv` for environment and dependency management:
 
-# Start guiding (stub)
-astrolabe guide start --aggression 0.7 --min-move-arcsec 0.5
+```bash
+uv sync --extra dev --extra tools
+```
 
-# Plan observing targets (stub)
-astrolabe plan --json
+Run the CLI and tests through the managed environment:
 
-## Development Setup (Ubuntu)
+```bash
+uv run astrolabe --help
+uv run pytest
+```
 
-Astrolabe currently targets Linux (Ubuntu/Debian).
+The `tools` extra contains optional FITS/catalog tooling; normal runtime capabilities should not depend on it unless explicitly documented.
 
-------------------------------------------------------------------------
+### Configuration and simulator smoke test
 
-### 1. System Dependencies
+Copy the example configuration and adjust it for your devices:
 
-#### Install INDI
+```bash
+mkdir -p ~/.config/astrolabe
+cp astrolabe/config.toml ~/.config/astrolabe/config.toml
+```
 
-Add the official INDI PPA:
+For the repository simulator setup:
 
-    sudo add-apt-repository ppa:mutlaqja/ppa
-    sudo apt update
+```bash
+bash scripts/setup_indi_simulators.sh
+uv run astrolabe doctor
+```
 
-Install INDI:
+A typical capture/solve cycle is then:
 
-    sudo apt install indi-full
+```bash
+uv run astrolabe capture --exposure 2.0 --out /tmp/frame.fits
+uv run astrolabe solve /tmp/frame.fits
+```
 
-Verify installation:
+For integration-test details, use the repository test/CI entry points rather than old implementation plans; historical plans remain available in git and merged PR history.
 
-    indiserver --version
+## Documentation
 
-Install GSC (needed for CCD Simulator star fields):
+The documentation lifecycle is deliberately small:
 
-    sudo apt install gsc gsc-data
+- current behaviour and contracts: `README.md`, `CONTRIBUTING.md`, and `docs/`;
+- planned work: open GitHub issues;
+- historical design/implementation rationale: git and merged pull requests.
 
-------------------------------------------------------------------------
-
-#### Install ASTAP
-
-Download the Linux `.deb` package from:
-
-https://www.hnsky.org/astap.htm
-
-Then install it:
-
-    sudo apt install ./astap_*.deb
-
-Verify installation:
-
-    astap -h
-
-------------------------------------------------------------------------
-
-### 2. Python Environment
-
-From the repository root:
-
-    python -m venv .venv --prompt astrolabe
-    source .venv/bin/activate
-    pip install -e .
-
-Optional tools (FITS inspection and synthetic starfield generation):
-
-    pip install -e .[tools]
-
-------------------------------------------------------------------------
-
-### 3. Install Tycho-2 (for synthetic test data)
-
-The synthetic starfield generator `scripts/gen_catalog_starfield.py` uses the Tycho-2 catalog.
-To install it locally into `tycho2/`:
-
-    bash scripts/install-tycho2.sh
-
-This is required for the integration test that generates synthetic FITS files.
-
-------------------------------------------------------------------------
-
-### 4. Test Installation
-
-Copy astrolabe/config.toml to ~/.config/astrolabe/config.toml
-
-Start INDI simulator server and configure telescope + CCD settings:
-
-    bash scripts/setup_indi_simulators.sh
-
-In another terminal, capture a frame:
-
-    astrolabe capture --exposure 2.0
-
-Then run diagnostics:
-
-    astrolabe doctor
-
-Expected results:
-
--   config: OK
--   indi_server: OK
--   solver_astap: OK
-
----
-
-### QHY Camera Testing
-
-To test with a QHY camera (hardware or INDI driver), start the QHY INDI server in a separate terminal:
-
-    indiserver indi_qhy_ccd
-
-This allows Astrolabe to connect to the QHY camera via INDI for capture and plate solving. No changes to the simulator setup script are required.
+Start at `docs/README.md`.
