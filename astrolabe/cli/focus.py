@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sys
 
-from astrolabe.camera import get_camera_backend
+from astrolabe.camera import Image, get_camera_backend
 from astrolabe.cli.commands import (
     _config_path_from_args,
     _init_logging,
@@ -22,7 +22,6 @@ from astrolabe.services.focus import (
     FocusService,
 )
 from astrolabe.services.focus_monitor import FocusMonitor, FocusTrendEstimator
-from astrolabe.solver.types import Image
 
 
 def _emit_failure(
