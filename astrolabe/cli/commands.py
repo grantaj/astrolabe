@@ -32,7 +32,13 @@ from astrolabe.services import (
     GotoService,
     PolarAlignService,
     GuidingService,
+)
+from astrolabe.pointing import (
+    PointingModel,
     PointingService,
+    default_model_path,
+    load_pointing_model,
+    save_pointing_model,
 )
 from astrolabe.planner import Planner, ObserverLocation
 from astrolabe.planner.formatters import format_text as format_plan_text
@@ -568,7 +574,12 @@ def run_align(args) -> int:
     config = prepare(args)
     mount, camera, solver = mount_camera_solver(config)
     note_dry_run(args, "align")
-    service = PointingService(mount, camera, solver)
+
+    model_path = default_model_path() if args.mode == "goto" else None
+    model = (
+        load_pointing_model(model_path) if model_path is not None else PointingModel()
+    )
+    service = PointingService(mount, camera, solver, model=model)
 
     try:
         if args.mode == "solve":
@@ -625,6 +636,8 @@ def run_align(args) -> int:
                     dec_target=target_dec_rad,
                     result=result,
                 )
+                if model_path is not None:
+                    save_pointing_model(model, model_path)
                 d_ra = (result.ra_rad - target_ra_rad + math.pi) % (
                     2.0 * math.pi
                 ) - math.pi
