@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from astrolabe.mount.indi import IndiMountBackend, _hours_to_rad, _degrees_to_rad
+from astrolabe.mount.frame_transform import EpochOfDateCoordinate, IcrsCoordinate
 from astrolabe.errors import BackendError
 from astrolabe.config import Config
 
@@ -62,7 +63,7 @@ def test_slew_to_jnow(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
         patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
         patch("astrolabe.mount.indi.IndiClient.getprop_state", return_value="Ok"),
-        patch("astrolabe.mount.indi.icrs_to_jnow") as mock_icrs,
+        patch("astrolabe.mount.indi.icrs_to_epoch_of_date") as mock_icrs,
     ):
 
         def has_prop_mock(prop):
@@ -73,9 +74,16 @@ def test_slew_to_jnow(mount):
             return False
 
         mock_has_prop.side_effect = has_prop_mock
-        mock_icrs.return_value = (math.pi / 2, math.pi / 4)  # 6h, 45deg
+        mock_icrs.return_value = EpochOfDateCoordinate(
+            ra_rad=math.pi / 2, dec_rad=math.pi / 4
+        )
 
         mount.slew_to(math.pi / 2, math.pi / 4)
+
+        coordinate = mock_icrs.call_args.args[0]
+        assert isinstance(coordinate, IcrsCoordinate)
+        assert coordinate.ra_rad == math.pi / 2
+        assert coordinate.dec_rad == math.pi / 4
 
         multi_calls = [c.args[0] for c in mock_setprop_multi.call_args_list]
         vector_calls = [c.args for c in mock_setprop_vector.call_args_list]
@@ -128,7 +136,7 @@ def test_sync_jnow(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
         patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
         patch("astrolabe.mount.indi.IndiClient.getprop_state", return_value="Ok"),
-        patch("astrolabe.mount.indi.icrs_to_jnow") as mock_icrs,
+        patch("astrolabe.mount.indi.icrs_to_epoch_of_date") as mock_icrs,
     ):
 
         def has_prop_mock(prop):
@@ -139,9 +147,14 @@ def test_sync_jnow(mount):
             return False
 
         mock_has_prop.side_effect = has_prop_mock
-        mock_icrs.return_value = (math.pi / 2, math.pi / 4)
+        mock_icrs.return_value = EpochOfDateCoordinate(
+            ra_rad=math.pi / 2, dec_rad=math.pi / 4
+        )
 
         mount.sync(math.pi / 2, math.pi / 4)
+
+        coordinate = mock_icrs.call_args.args[0]
+        assert isinstance(coordinate, IcrsCoordinate)
 
         multi_calls = [c.args[0] for c in mock_setprop_multi.call_args_list]
         vector_calls = [c.args for c in mock_setprop_vector.call_args_list]
@@ -230,7 +243,7 @@ def test_slew_to_wraps_ra_jnow(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop_multi") as mock_setprop_multi,
         patch("astrolabe.mount.indi.IndiClient.setprop_vector") as mock_setprop_vector,
         patch("astrolabe.mount.indi.IndiClient.getprop_state", return_value="Ok"),
-        patch("astrolabe.mount.indi.icrs_to_jnow") as mock_icrs,
+        patch("astrolabe.mount.indi.icrs_to_epoch_of_date") as mock_icrs,
     ):
 
         def has_prop_mock(prop):
@@ -241,7 +254,9 @@ def test_slew_to_wraps_ra_jnow(mount):
             return False
 
         mock_has_prop.side_effect = has_prop_mock
-        mock_icrs.return_value = (-math.pi / 2, math.pi / 4)  # -6h wraps to 18h
+        mock_icrs.return_value = EpochOfDateCoordinate(
+            ra_rad=3 * math.pi / 2, dec_rad=math.pi / 4
+        )
 
         mount.slew_to(math.pi / 2, math.pi / 4)
 
@@ -263,12 +278,18 @@ def test_get_state_jnow(mount):
     }
     with (
         patch("astrolabe.mount.indi.IndiClient.snapshot", return_value=snap),
-        patch("astrolabe.mount.indi.jnow_to_icrs") as mock_jnow_to_icrs,
+        patch("astrolabe.mount.indi.epoch_of_date_to_icrs") as mock_eod_to_icrs,
     ):
-        mock_jnow_to_icrs.return_value = (math.pi / 2, math.pi / 4)
+        mock_eod_to_icrs.return_value = IcrsCoordinate(
+            ra_rad=math.pi / 2, dec_rad=math.pi / 4
+        )
 
         state = mount.get_state()
 
+        coordinate = mock_eod_to_icrs.call_args.args[0]
+        assert isinstance(coordinate, EpochOfDateCoordinate)
+        assert coordinate.ra_rad == math.pi / 2
+        assert coordinate.dec_rad == math.pi / 4
         assert state.connected is True
         assert state.tracking is True
         assert math.isclose(state.ra_rad, math.pi / 2)
@@ -285,12 +306,15 @@ def test_get_state_detects_slewing(mount):
     }
     with (
         patch("astrolabe.mount.indi.IndiClient.snapshot", return_value=snap),
-        patch("astrolabe.mount.indi.jnow_to_icrs") as mock_jnow_to_icrs,
+        patch("astrolabe.mount.indi.epoch_of_date_to_icrs") as mock_eod_to_icrs,
     ):
-        mock_jnow_to_icrs.return_value = (math.pi / 2, math.pi / 4)
+        mock_eod_to_icrs.return_value = IcrsCoordinate(
+            ra_rad=math.pi / 2, dec_rad=math.pi / 4
+        )
 
         state = mount.get_state()
 
+        assert isinstance(mock_eod_to_icrs.call_args.args[0], EpochOfDateCoordinate)
         assert state.slewing is True
 
 
@@ -431,7 +455,10 @@ def test_slew_to_auto_connects(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop_multi"),
         patch("astrolabe.mount.indi.IndiClient.getprop_state", return_value="Ok"),
         patch("astrolabe.mount.indi.IndiClient.has_prop", return_value=True),
-        patch("astrolabe.mount.indi.icrs_to_jnow", return_value=(0.0, 0.0)),
+        patch(
+            "astrolabe.mount.indi.icrs_to_epoch_of_date",
+            return_value=EpochOfDateCoordinate(ra_rad=0.0, dec_rad=0.0),
+        ),
         patch("astrolabe.mount.indi.time.sleep"),
     ):
         mount.slew_to(0.0, 0.0)
