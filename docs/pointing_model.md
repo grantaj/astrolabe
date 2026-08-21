@@ -58,11 +58,19 @@ b_new = (1 - weight) * b_old + weight * residual
 
 The model should only be updated from a meaningful solved-target residual. A mount sync is different: sync changes the mount's own coordinate mapping, so the pre-sync discrepancy must not also be learned as a persistent Astrolabe correction.
 
-## Persistence: current behaviour and ownership direction
+## Persistence
 
-On current `main`, the service/model path still loads and saves `~/.astrolabe/pointing.json` implicitly. This is current behaviour, but it is not the desired long-term ownership boundary.
+`PointingModel` is pure prediction/update state, and `PointingService` receives a model explicitly. Ordinary model/service construction and updates do not implicitly read or write the filesystem.
 
-GitHub issue #59 tracks separating pure model logic from persistence and making persistence explicit at the composition boundary. Until that lands, tests and callers should treat the current file behaviour as compatibility rather than as an architectural pattern to copy.
+Pointing-specific persistence is exposed separately through:
+
+```text
+default_model_path()
+load_pointing_model(path)
+save_pointing_model(model, path)
+```
+
+The application composition layer chooses when persistence happens and which path to use. The current default path remains `~/.astrolabe/pointing.json`, preserving the existing file location while keeping storage policy out of the mathematical/service API.
 
 ## Future model work
 
