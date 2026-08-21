@@ -149,6 +149,22 @@ def _erfa_icrs_to_epoch_of_date(
     )
 
 
+def _erfa_epoch_of_date_to_icrs(
+    coordinate: frame_transform.EpochOfDateCoordinate,
+    time_utc: datetime.datetime,
+) -> frame_transform.IcrsCoordinate:
+    erfa = pytest.importorskip("erfa")
+    tt1, tt2 = _erfa_tt_jd(time_utc)
+    _, precession, _ = erfa.bp06(tt1, tt2)
+    vector = erfa.s2c(coordinate.ra_rad, coordinate.dec_rad)
+    transformed = _icrs_fk5_bias_matrix().T @ precession.T @ vector
+    ra_rad, dec_rad = erfa.c2s(transformed)
+    return frame_transform.IcrsCoordinate(
+        ra_rad=float(erfa.anp(ra_rad)),
+        dec_rad=float(dec_rad),
+    )
+
+
 @pytest.mark.skipif(
     not frame_transform.ASTROPY_AVAILABLE,
     reason="astropy is not installed",
@@ -162,18 +178,26 @@ def _erfa_icrs_to_epoch_of_date(
         (datetime.datetime(2045, 6, 30, tzinfo=datetime.timezone.utc), 3.1, 1.2),
     ],
 )
-def test_pyerfa_candidate_matches_current_astropy_transform(
+def test_pyerfa_candidate_matches_current_astropy_transforms(
     time_utc: datetime.datetime, ra_rad: float, dec_rad: float
 ):
     coordinate = frame_transform.IcrsCoordinate(ra_rad=ra_rad, dec_rad=dec_rad)
 
-    astropy_result = frame_transform.icrs_to_epoch_of_date(coordinate, time_utc)
-    erfa_result = _erfa_icrs_to_epoch_of_date(coordinate, time_utc)
+    astropy_eod = frame_transform.icrs_to_epoch_of_date(coordinate, time_utc)
+    erfa_eod = _erfa_icrs_to_epoch_of_date(coordinate, time_utc)
 
-    ra_delta = astropy_result.ra_rad - erfa_result.ra_rad
+    ra_delta = astropy_eod.ra_rad - erfa_eod.ra_rad
     ra_error = (ra_delta + math.pi) % math.tau - math.pi
     assert abs(ra_error) < 1e-12
-    assert abs(astropy_result.dec_rad - erfa_result.dec_rad) < 1e-12
+    assert abs(astropy_eod.dec_rad - erfa_eod.dec_rad) < 1e-12
+
+    astropy_icrs = frame_transform.epoch_of_date_to_icrs(astropy_eod, time_utc)
+    erfa_icrs = _erfa_epoch_of_date_to_icrs(astropy_eod, time_utc)
+
+    ra_delta = astropy_icrs.ra_rad - erfa_icrs.ra_rad
+    ra_error = (ra_delta + math.pi) % math.tau - math.pi
+    assert abs(ra_error) < 1e-12
+    assert abs(astropy_icrs.dec_rad - erfa_icrs.dec_rad) < 1e-12
 
 
 def test_legacy_jnow_wrapper_preserves_ra_normalization():
