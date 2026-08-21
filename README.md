@@ -14,7 +14,7 @@ Current implemented capabilities include:
 - offline target resolution;
 - solve/sync/initial-alignment/pointing-aware goto operations;
 - N-pose solve-based polar-axis measurement and mechanical correction estimates;
-- multi-star HFR focus measurement;
+- multi-star HFR focus measurement and bounded live focus monitoring;
 - an offline-first observing-target planner and catalog update tools.
 
 The closed-loop `GotoService` and guiding service are still placeholders on current `main`. The top-level `goto` command currently falls back to issuing a plain mount slew when closed-loop centering is unavailable; guiding commands report `not_implemented`.
