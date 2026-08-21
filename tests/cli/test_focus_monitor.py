@@ -113,7 +113,7 @@ def _config():
 def test_focus_monitor_reports_live_hfr_and_trend(monkeypatch, capsys):
     session = _FakeSession([_image(3.0), _image(2.5), _image(2.0)])
     camera = _FakeCamera(session)
-    monkeypatch.setattr("astrolabe.cli.focus.load_config", lambda path: _config())
+    monkeypatch.setattr("astrolabe.cli.runtime.load_config", lambda path: _config())
     monkeypatch.setattr("astrolabe.cli.focus.get_camera_backend", lambda config: camera)
 
     exit_code = run_focus(_args())
@@ -130,7 +130,7 @@ def test_focus_monitor_reports_live_hfr_and_trend(monkeypatch, capsys):
 def test_focus_monitor_ctrl_c_closes_live_session(monkeypatch, capsys):
     session = _FakeSession([_image(2.0)], interrupt_after=1)
     camera = _FakeCamera(session)
-    monkeypatch.setattr("astrolabe.cli.focus.load_config", lambda path: _config())
+    monkeypatch.setattr("astrolabe.cli.runtime.load_config", lambda path: _config())
     monkeypatch.setattr("astrolabe.cli.focus.get_camera_backend", lambda config: camera)
 
     assert run_focus(_args(frames=None)) == 0
@@ -139,7 +139,7 @@ def test_focus_monitor_ctrl_c_closes_live_session(monkeypatch, capsys):
 
 
 def test_focus_monitor_json_is_one_structured_error(monkeypatch, capsys):
-    monkeypatch.setattr("astrolabe.cli.focus.load_config", lambda path: _config())
+    monkeypatch.setattr("astrolabe.cli.runtime.load_config", lambda path: _config())
 
     exit_code = run_focus(_args(json_output=True))
     payload = json.loads(capsys.readouterr().out)
@@ -151,7 +151,7 @@ def test_focus_monitor_json_is_one_structured_error(monkeypatch, capsys):
 
 
 def test_main_parser_exposes_focus_monitor(monkeypatch, capsys):
-    monkeypatch.setattr("astrolabe.cli.focus.load_config", lambda path: _config())
+    monkeypatch.setattr("astrolabe.cli.runtime.load_config", lambda path: _config())
     monkeypatch.setattr(
         sys,
         "argv",
