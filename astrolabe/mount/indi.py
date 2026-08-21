@@ -15,7 +15,12 @@ from astrolabe.util.math import (
 )
 
 from .base import MountBackend, MountState
-from .frame_transform import icrs_to_jnow, jnow_to_icrs
+from .frame_transform import (
+    EpochOfDateCoordinate,
+    IcrsCoordinate,
+    epoch_of_date_to_icrs,
+    icrs_to_epoch_of_date,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,11 +103,14 @@ class IndiMountBackend(MountBackend):
         dec_rad = None
 
         if has_jnow:
-            ra_jnow = _hours_to_rad(float(snap[jnow_ra_key]))
-            dec_jnow = _degrees_to_rad(
-                float(snap[f"{self.device}.EQUATORIAL_EOD_COORD.DEC"])
+            epoch_of_date = EpochOfDateCoordinate(
+                ra_rad=_hours_to_rad(float(snap[jnow_ra_key])),
+                dec_rad=_degrees_to_rad(
+                    float(snap[f"{self.device}.EQUATORIAL_EOD_COORD.DEC"])
+                ),
             )
-            ra_rad, dec_rad = jnow_to_icrs(ra_jnow, dec_jnow, now_utc)
+            icrs = epoch_of_date_to_icrs(epoch_of_date, now_utc)
+            ra_rad, dec_rad = icrs.ra_rad, icrs.dec_rad
         elif has_j2000:
             ra_rad = _hours_to_rad(float(snap[j2000_ra_key]))
             dec_rad = _degrees_to_rad(
@@ -175,14 +183,16 @@ class IndiMountBackend(MountBackend):
             time.sleep(_COORD_SET_WAIT_S)
 
         if has_jnow:
-            ra_jnow, dec_jnow = icrs_to_jnow(ra_rad, dec_rad, now_utc)
-            ra_jnow = normalize_angle_rad(ra_jnow)
+            epoch_of_date = icrs_to_epoch_of_date(
+                IcrsCoordinate(ra_rad=ra_rad, dec_rad=dec_rad), now_utc
+            )
+            ra_jnow = normalize_angle_rad(epoch_of_date.ra_rad)
             self._client.setprop_vector(
                 self.device,
                 "EQUATORIAL_EOD_COORD",
                 {
                     "RA": str(_rad_to_hours(ra_jnow)),
-                    "DEC": str(_rad_to_degrees(dec_jnow)),
+                    "DEC": str(_rad_to_degrees(epoch_of_date.dec_rad)),
                 },
                 kind="n",
                 order=["RA", "DEC"],
@@ -246,14 +256,16 @@ class IndiMountBackend(MountBackend):
             time.sleep(_COORD_SET_WAIT_S)
 
         if has_jnow:
-            ra_jnow, dec_jnow = icrs_to_jnow(ra_rad, dec_rad, now_utc)
-            ra_jnow = normalize_angle_rad(ra_jnow)
+            epoch_of_date = icrs_to_epoch_of_date(
+                IcrsCoordinate(ra_rad=ra_rad, dec_rad=dec_rad), now_utc
+            )
+            ra_jnow = normalize_angle_rad(epoch_of_date.ra_rad)
             self._client.setprop_vector(
                 self.device,
                 "EQUATORIAL_EOD_COORD",
                 {
                     "RA": str(_rad_to_hours(ra_jnow)),
-                    "DEC": str(_rad_to_degrees(dec_jnow)),
+                    "DEC": str(_rad_to_degrees(epoch_of_date.dec_rad)),
                 },
                 kind="n",
                 order=["RA", "DEC"],
