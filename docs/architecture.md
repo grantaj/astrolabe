@@ -63,7 +63,7 @@ The authoritative dependency/internal-component policy is in `CONTRIBUTING.md`; 
 
 ### Camera
 
-Owns camera connection/capture and the synchronous live-frame session contract. One-shot capture remains appropriate for occasional solving; the live path exists for interactive consumers such as focus analysis. See `live_camera.md`.
+Owns camera connection/capture, the camera-owned `Image` contract, and the synchronous live-frame session. One-shot capture remains appropriate for occasional solving; the live path exists for interactive consumers such as focus monitoring. See `live_camera.md`.
 
 ### Solver
 
@@ -71,7 +71,7 @@ Owns `SolveRequest -> SolveResult` and backend-specific invocation/result transl
 
 ### Mount
 
-Owns primitive mount operations, mount-native INDI semantics, and coordinate-frame conversion at the mount boundary.
+Owns primitive mount operations, mount-native INDI semantics, explicit mount-specific construction inputs, and coordinate-frame conversion at the mount boundary. Application configuration is translated into those inputs at the composition root.
 
 ### Target resolution
 
@@ -79,7 +79,7 @@ Owns offline normalization and resolution of user/catalog target names into coor
 
 ### Pointing
 
-Current `main` contains a pointing service plus a pointing-model package. The service provides solve/sync/initial-alignment/pointing-aware operations. Persistence ownership is known to need refinement and is tracked in GitHub issues; this document does not describe the proposed future structure as though already implemented.
+Current `main` has one coherent `astrolabe.pointing` capability exporting `PointingModel`, `PointingService`, and explicit pointing-specific persistence helpers. The model is pure prediction/update state; `PointingService` receives a model explicitly; loading/saving the default `~/.astrolabe/pointing.json` file is an application-composition concern rather than an implicit service side effect.
 
 ### Polar alignment
 
@@ -87,7 +87,7 @@ Owns solve-based polar-axis measurement and correction geometry. Current measure
 
 ### Focus
 
-Owns backend-independent stellar sharpness analysis. HFR is an image-quality measurement, not a signed focuser correction. See `focus.md`.
+Owns backend-independent stellar sharpness analysis plus the bounded live focus-monitor workflow. HFR and trend labels describe image quality; they are not a signed focuser correction. See `focus.md`.
 
 ### Feedback
 
