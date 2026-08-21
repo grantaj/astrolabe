@@ -78,7 +78,7 @@ Services orchestrate capability contracts and own domain policy/math, not hardwa
 
 ### PointingService
 
-Current `main` exposes operations equivalent to:
+The coherent pointing capability is exported from `astrolabe.pointing`. `PointingService` receives a `PointingModel` explicitly and exposes operations equivalent to:
 
 ```text
 solve_current(exposure_s=None, use_mount_hints=True) -> SolveResult
@@ -88,7 +88,7 @@ apply_model(ra_rad, dec_rad) -> (ra_rad, dec_rad)
 update_model_from_target(...) -> None
 ```
 
-The current implementation also has implicit pointing-model persistence behaviour. Issue #59 tracks making that side effect explicit and rationalising the pointing capability boundary. Until that work lands, document the implementation as it is rather than the proposed replacement.
+Pointing persistence is explicit: `load_pointing_model(path)` and `save_pointing_model(model, path)` are separate pointing-owned helpers, while the application composition layer chooses the path (including the default `~/.astrolabe/pointing.json`). Ordinary model/service use does not implicitly read or write the filesystem.
 
 ### PolarAlignService
 
@@ -98,9 +98,9 @@ Its detailed geometry and pose-count constraints are implementation/test concern
 
 ### Focus
 
-The focus capability exposes backend-independent multi-star HFR analysis plus a thin one-shot camera/image service. `FocusMeasurement` explicitly distinguishes valid and invalid measurements and reports HFR/scatter/star counts.
+The focus capability exposes backend-independent multi-star HFR analysis, one-shot measurement, and a bounded live monitoring workflow over the camera-owned live-frame session. `FocusMeasurement` explicitly distinguishes valid and invalid measurements and reports HFR/scatter/star counts.
 
-HFR is unsigned image quality. It is not a signed focuser correction and must not be passed to manual-adjustment feedback as if direction were known. See `focus.md`.
+The monitor may classify recent valid HFR history as `improving`, `stable`, or `worsening`, but this is descriptive image-quality trend information only. HFR/trend is not a signed focuser correction and must not be passed to manual-adjustment feedback as if direction were known. See `focus.md`.
 
 ### TargetResolver
 
