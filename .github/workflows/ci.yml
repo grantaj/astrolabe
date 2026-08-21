@@ -25,9 +25,7 @@ jobs:
       - name: Lint
         run: uv run ruff check .
       - name: Format check
-        run: |
-          uv run ruff format --diff tests/mount/test_frame_transform.py
-          exit 1
+        run: uv run ruff format --check .
       - name: Tests
         run: uv run pytest
       - name: Live camera simulator integration
