@@ -88,7 +88,9 @@ def test_typed_transform_preserves_existing_astropy_behavior():
 
     round_trip = frame_transform.epoch_of_date_to_icrs(fixed_eod, UTC_TIME)
 
-    assert math.isclose(round_trip.ra_rad, expected_icrs.ra.rad, rel_tol=0.0, abs_tol=1e-12)
+    assert math.isclose(
+        round_trip.ra_rad, expected_icrs.ra.rad, rel_tol=0.0, abs_tol=1e-12
+    )
     assert math.isclose(
         round_trip.dec_rad, expected_icrs.dec.rad, rel_tol=0.0, abs_tol=1e-12
     )
@@ -170,7 +172,8 @@ def test_pyerfa_candidate_matches_current_astropy_transform(
     astropy_result = frame_transform.icrs_to_epoch_of_date(coordinate, time_utc)
     erfa_result = _erfa_icrs_to_epoch_of_date(coordinate, time_utc)
 
-    ra_error = (astropy_result.ra_rad - erfa_result.ra_rad + math.pi) % math.tau - math.pi
+    ra_delta = astropy_result.ra_rad - erfa_result.ra_rad
+    ra_error = (ra_delta + math.pi) % math.tau - math.pi
     assert abs(ra_error) < 1e-12
     assert abs(astropy_result.dec_rad - erfa_result.dec_rad) < 1e-12
 
