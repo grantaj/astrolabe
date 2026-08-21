@@ -30,7 +30,7 @@ Commands that expose not-yet-implemented services report a structured `not_imple
 
 ## JSON output
 
-With global `--json`, stdout emits exactly one JSON object. Logs and diagnostics may go to stderr.
+The stable contract for global `--json` is one JSON object on stdout, with logs and diagnostics confined to stderr.
 
 The envelope contains:
 
@@ -43,6 +43,8 @@ error          object or null
 ```
 
 When present, `error` contains a stable reason `code`, human-readable `message`, and optional `details`.
+
+Most current command result/error paths use this envelope through the shared CLI output/runtime machinery. A small set of legacy early-validation or command-specific failures still violate the contract by emitting bare stderr with no JSON object; fixing those implementation gaps is tracked in GitHub issue #72. They are defects against this contract, not a second supported output mode.
 
 Do not introduce NDJSON/streaming output under the global `--json` flag without deliberately changing this contract.
 
