@@ -64,7 +64,7 @@ The topology below reflects current `main`. Use `--help` for exact arguments.
 | `pointing` | `solve`, `sync`, `init`, `goto` | implemented |
 | `align` | deprecated alias for `pointing` | compatibility alias |
 | `polar` | N-pose polar-axis measurement/correction estimate | implemented |
-| `focus` | `measure` multi-star HFR | implemented |
+| `focus` | `measure` one-shot multi-star HFR; `monitor` live HFR/trend reporting | implemented |
 | `guide` | `calibrate`, `start`, `stop`, `status` | CLI present; service placeholder |
 | `plan` | offline-first target planning | implemented |
 | `update catalog` | all/default catalog updates; `openngc`, `hip`, `bsc` subsets | implemented |
@@ -73,7 +73,7 @@ The topology below reflects current `main`. Use `--help` for exact arguments.
 
 - `view` takes its FITS input via `--in` on current `main`.
 - `polar` requires an RA rotation and observer latitude; it also exposes exposure/settling and pose-count controls.
-- `focus measure` accepts either `--in` FITS input or camera-capture controls. Continuous focus monitoring is not part of current `main` unless and until the corresponding feature PR is merged.
+- `focus measure` accepts either `--in` FITS input or camera-capture controls. `focus monitor` consumes the camera-owned live-frame path, may be bounded with `--frames N`, and deliberately rejects global `--json` with one structured error rather than creating an NDJSON stream.
 - `pointing` currently uses `solve`, `sync`, `init`, and `goto`; older names such as `where`, `calibrate`, `recover`, `status`, and `diagnose` are not part of the current parser.
 
 ## Stability rule
