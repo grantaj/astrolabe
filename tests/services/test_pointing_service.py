@@ -1,9 +1,9 @@
 import datetime
+import inspect
 import math
 import pytest
 
-from astrolabe.pointing.model import PointingModel
-from astrolabe.services.pointing import PointingService
+from astrolabe.pointing import PointingModel, PointingService
 from astrolabe.solver.types import Image, SolveRequest, SolveResult
 from astrolabe.mount.base import MountState
 
@@ -63,9 +63,9 @@ class FakeMount:
         self.sync_calls.append((ra_rad, dec_rad))
 
 
-@pytest.fixture(autouse=True)
-def _set_temp_home(monkeypatch, tmp_path):
-    monkeypatch.setenv("HOME", str(tmp_path))
+def test_service_requires_explicit_model():
+    model_parameter = inspect.signature(PointingService).parameters["model"]
+    assert model_parameter.default is inspect.Parameter.empty
 
 
 def test_solve_current_uses_mount_hint_and_solver():
@@ -83,7 +83,7 @@ def test_solve_current_uses_mount_hint_and_solver():
         )
     )
     mount = FakeMount()
-    service = PointingService(mount, camera, solver)
+    service = PointingService(mount, camera, solver, model=PointingModel())
 
     result = service.solve_current(exposure_s=3.0)
 
@@ -109,7 +109,7 @@ def test_sync_current_syncs_on_success():
         )
     )
     mount = FakeMount()
-    service = PointingService(mount, camera, solver)
+    service = PointingService(mount, camera, solver, model=PointingModel())
 
     result = service.sync_current(exposure_s=1.0)
 
@@ -132,7 +132,7 @@ def test_initial_alignment_counts_successes():
         )
     )
     mount = FakeMount()
-    service = PointingService(mount, camera, solver)
+    service = PointingService(mount, camera, solver, model=PointingModel())
 
     result = service.initial_alignment(target_count=2, exposure_s=1.0)
 
@@ -157,7 +157,7 @@ def test_apply_model_correction():
         )
     )
     mount = FakeMount()
-    service = PointingService(mount, camera, solver)
+    service = PointingService(mount, camera, solver, model=PointingModel())
     service._model.b_alpha_rad = 0.01
     service._model.b_delta_rad = -0.02
 
@@ -217,3 +217,9 @@ def test_update_model_from_target_accepts_weight():
 
     assert service._model.b_alpha_rad == pytest.approx((1.0 - 0.9) * math.cos(0.8))
     assert service._model.b_delta_rad == pytest.approx(1.0 - 0.8)
+
+
+def test_legacy_service_import_is_compatibility_alias():
+    from astrolabe.services.pointing import PointingService as LegacyPointingService
+
+    assert LegacyPointingService is PointingService

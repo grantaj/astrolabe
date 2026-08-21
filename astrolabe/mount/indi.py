@@ -15,17 +15,9 @@ from astrolabe.util.math import (
 )
 
 from .base import MountBackend, MountState
+from .frame_transform import icrs_to_jnow, jnow_to_icrs
 
 logger = logging.getLogger(__name__)
-
-try:
-    from astropy.coordinates import SkyCoord, FK5
-    from astropy.time import Time
-    import astropy.units as u
-
-    ASTROPY_AVAILABLE = True
-except ImportError:
-    ASTROPY_AVAILABLE = False
 
 # Mount I/O wait times
 _CONNECT_WAIT_S = 0.2
@@ -41,46 +33,17 @@ _INDI_OFF = "Off"
 _INDI_BUSY = "Busy"
 
 
-def icrs_to_jnow(
-    ra_rad: float, dec_rad: float, time_utc: datetime.datetime
-) -> tuple[float, float]:
-    if not ASTROPY_AVAILABLE:
-        raise RuntimeError(
-            "astropy is required for coordinate frame conversion. "
-            "Install with: pip install astropy"
-        )
-    c = SkyCoord(ra=ra_rad * u.rad, dec=dec_rad * u.rad, frame="icrs")
-    jnow = c.transform_to(FK5(equinox=Time(time_utc)))
-    return jnow.ra.rad, jnow.dec.rad
-
-
-def jnow_to_icrs(
-    ra_rad: float, dec_rad: float, time_utc: datetime.datetime
-) -> tuple[float, float]:
-    if not ASTROPY_AVAILABLE:
-        raise RuntimeError(
-            "astropy is required for coordinate frame conversion. "
-            "Install with: pip install astropy"
-        )
-    c = SkyCoord(
-        ra=ra_rad * u.rad, dec=dec_rad * u.rad, frame=FK5(equinox=Time(time_utc))
-    )
-    icrs = c.transform_to("icrs")
-    return icrs.ra.rad, icrs.dec.rad
-
-
 class IndiMountBackend(MountBackend):
     """INDI mount backend.
 
     Coordinates are expressed as ICRS in radians for the public interface.
     """
 
-    def __init__(self, config):
-        self._config = config
-        self.host = config.indi_host
-        self.port = config.indi_port
-        self.device = config.mount_device
-        self._client = IndiClient(self.host, self.port)
+    def __init__(self, *, host: str, port: int, device: str):
+        self.host = host
+        self.port = port
+        self.device = device
+        self._client = IndiClient(host, port)
         self._connected = False
 
     def connect(self) -> None:

@@ -17,6 +17,38 @@ from astrolabe.cli.commands import (
     run_update,
 )
 from astrolabe.cli.focus import run_focus
+from astrolabe.cli.runtime import handle_error
+from astrolabe.errors import AstrolabeError
+
+
+def _error_command(args) -> str:
+    command = getattr(args, "command", None)
+    if command == "mount":
+        return f"mount.{args.action}"
+    if command in {"pointing", "align"}:
+        return f"align.{args.mode}"
+    if command == "focus":
+        return f"focus.{args.action}"
+    if command == "guide":
+        action = getattr(args, "action", None)
+        return f"guide.{action}" if action else "guide"
+    if command == "update":
+        dataset = getattr(args, "dataset", None)
+        return f"update.{dataset}" if dataset else "update"
+    return command or "astrolabe"
+
+
+def _dispatch(args, handler) -> int:
+    """Run one CLI handler with a final Astrolabe-error boundary.
+
+    Handlers retain their explicit local mappings where behavior differs, while
+    this boundary also covers setup, backend wiring, and service construction.
+    Non-Astrolabe exceptions deliberately continue to propagate unchanged.
+    """
+    try:
+        return handler(args)
+    except AstrolabeError as exc:
+        return handle_error(args, _error_command(args), exc)
 
 
 def main():
@@ -231,32 +263,48 @@ def main():
 
     focus_parser = subparsers.add_parser("focus", help="Measure focus quality")
     focus_subparsers = focus_parser.add_subparsers(dest="action", required=True)
+
+    def _add_focus_frame_args(focus_command):
+        focus_command.add_argument(
+            "--exposure", type=float, help="Exposure time when capturing from camera"
+        )
+        focus_command.add_argument("--gain", type=float, help="Camera gain")
+        focus_command.add_argument(
+            "--bin", dest="binning", type=int, help="Binning factor"
+        )
+        focus_command.add_argument("--roi", help="ROI as x,y,w,h")
+        focus_command.add_argument(
+            "--min-stars",
+            type=int,
+            default=3,
+            help="Minimum usable stars required (default: 3)",
+        )
+        focus_command.add_argument(
+            "--detection-sigma",
+            type=float,
+            default=5.0,
+            help="Detection threshold above background noise (default: 5.0)",
+        )
+        focus_command.add_argument(
+            "--saturation-level",
+            type=float,
+            help="Explicit sensor saturation level; normally inferred from FITS",
+        )
+
     focus_measure = focus_subparsers.add_parser(
         "measure", help="Measure multi-star half-flux radius once"
     )
     focus_measure.add_argument("--in", dest="input_fits", help="Input FITS file")
-    focus_measure.add_argument(
-        "--exposure", type=float, help="Exposure time when capturing from camera"
+    _add_focus_frame_args(focus_measure)
+
+    focus_monitor = focus_subparsers.add_parser(
+        "monitor", help="Continuously report live focus quality"
     )
-    focus_measure.add_argument("--gain", type=float, help="Camera gain")
-    focus_measure.add_argument("--bin", dest="binning", type=int, help="Binning factor")
-    focus_measure.add_argument("--roi", help="ROI as x,y,w,h")
-    focus_measure.add_argument(
-        "--min-stars",
+    _add_focus_frame_args(focus_monitor)
+    focus_monitor.add_argument(
+        "--frames",
         type=int,
-        default=3,
-        help="Minimum usable stars required (default: 3)",
-    )
-    focus_measure.add_argument(
-        "--detection-sigma",
-        type=float,
-        default=5.0,
-        help="Detection threshold above background noise (default: 5.0)",
-    )
-    focus_measure.add_argument(
-        "--saturation-level",
-        type=float,
-        help="Explicit sensor saturation level; normally inferred from FITS",
+        help="Stop after N frames instead of running until interrupted",
     )
 
     guide_parser = subparsers.add_parser("guide", help="Guiding control")
@@ -360,46 +408,46 @@ def main():
         return 0
 
     if args.command == "doctor":
-        return run_doctor(args)
+        return _dispatch(args, run_doctor)
 
     if args.command == "solve":
-        return run_solve(args)
+        return _dispatch(args, run_solve)
 
     if args.command == "capture":
-        return run_capture(args)
+        return _dispatch(args, run_capture)
 
     if args.command == "view":
-        return run_view(args)
+        return _dispatch(args, run_view)
 
     if args.command == "mount":
-        return run_mount(args)
+        return _dispatch(args, run_mount)
 
     if args.command == "resolve":
-        return run_resolve(args)
+        return _dispatch(args, run_resolve)
 
     if args.command == "goto":
-        return run_goto(args)
+        return _dispatch(args, run_goto)
 
     if args.command == "pointing":
-        return run_align(args)
+        return _dispatch(args, run_align)
 
     if args.command == "align":
-        return run_align(args)
+        return _dispatch(args, run_align)
 
     if args.command == "polar":
-        return run_polar(args)
+        return _dispatch(args, run_polar)
 
     if args.command == "focus":
-        return run_focus(args)
+        return _dispatch(args, run_focus)
 
     if args.command == "guide":
-        return run_guide(args)
+        return _dispatch(args, run_guide)
 
     if args.command == "update":
-        return run_update(args)
+        return _dispatch(args, run_update)
 
     if args.command == "plan":
-        return run_plan(args)
+        return _dispatch(args, run_plan)
 
     parser.print_help()
     return 0

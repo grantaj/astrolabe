@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 import numpy as np
 
-from astrolabe.solver.types import Image
+from astrolabe.camera.base import FitsImageData
+from astrolabe.camera.types import Image
 
 _FITS_BLOCK_BYTES = 2880
 _FITS_CARD_BYTES = 80
@@ -27,25 +29,25 @@ def _parse_fits_value(card: str) -> str | None:
     return value
 
 
-def _fits_header(path: Path) -> tuple[dict[str, str], int]:
+def _fits_header(handle: BinaryIO, source: str) -> tuple[dict[str, str], int]:
     header: dict[str, str] = {}
     blocks = 0
-    with path.open("rb") as handle:
-        while True:
-            block = handle.read(_FITS_BLOCK_BYTES)
-            if len(block) != _FITS_BLOCK_BYTES:
-                raise ValueError(f"invalid FITS header: {path}")
-            blocks += 1
-            for offset in range(0, _FITS_BLOCK_BYTES, _FITS_CARD_BYTES):
-                card = block[offset : offset + _FITS_CARD_BYTES].decode(
-                    "ascii", errors="strict"
-                )
-                key = card[:8].strip()
-                if key == "END":
-                    return header, blocks * _FITS_BLOCK_BYTES
-                value = _parse_fits_value(card)
-                if key and value is not None:
-                    header[key] = value
+    handle.seek(0)
+    while True:
+        block = handle.read(_FITS_BLOCK_BYTES)
+        if len(block) != _FITS_BLOCK_BYTES:
+            raise ValueError(f"invalid FITS header: {source}")
+        blocks += 1
+        for offset in range(0, _FITS_BLOCK_BYTES, _FITS_CARD_BYTES):
+            card = block[offset : offset + _FITS_CARD_BYTES].decode(
+                "ascii", errors="strict"
+            )
+            key = card[:8].strip()
+            if key == "END":
+                return header, blocks * _FITS_BLOCK_BYTES
+            value = _parse_fits_value(card)
+            if key and value is not None:
+                header[key] = value
 
 
 def _header_int(header: dict[str, str], key: str) -> int:
@@ -65,11 +67,8 @@ def _header_float(header: dict[str, str], key: str, default: float) -> float:
         raise ValueError(f"FITS header has invalid {key}") from exc
 
 
-def load_fits_pixels(path: str | Path) -> PixelFrame:
-    """Read the simple 2D primary-image FITS written by INDI camera drivers."""
-
-    fits_path = Path(path)
-    header, data_offset = _fits_header(fits_path)
+def _read_fits_pixels(handle: BinaryIO, source: str) -> PixelFrame:
+    header, data_offset = _fits_header(handle, source)
     if header.get("SIMPLE", "").upper() not in {"T", "TRUE"}:
         raise ValueError("only simple primary-image FITS files are supported")
     if _header_int(header, "NAXIS") != 2:
@@ -94,9 +93,8 @@ def load_fits_pixels(path: str | Path) -> PixelFrame:
         raise ValueError(f"unsupported FITS BITPIX={bitpix}") from exc
 
     count = width * height
-    with fits_path.open("rb") as handle:
-        handle.seek(data_offset)
-        payload = handle.read(count * dtype.itemsize)
+    handle.seek(data_offset)
+    payload = handle.read(count * dtype.itemsize)
     if len(payload) != count * dtype.itemsize:
         raise ValueError("FITS pixel payload is truncated")
 
@@ -120,6 +118,20 @@ def load_fits_pixels(path: str | Path) -> PixelFrame:
     )
 
 
+def load_fits_pixels(path: str | Path) -> PixelFrame:
+    """Read the simple 2D primary-image FITS written by INDI camera drivers."""
+
+    fits_path = Path(path)
+    with fits_path.open("rb") as handle:
+        return _read_fits_pixels(handle, str(fits_path))
+
+
+def load_fits_bytes(data: bytes) -> PixelFrame:
+    """Read an in-memory simple 2D primary-image FITS payload."""
+
+    return _read_fits_pixels(BytesIO(data), "in-memory FITS")
+
+
 def image_to_pixels(image: Image) -> PixelFrame:
     data: Any = image.data
     if isinstance(data, np.ndarray):
@@ -127,8 +139,10 @@ def image_to_pixels(image: Image) -> PixelFrame:
         if np.issubdtype(data.dtype, np.integer):
             saturation = float(np.iinfo(data.dtype).max)
         return PixelFrame(pixels=data, saturation_level=saturation)
+    if isinstance(data, FitsImageData):
+        return load_fits_bytes(data.data)
     if isinstance(data, (str, Path)):
         return load_fits_pixels(data)
     raise ValueError(
-        "focus requires Image.data to be a 2D NumPy array or a FITS file path"
+        "focus requires Image.data to be pixels, FitsImageData, or a FITS file path"
     )

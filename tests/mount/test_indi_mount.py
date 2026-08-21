@@ -23,7 +23,11 @@ def config():
 
 @pytest.fixture
 def mount(config):
-    return IndiMountBackend(config)
+    return IndiMountBackend(
+        host=config.indi_host,
+        port=config.indi_port,
+        device=config.mount_device,
+    )
 
 
 def test_connect_waits_for_device(mount):
@@ -454,7 +458,11 @@ def test_indi_mount_slew_and_state(config):
     if shutil.which("indi_getprop") is None or shutil.which("indi_setprop") is None:
         pytest.skip("INDI tools not available")
 
-    mount = IndiMountBackend(config)
+    mount = IndiMountBackend(
+        host=config.indi_host,
+        port=config.indi_port,
+        device=config.mount_device,
+    )
     try:
         mount.connect()
     except Exception as exc:  # noqa: BLE001 - integration environment may be missing
@@ -569,7 +577,11 @@ def test_indi_mount_connect_and_state(config):
     if shutil.which("indi_getprop") is None or shutil.which("indi_setprop") is None:
         pytest.skip("INDI tools not available")
 
-    mount = IndiMountBackend(config)
+    mount = IndiMountBackend(
+        host=config.indi_host,
+        port=config.indi_port,
+        device=config.mount_device,
+    )
     try:
         mount.connect()
     except Exception as exc:  # noqa: BLE001 - integration environment may be missing
