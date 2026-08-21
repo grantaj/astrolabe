@@ -7,10 +7,10 @@ from pathlib import Path
 
 from astrolabe.errors import BackendError
 from astrolabe.indi import IndiClient
-from astrolabe.solver.types import Image
 
 from .base import CameraBackend, LiveFrameSession
 from .indi_live import IndiLiveFrameSession
+from .types import Image
 
 DEFAULT_CAPTURE_TIMEOUT_S = 60.0
 

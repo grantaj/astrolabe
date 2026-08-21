@@ -57,6 +57,65 @@ def _patch(monkeypatch, exc):
     )
 
 
+def _unreachable_indi(monkeypatch):
+    """Keep `doctor`'s socket probe deterministic and instant."""
+    monkeypatch.setattr(
+        "astrolabe.cli.commands.socket.create_connection",
+        lambda *a, **k: _raise(ConnectionRefusedError()),
+    )
+
+
+@pytest.mark.parametrize("exc,exit_code,code", _MAPPING, ids=lambda v: str(v))
+def test_doctor_wiring_error_mapping(monkeypatch, capsys, exc, exit_code, code):
+    """`doctor` previously had no exception mapping at all (traceback, status 1)."""
+    _patch(monkeypatch, exc)
+    _unreachable_indi(monkeypatch)
+    monkeypatch.setattr(
+        "astrolabe.cli.commands.get_solver_backend", lambda config: _raise(exc)
+    )
+    result, out, err = run_cli(monkeypatch, capsys, "--json", "doctor")
+    payload = envelope(out)
+    assert result == exit_code
+    assert payload["command"] == "doctor"
+    assert payload["error"] == {"code": code, "message": "boom", "details": None}
+
+
+@pytest.mark.parametrize("exc,exit_code,code", _MAPPING, ids=lambda v: str(v))
+def test_doctor_solver_probe_error_mapping(monkeypatch, capsys, exc, exit_code, code):
+    """The solver probe is the one `doctor` check without its own `except`."""
+
+    class _ExplodingSolver(FakeSolver):
+        def is_available(self):
+            raise exc
+
+    patch_backends(
+        monkeypatch,
+        mount=FakeMount(),
+        camera=FakeCamera(),
+        solver=_ExplodingSolver(),
+    )
+    _unreachable_indi(monkeypatch)
+    result, out, err = run_cli(monkeypatch, capsys, "--json", "doctor")
+    payload = envelope(out)
+    assert result == exit_code
+    assert payload["command"] == "doctor"
+    assert payload["error"] == {"code": code, "message": "boom", "details": None}
+
+
+def test_doctor_probe_failures_still_degrade_to_report_rows(monkeypatch, capsys):
+    """Camera/mount/config probes keep their own `except Exception` degradation."""
+    _patch(monkeypatch, BackendError("mount offline"))
+    _unreachable_indi(monkeypatch)
+    result, out, err = run_cli(monkeypatch, capsys, "--json", "doctor")
+    payload = envelope(out)
+    assert result == 1
+    assert payload["error"]["code"] == "doctor_failed"
+    assert payload["data"]["checks"]["mount (indi)"] == {
+        "ok": False,
+        "detail": "connect failed: mount offline",
+    }
+
+
 @pytest.mark.parametrize("exc,exit_code,code", _MAPPING, ids=lambda v: str(v))
 def test_mount_status_error_mapping(monkeypatch, capsys, exc, exit_code, code):
     _patch(monkeypatch, exc)

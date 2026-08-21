@@ -15,7 +15,9 @@ All conventions referenced here follow `docs/conventions.md`.
 
 ## 1.1 Image
 
-Represents a captured frame.
+Represents a captured frame. `Image` is owned and exported by the camera
+capability; solver, focus, guiding, and other consumers depend on that
+captured-frame contract.
 
 Fields (conceptual):
 

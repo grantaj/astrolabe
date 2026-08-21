@@ -15,9 +15,9 @@ from xml.sax.saxutils import escape, quoteattr
 
 from astrolabe.errors import BackendError
 from astrolabe.indi import IndiClient
-from astrolabe.solver.types import Image
 
 from .base import FitsImageData, LiveFrameSession
+from .types import Image
 
 _FITS_CARD_BYTES = 80
 _FITS_HEADER_SCAN_LIMIT = 1024 * 1024

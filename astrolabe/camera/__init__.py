@@ -1,5 +1,6 @@
 from .base import CameraBackend, FitsImageData, LiveFrameSession
 from .indi import IndiCameraBackend
+from .types import Image
 
 
 def get_camera_backend(config) -> CameraBackend:
@@ -19,6 +20,7 @@ def get_camera_backend(config) -> CameraBackend:
 __all__ = [
     "CameraBackend",
     "FitsImageData",
+    "Image",
     "IndiCameraBackend",
     "LiveFrameSession",
     "get_camera_backend",

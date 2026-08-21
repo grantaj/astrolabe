@@ -1,16 +1,9 @@
 from dataclasses import dataclass
 from typing import Optional, Dict, Any
-import datetime
 
-
-@dataclass
-class Image:
-    data: Any  # Placeholder for image data (e.g., numpy array or file path)
-    width_px: int
-    height_px: int
-    timestamp_utc: datetime.datetime
-    exposure_s: float
-    metadata: Dict[str, Any]
+# Compatibility alias for callers that previously imported Image from solver.types.
+# The captured-frame contract is owned by astrolabe.camera.
+from astrolabe.camera.types import Image
 
 
 @dataclass

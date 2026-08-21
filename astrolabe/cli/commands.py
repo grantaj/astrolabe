@@ -43,9 +43,10 @@ from astrolabe.services.polar import MIN_POSES as _POLAR_MIN_POSES
 from astrolabe.solver.types import Image, SolveRequest
 
 
-def run_doctor(args=None) -> int:
-    config = prepare(args, "doctor")
-    solver_backend = get_solver_backend(config)
+def _doctor_checks(args, config, solver_backend) -> dict:
+    """Run the diagnostic probes. Each probe degrades to a not-ok report row
+    rather than failing the command, except the solver probe, whose errors are
+    the backend's own and belong in the shared error mapping."""
 
     def check_indi_server():
         try:
@@ -98,13 +99,22 @@ def run_doctor(args=None) -> int:
         except Exception as e:
             return {"ok": False, "detail": f"invalid config: {e}"}
 
-    checks = {
+    return {
         "config": check_config(),
         "indi_server": check_indi_server(),
         f"solver ({config.solver_name})": check_solver(),
         f"camera ({config.camera_backend})": check_camera(),
         f"mount ({config.mount_backend})": check_mount(),
     }
+
+
+def run_doctor(args=None) -> int:
+    try:
+        config = prepare(args, "doctor")
+        solver_backend = get_solver_backend(config)
+        checks = _doctor_checks(args, config, solver_backend)
+    except AstrolabeError as exc:
+        return handle_error(args, "doctor", exc)
 
     ok = all(c["ok"] for c in checks.values())
 

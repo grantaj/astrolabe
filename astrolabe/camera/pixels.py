@@ -8,7 +8,7 @@ from typing import Any, BinaryIO
 import numpy as np
 
 from astrolabe.camera.base import FitsImageData
-from astrolabe.solver.types import Image
+from astrolabe.camera.types import Image
 
 _FITS_BLOCK_BYTES = 2880
 _FITS_CARD_BYTES = 80

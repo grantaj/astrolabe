@@ -4,7 +4,7 @@ from dataclasses import asdict
 import datetime
 from pathlib import Path
 
-from astrolabe.camera import get_camera_backend
+from astrolabe.camera import Image, get_camera_backend
 from astrolabe.cli.commands import _parse_roi
 from astrolabe.cli.output import emit, emit_error
 from astrolabe.cli.runtime import handle_error, note_dry_run, prepare
@@ -16,7 +16,6 @@ from astrolabe.services.focus import (
     FocusService,
 )
 from astrolabe.services.focus_monitor import FocusMonitor, FocusTrendEstimator
-from astrolabe.solver.types import Image
 
 
 def _focus_analyzer(args) -> FocusAnalyzer:
