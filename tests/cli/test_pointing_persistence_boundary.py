@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from astrolabe.pointing import PointingModel, load_pointing_model, save_pointing_model
+from astrolabe.pointing import (
+    PointingModel,
+    load_pointing_model,
+    save_pointing_model,
+)
 from golden import FakeCamera, FakeMount, FakeSolver, patch_backends, run_cli, solve_result
 
 
@@ -15,7 +19,9 @@ def _install_backends(monkeypatch) -> None:
     )
 
 
-def test_pointing_goto_loads_and_saves_persisted_model(monkeypatch, capsys, tmp_path):
+def test_pointing_goto_loads_and_saves_persisted_model(
+    monkeypatch, capsys, tmp_path
+):
     monkeypatch.setenv("HOME", str(tmp_path))
     model_path = tmp_path / ".astrolabe" / "pointing.json"
     save_pointing_model(
@@ -62,7 +68,9 @@ def test_pointing_goto_loads_and_saves_persisted_model(monkeypatch, capsys, tmp_
     assert persisted.num_samples == 4
 
 
-def test_pointing_solve_does_not_read_persisted_model(monkeypatch, capsys, tmp_path):
+def test_pointing_solve_does_not_read_persisted_model(
+    monkeypatch, capsys, tmp_path
+):
     monkeypatch.setenv("HOME", str(tmp_path))
     model_path = tmp_path / ".astrolabe" / "pointing.json"
     model_path.parent.mkdir(parents=True)
