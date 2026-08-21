@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Iterator
 
-from astrolabe.solver.types import Image
+from .types import Image
 
 
 @dataclass(frozen=True)
