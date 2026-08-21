@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 import datetime
-import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
-
-DEFAULT_MODEL_PATH = Path.home() / ".astrolabe" / "pointing.json"
 
 
 @dataclass
@@ -54,27 +50,3 @@ class PointingModel:
             num_samples=int(data.get("num_samples", 0)),
             last_update_utc=parsed_last_update,
         )
-
-    def save(self, path: Path | None = None) -> None:
-        path = path or DEFAULT_MODEL_PATH
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_name(f".{path.name}.tmp")
-        try:
-            with open(tmp_path, "w", encoding="utf-8") as handle:
-                json.dump(self.to_dict(), handle, indent=2)
-                handle.flush()
-            tmp_path.replace(path)
-        finally:
-            if tmp_path.exists():
-                tmp_path.unlink()
-
-    @classmethod
-    def load(cls, path: Path | None = None) -> "PointingModel":
-        path = path or DEFAULT_MODEL_PATH
-        if not path.exists():
-            return cls()
-        with open(path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        if not isinstance(data, dict):
-            return cls()
-        return cls.from_dict(data)

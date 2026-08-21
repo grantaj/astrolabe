@@ -14,8 +14,7 @@ from astrolabe.mount import get_mount_backend
 from astrolabe.planner.astro import ra_dec_to_alt_az
 from astrolabe.solver import get_solver_backend
 from astrolabe.solver.types import Image, SolveRequest, SolveResult
-from astrolabe.pointing.model import PointingModel
-from astrolabe.services.pointing import PointingService
+from astrolabe.pointing import PointingModel, PointingService
 from astrolabe.services.target.resolver import TargetResolver
 
 
@@ -295,7 +294,7 @@ def test_pointing_slew_and_solve_target(tmp_path):
 
     mount = get_mount_backend(config)
     camera = get_camera_backend(config)
-    service = PointingService(mount, camera, solver)
+    service = PointingService(mount, camera, solver, model=PointingModel())
 
     resolver = TargetResolver.from_repo_data(min_score=0.5)
     matches = resolver.resolve(_POINTING_TARGET_QUERY)
@@ -336,7 +335,7 @@ def test_pointing_slew_and_solve_target(tmp_path):
 
 
 @pytest.mark.integration
-def test_pointing_goto_learns_offset(tmp_path, monkeypatch):
+def test_pointing_goto_learns_offset(tmp_path):
     if os.environ.get("ASTROLABE_INDI_INTEGRATION") != "1":
         pytest.skip("Set ASTROLABE_INDI_INTEGRATION=1 to run INDI integration tests")
     if shutil.which("indi_getprop") is None or shutil.which("indi_setprop") is None:
@@ -345,8 +344,6 @@ def test_pointing_goto_learns_offset(tmp_path, monkeypatch):
     astap_db = os.environ.get("ASTAP_DB", str(Path.home() / ".astap"))
     if astap_db and not os.path.exists(astap_db):
         pytest.skip("ASTAP_DB does not exist")
-
-    monkeypatch.setenv("HOME", str(tmp_path))
 
     for path in tmp_path.glob("*.fits"):
         path.unlink()
