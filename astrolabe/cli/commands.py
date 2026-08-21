@@ -1,9 +1,9 @@
 import datetime
+from dataclasses import asdict
 import os
 import socket
 import sys
 import math
-import logging
 from pathlib import Path
 import shutil
 
@@ -11,6 +11,23 @@ from astrolabe.config import load_config
 from astrolabe.solver import get_solver_backend
 from astrolabe.camera import get_camera_backend
 from astrolabe.mount import get_mount_backend
+from astrolabe.cli.output import (
+    emit,
+    emit_error,
+    emit_result,
+    error_object,
+    format_dec,
+    format_ra,
+    format_solve_summary,
+)
+from astrolabe.cli.runtime import (
+    config_path,
+    init_logging,
+    handle_error,
+    mount_camera_solver,
+    note_dry_run,
+    prepare,
+)
 from astrolabe.services import (
     GotoService,
     PolarAlignService,
@@ -21,67 +38,15 @@ from astrolabe.planner import Planner, ObserverLocation
 from astrolabe.planner.formatters import format_text as format_plan_text
 from astrolabe.planner.update import update_catalog
 from astrolabe.services.target.update import update_hipparcos, update_bsc_crosswalk
-from astrolabe.errors import NotImplementedFeature, ServiceError
+from astrolabe.errors import AstrolabeError, NotImplementedFeature
 from astrolabe.services.polar import MIN_POSES as _POLAR_MIN_POSES
 from astrolabe.solver.types import Image, SolveRequest
-from astrolabe.util.format import rad_to_hms, rad_to_dms, rad_to_deg
 
 
-def _json_envelope(command: str, ok: bool, data=None, error=None) -> dict:
-    return {
-        "ok": ok,
-        "command": command,
-        "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "data": data,
-        "error": error,
-    }
-
-
-def _init_logging(level: str | None) -> None:
-    if not level:
-        return
-    level_map = {
-        "debug": logging.DEBUG,
-        "info": logging.INFO,
-        "warn": logging.WARNING,
-        "error": logging.ERROR,
-    }
-    logging.basicConfig(level=level_map.get(level, logging.INFO))
-
-
-def _handle_not_implemented(command: str, args, exc: NotImplementedFeature) -> int:
-    if args is not None and getattr(args, "json", False):
-        import json
-
-        payload = _json_envelope(
-            command=command,
-            ok=False,
-            data=None,
-            error={
-                "code": "not_implemented",
-                "message": str(exc),
-                "details": None,
-            },
-        )
-        print(json.dumps(payload, indent=2))
-    else:
-        print(str(exc), file=sys.stderr)
-    return 2
-
-
-def _config_path_from_args(args) -> Path | None:
-    if args is None:
-        return None
-    path = getattr(args, "config", None)
-    return Path(path) if path else None
-
-
-def run_doctor(args=None) -> int:
-    _init_logging(getattr(args, "log_level", None))
-    config = load_config(_config_path_from_args(args))
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for doctor.", file=sys.stderr)
-    solver_backend = get_solver_backend(config)
+def _doctor_checks(args, config, solver_backend) -> dict:
+    """Run the diagnostic probes. Each probe degrades to a not-ok report row
+    rather than failing the command, except the solver probe, whose errors are
+    the backend's own and belong in the shared error mapping."""
 
     def check_indi_server():
         try:
@@ -129,12 +94,12 @@ def run_doctor(args=None) -> int:
 
     def check_config():
         try:
-            load_config(_config_path_from_args(args))
+            load_config(config_path(args))
             return {"ok": True, "detail": "loaded (defaults applied if missing)"}
         except Exception as e:
             return {"ok": False, "detail": f"invalid config: {e}"}
 
-    checks = {
+    return {
         "config": check_config(),
         "indi_server": check_indi_server(),
         f"solver ({config.solver_name})": check_solver(),
@@ -142,46 +107,41 @@ def run_doctor(args=None) -> int:
         f"mount ({config.mount_backend})": check_mount(),
     }
 
+
+def run_doctor(args=None) -> int:
+    try:
+        config = prepare(args, "doctor")
+        solver_backend = get_solver_backend(config)
+        checks = _doctor_checks(args, config, solver_backend)
+    except AstrolabeError as exc:
+        return handle_error(args, "doctor", exc)
+
     ok = all(c["ok"] for c in checks.values())
 
-    if args is not None and getattr(args, "json", False):
-        import json
+    report = ["Astrolabe Doctor Report", "======================="]
+    report += [
+        f"{name:20} : {'OK' if result['ok'] else 'MISSING'} ({result['detail']})"
+        for name, result in checks.items()
+    ]
+    report += [
+        "\nSystem ready." if ok else "\nSome components are missing or not configured."
+    ]
 
-        payload = _json_envelope(
-            command="doctor",
-            ok=ok,
-            data={"checks": checks},
-            error=None
-            if ok
-            else {
-                "code": "doctor_failed",
-                "message": "one or more checks failed",
-                "details": None,
-            },
-        )
-        print(json.dumps(payload, indent=2))
-    else:
-        print("Astrolabe Doctor Report")
-        print("=======================")
-
-        for name, result in checks.items():
-            status = "OK" if result["ok"] else "MISSING"
-            print(f"{name:20} : {status} ({result['detail']})")
-
-        if ok:
-            print("\nSystem ready.")
-        else:
-            print("\nSome components are missing or not configured.")
-
+    emit(
+        args,
+        "doctor",
+        ok=ok,
+        data={"checks": checks},
+        error=None
+        if ok
+        else error_object("doctor_failed", "one or more checks failed"),
+        human="\n".join(report),
+    )
     return 0 if ok else 1
 
 
 def run_solve(args) -> int:
-    _init_logging(getattr(args, "log_level", None))
-    config = load_config(_config_path_from_args(args))
-
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for solve.", file=sys.stderr)
+    config = prepare(args, "solve")
     solver_backend = get_solver_backend(config)
 
     fits_path = args.input_fits_opt or args.input_fits
@@ -200,76 +160,41 @@ def run_solve(args) -> int:
         exposure_s=0.0,
         metadata={},
     )
-    search_radius_deg = None
-    if hasattr(args, "search_radius_deg") and args.search_radius_deg is not None:
-        search_radius_deg = args.search_radius_deg
-    elif config.solver_search_radius_deg is not None:
+    search_radius_deg = getattr(args, "search_radius_deg", None)
+    if search_radius_deg is None:
         search_radius_deg = config.solver_search_radius_deg
 
-    search_radius_rad = None
-    if search_radius_deg is not None:
-        search_radius_rad = math.radians(search_radius_deg)
-
-    extra_options = None
-    if hasattr(args, "verbose") and args.verbose:
-        extra_options = {"verbose": True}
-
+    verbose = getattr(args, "verbose", False)
     request = SolveRequest(
         image=image,
-        search_radius_rad=search_radius_rad,
+        search_radius_rad=None
+        if search_radius_deg is None
+        else math.radians(search_radius_deg),
         timeout_s=getattr(args, "timeout", None),
-        extra_options=extra_options,
+        extra_options={"verbose": True} if verbose else None,
     )
-    result = solver_backend.solve(request)
-    if args.json:
-        import json
 
-        if result.success:
-            payload = _json_envelope(
-                command="solve",
-                ok=True,
-                data=result.__dict__,
-                error=None,
-            )
-        else:
-            details = None
-            if getattr(args, "verbose", False) and result.raw_output:
-                details = {"raw_output": result.raw_output}
-            payload = _json_envelope(
-                command="solve",
-                ok=False,
-                data=None,
-                error={
-                    "code": "solve_failed",
-                    "message": result.message or "solve failed",
-                    "details": details,
-                },
-            )
-        print(json.dumps(payload, indent=2))
-    else:
-        print(f"Success: {result.success}")
-        if result.ra_rad is not None:
-            print(f"RA: {rad_to_hms(result.ra_rad)}")
-        else:
-            print("RA: None")
-        if result.dec_rad is not None:
-            print(f"Dec: {rad_to_dms(result.dec_rad)}")
-        else:
-            print("Dec: None")
-        print(f"Pixel scale: {result.pixel_scale_arcsec}")
-        if result.rotation_rad is not None:
-            print(f"Rotation: {rad_to_deg(result.rotation_rad):.3f}°")
-        else:
-            print("Rotation: None")
-        print(f"RMS: {result.rms_arcsec}")
-        print(f"Stars: {result.num_stars}")
-        print(f"Message: {result.message}")
-        if not result.success and getattr(args, "verbose", False) and result.raw_output:
-            print("\n--- ASTAP output ---")
-            print(result.raw_output)
-    if not result.success:
-        return 1
-    return 0
+    try:
+        result = solver_backend.solve(request)
+    except AstrolabeError as exc:
+        return handle_error(args, "solve", exc)
+
+    details = (
+        {"raw_output": result.raw_output}
+        if verbose and not result.success and result.raw_output
+        else None
+    )
+    emit(
+        args,
+        "solve",
+        ok=result.success,
+        data=result.__dict__ if result.success else None,
+        error=None
+        if result.success
+        else error_object("solve_failed", result.message or "solve failed", details),
+        human=format_solve_summary(result, raw_output_on_failure=verbose),
+    )
+    return 0 if result.success else 1
 
 
 def _parse_roi(value: str | None) -> tuple[int, int, int, int] | None:
@@ -321,10 +246,7 @@ def _parse_location_args(args) -> ObserverLocation | None:
 
 
 def run_capture(args) -> int:
-    _init_logging(getattr(args, "log_level", None))
-    config = load_config(_config_path_from_args(args))
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for capture.", file=sys.stderr)
+    config = prepare(args, "capture")
 
     exposure = (
         args.exposure if args.exposure is not None else config.camera_default_exposure_s
@@ -342,13 +264,16 @@ def run_capture(args) -> int:
         print(str(e), file=sys.stderr)
         return 2
 
-    camera = get_camera_backend(config)
-    image = camera.capture(
-        exposure_s=exposure,
-        gain=args.gain,
-        binning=args.binning,
-        roi=roi,
-    )
+    try:
+        camera = get_camera_backend(config)
+        image = camera.capture(
+            exposure_s=exposure,
+            gain=args.gain,
+            binning=args.binning,
+            roi=roi,
+        )
+    except AstrolabeError as exc:
+        return handle_error(args, "capture", exc)
 
     saved_path = None
     if args.out:
@@ -358,25 +283,19 @@ def run_capture(args) -> int:
             shutil.copy2(Path(image.data), out_path)
             saved_path = str(out_path)
 
-    if args.json:
-        import json
-
-        payload = _json_envelope(
-            command="capture",
-            ok=True,
-            data={
-                "path": str(saved_path or image.data),
-                "exposure_s": image.exposure_s,
-                "timestamp_utc": image.timestamp_utc.isoformat(),
-                "width_px": image.width_px,
-                "height_px": image.height_px,
-            },
-            error=None,
-        )
-        print(json.dumps(payload, indent=2))
-    else:
-        print(f"Saved: {saved_path or image.data}")
-        print(f"Exposure: {image.exposure_s}s")
+    emit(
+        args,
+        "capture",
+        ok=True,
+        data={
+            "path": str(saved_path or image.data),
+            "exposure_s": image.exposure_s,
+            "timestamp_utc": image.timestamp_utc.isoformat(),
+            "width_px": image.width_px,
+            "height_px": image.height_px,
+        },
+        human=f"Saved: {saved_path or image.data}\nExposure: {image.exposure_s}s",
+    )
     return 0
 
 
@@ -384,43 +303,26 @@ def run_view(args) -> int:
     try:
         from astropy.io import fits
     except ModuleNotFoundError:
-        message = "astropy is required for 'astrolabe view'. Install with: pip install -e .[tools]"
-        if getattr(args, "json", False):
-            import json
-
-            payload = _json_envelope(
-                command="view",
-                ok=False,
-                data=None,
-                error={
-                    "code": "dependency_missing",
-                    "message": message,
-                    "details": None,
-                },
-            )
-            print(json.dumps(payload, indent=2))
-        else:
-            print(message, file=sys.stderr)
-        return 2
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for view.", file=sys.stderr)
+        return emit_error(
+            args,
+            "view",
+            code="dependency_missing",
+            message=(
+                "astropy is required for 'astrolabe view'. "
+                "Install with: pip install -e .[tools]"
+            ),
+            exit_code=2,
+        )
+    note_dry_run(args, "view")
 
     fits_path = args.input_fits
     if not os.path.isfile(fits_path):
-        message = f"Input file not found: {fits_path}"
-        if getattr(args, "json", False):
-            import json
-
-            payload = _json_envelope(
-                command="view",
-                ok=False,
-                data=None,
-                error={"code": "file_not_found", "message": message, "details": None},
-            )
-            print(json.dumps(payload, indent=2))
-        else:
-            print(message, file=sys.stderr)
-        return 1
+        return emit_error(
+            args,
+            "view",
+            code="file_not_found",
+            message=f"Input file not found: {fits_path}",
+        )
     try:
         hdul = fits.open(fits_path)
         header_text = hdul[0].header.tostring(sep="\n")
@@ -433,156 +335,101 @@ def run_view(args) -> int:
             plt.colorbar()
             plt.show()
         hdul.close()
-        if getattr(args, "json", False):
-            import json
-
-            payload = _json_envelope(
-                command="view",
-                ok=True,
-                data={"path": fits_path, "header": header_text, "show": args.show},
-                error=None,
-            )
-            print(json.dumps(payload, indent=2))
-        else:
-            print("FITS Header:")
-            print(header_text)
-        return 0
+    except AstrolabeError as e:
+        return handle_error(args, "view", e)
     except Exception as e:
-        message = f"Error viewing FITS file: {e}"
-        if getattr(args, "json", False):
-            import json
+        # astropy/matplotlib failures keep their own recoverable error code.
+        return emit_error(
+            args,
+            "view",
+            code="view_failed",
+            message=f"Error viewing FITS file: {e}",
+        )
 
-            payload = _json_envelope(
-                command="view",
-                ok=False,
-                data=None,
-                error={"code": "view_failed", "message": message, "details": None},
-            )
-            print(json.dumps(payload, indent=2))
-        else:
-            print(message, file=sys.stderr)
-        return 1
+    emit(
+        args,
+        "view",
+        ok=True,
+        data={"path": fits_path, "header": header_text, "show": args.show},
+        human=f"FITS Header:\n{header_text}",
+    )
+    return 0
 
 
 def run_mount(args) -> int:
-    _init_logging(getattr(args, "log_level", None))
-    config = load_config(_config_path_from_args(args))
+    config = prepare(args)
     mount = get_mount_backend(config)
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for mount.", file=sys.stderr)
+    note_dry_run(args, "mount")
 
     try:
         if args.action == "status":
             state = mount.get_state()
-            if getattr(args, "json", False):
-                import json
-
-                payload = _json_envelope(
-                    command=f"mount.{args.action}",
-                    ok=True,
-                    data={
-                        "connected": state.connected,
-                        "tracking": state.tracking,
-                        "slewing": state.slewing,
-                        "ra_rad": state.ra_rad,
-                        "dec_rad": state.dec_rad,
-                        "timestamp_utc": state.timestamp_utc.isoformat()
-                        if state.timestamp_utc
-                        else None,
-                    },
-                    error=None,
-                )
-                print(json.dumps(payload, indent=2))
-            else:
-                print(f"Connected: {state.connected}")
-                print(f"Tracking: {state.tracking}")
-                print(f"Slewing: {state.slewing}")
-                if state.ra_rad is not None:
-                    print(f"RA: {rad_to_hms(state.ra_rad)}")
-                else:
-                    print("RA: None")
-                if state.dec_rad is not None:
-                    print(f"Dec: {rad_to_dms(state.dec_rad)}")
-                else:
-                    print("Dec: None")
-                print(f"Timestamp: {state.timestamp_utc.isoformat()}")
+            emit(
+                args,
+                "mount.status",
+                ok=True,
+                data={
+                    "connected": state.connected,
+                    "tracking": state.tracking,
+                    "slewing": state.slewing,
+                    "ra_rad": state.ra_rad,
+                    "dec_rad": state.dec_rad,
+                    "timestamp_utc": state.timestamp_utc.isoformat()
+                    if state.timestamp_utc
+                    else None,
+                },
+                human="\n".join(
+                    [
+                        f"Connected: {state.connected}",
+                        f"Tracking: {state.tracking}",
+                        f"Slewing: {state.slewing}",
+                        format_ra(state.ra_rad),
+                        format_dec(state.dec_rad),
+                        f"Timestamp: {state.timestamp_utc.isoformat()}",
+                    ]
+                ),
+            )
             return 0
 
         if args.action == "slew":
-            ra_rad = math.radians(args.ra_deg)
-            dec_rad = math.radians(args.dec_deg)
-            mount.slew_to(ra_rad=ra_rad, dec_rad=dec_rad)
-            if getattr(args, "json", False):
-                import json
-
-                payload = _json_envelope(
-                    command="mount.slew",
-                    ok=True,
-                    data=None,
-                    error=None,
-                )
-                print(json.dumps(payload, indent=2))
+            mount.slew_to(
+                ra_rad=math.radians(args.ra_deg), dec_rad=math.radians(args.dec_deg)
+            )
+            emit(args, "mount.slew", ok=True)
             return 0
 
         if args.action == "park":
             mount.park()
-            if getattr(args, "json", False):
-                import json
-
-                payload = _json_envelope(
-                    command="mount.park",
-                    ok=True,
-                    data=None,
-                    error=None,
-                )
-                print(json.dumps(payload, indent=2))
+            emit(args, "mount.park", ok=True)
             return 0
 
         if args.action == "stop":
             mount.stop()
-            if getattr(args, "json", False):
-                import json
-
-                payload = _json_envelope(
-                    command="mount.stop",
-                    ok=True,
-                    data=None,
-                    error=None,
-                )
-                print(json.dumps(payload, indent=2))
+            emit(args, "mount.stop", ok=True)
             return 0
 
         if args.action == "track":
             mount.set_tracking(args.tracking_enabled)
             label = "enabled" if args.tracking_enabled else "disabled"
-            if getattr(args, "json", False):
-                import json
-
-                payload = _json_envelope(
-                    command="mount.track",
-                    ok=True,
-                    data={"tracking": args.tracking_enabled},
-                    error=None,
-                )
-                print(json.dumps(payload, indent=2))
-            else:
-                print(f"Tracking {label}.")
+            emit(
+                args,
+                "mount.track",
+                ok=True,
+                data={"tracking": args.tracking_enabled},
+                human=f"Tracking {label}.",
+            )
             return 0
 
         print("Unknown mount action.", file=sys.stderr)
         return 2
-    except NotImplementedFeature as e:
-        return _handle_not_implemented(f"mount.{args.action}", args, e)
+    except AstrolabeError as e:
+        return handle_error(args, f"mount.{args.action}", e)
 
 
 def run_goto(args) -> int:
-    _init_logging(getattr(args, "log_level", None))
-    config = load_config(_config_path_from_args(args))
-    mount = get_mount_backend(config)
-    camera = get_camera_backend(config)
-    solver = get_solver_backend(config)
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for goto.", file=sys.stderr)
+    config = prepare(args)
+    mount, camera, solver = mount_camera_solver(config)
+    note_dry_run(args, "goto")
     service = GotoService(mount, camera, solver)
 
     try:
@@ -613,6 +460,7 @@ def run_goto(args) -> int:
                 return 2
             target_ra_deg = args.ra_deg
             target_dec_deg = args.dec_deg
+
         try:
             result = service.center_target(
                 target_ra_rad=math.radians(target_ra_deg),
@@ -620,59 +468,44 @@ def run_goto(args) -> int:
                 tolerance_arcsec=args.tolerance_arcsec,
                 max_iterations=args.max_iterations,
             )
-            if getattr(args, "json", False):
-                import json
-
-                payload = _json_envelope(
-                    command="goto",
-                    ok=result.success,
-                    data=result.__dict__,
-                    error=None
-                    if result.success
-                    else {
-                        "code": "goto_failed",
-                        "message": result.message or "goto failed",
-                        "details": None,
-                    },
-                )
-                print(json.dumps(payload, indent=2))
-            else:
-                print(f"Success: {result.success}")
-                print(f"Final error: {result.final_error_arcsec}")
-                print(f"Iterations: {result.iterations}")
-                print(f"Message: {result.message}")
-            return 0 if result.success else 1
+            return emit_result(
+                args,
+                "goto",
+                result,
+                failure_code="goto_failed",
+                failure_message="goto failed",
+                human="\n".join(
+                    [
+                        f"Success: {result.success}",
+                        f"Final error: {result.final_error_arcsec}",
+                        f"Iterations: {result.iterations}",
+                        f"Message: {result.message}",
+                    ]
+                ),
+            )
         except NotImplementedFeature:
             mount.slew_to(
                 ra_rad=math.radians(target_ra_deg),
                 dec_rad=math.radians(target_dec_deg),
             )
-            if getattr(args, "json", False):
-                import json
-
-                payload = _json_envelope(
-                    command="goto",
-                    ok=True,
-                    data={
-                        "mode": "fallback_slew",
-                        "ra_deg": target_ra_deg,
-                        "dec_deg": target_dec_deg,
-                    },
-                    error=None,
-                )
-                print(json.dumps(payload, indent=2))
-            else:
-                print("Goto fallback: mount slew issued.")
+            emit(
+                args,
+                "goto",
+                ok=True,
+                data={
+                    "mode": "fallback_slew",
+                    "ra_deg": target_ra_deg,
+                    "dec_deg": target_dec_deg,
+                },
+                human="Goto fallback: mount slew issued.",
+            )
             return 0
-    except NotImplementedFeature as e:
-        return _handle_not_implemented("goto", args, e)
+    except AstrolabeError as e:
+        return handle_error(args, "goto", e)
 
 
 def run_resolve(args) -> int:
-    _init_logging(getattr(args, "log_level", None))
-    config = load_config(_config_path_from_args(args))
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for resolve.", file=sys.stderr)
+    config = prepare(args, "resolve")
 
     from astrolabe.services.target.resolver import TargetResolver
 
@@ -685,103 +518,70 @@ def run_resolve(args) -> int:
     if min_score is None:
         min_score = config.resolver_min_score
 
-    resolver = TargetResolver.from_repo_data(min_score=min_score)
-    matches = resolver.resolve(query, limit=args.limit)
+    try:
+        resolver = TargetResolver.from_repo_data(min_score=min_score)
+        matches = resolver.resolve(query, limit=args.limit)
+    except AstrolabeError as e:
+        return handle_error(args, "resolve", e)
 
-    if getattr(args, "json", False):
-        import json
+    if not matches and not getattr(args, "json", False):
+        print(f"Target not found: {query}", file=sys.stderr)
+        return 2
 
-        payload = _json_envelope(
-            command="resolve",
-            ok=bool(matches),
-            data={
-                "query": query,
-                "min_score": min_score,
-                "matches": [
-                    {
-                        "name": match.record.name,
-                        "id": match.record.id,
-                        "ra_deg": match.record.ra_deg,
-                        "dec_deg": match.record.dec_deg,
-                        "score": match.match_score,
-                        "reason": match.match_reason,
-                    }
-                    for match in matches
-                ],
-            },
-            error=None
-            if matches
-            else {
-                "code": "not_found",
-                "message": f"Target not found: {query}",
-                "details": None,
-            },
-        )
-        print(json.dumps(payload, indent=2))
-    else:
-        if not matches:
-            print(f"Target not found: {query}", file=sys.stderr)
-            return 2
-        print(f"Query: {query}")
-        print(f"Min score: {min_score}")
-        for match in matches:
-            print(
+    emit(
+        args,
+        "resolve",
+        ok=bool(matches),
+        data={
+            "query": query,
+            "min_score": min_score,
+            "matches": [
+                {
+                    "name": match.record.name,
+                    "id": match.record.id,
+                    "ra_deg": match.record.ra_deg,
+                    "dec_deg": match.record.dec_deg,
+                    "score": match.match_score,
+                    "reason": match.match_reason,
+                }
+                for match in matches
+            ],
+        },
+        error=None
+        if matches
+        else error_object("not_found", f"Target not found: {query}"),
+        human="\n".join(
+            [f"Query: {query}", f"Min score: {min_score}"]
+            + [
                 f"- {match.record.name} ({match.record.id}) "
                 f"RA {match.record.ra_deg:.5f} deg "
                 f"Dec {match.record.dec_deg:.5f} deg "
                 f"score={match.match_score:.2f} reason={match.match_reason}"
-            )
+                for match in matches
+            ]
+        ),
+    )
     return 0 if matches else 2
 
 
 def run_align(args) -> int:
-    _init_logging(getattr(args, "log_level", None))
-    config = load_config(_config_path_from_args(args))
-    mount = get_mount_backend(config)
-    camera = get_camera_backend(config)
-    solver = get_solver_backend(config)
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for align.", file=sys.stderr)
+    config = prepare(args)
+    mount, camera, solver = mount_camera_solver(config)
+    note_dry_run(args, "align")
     service = PointingService(mount, camera, solver)
 
     try:
         if args.mode == "solve":
             result = service.solve_current(exposure_s=args.exposure)
-            if getattr(args, "json", False):
-                import json
+            return emit_result(
+                args,
+                "align.solve",
+                result,
+                failure_code="align_failed",
+                failure_message="align solve failed",
+                human=format_solve_summary(result),
+            )
 
-                payload = _json_envelope(
-                    command="align.solve",
-                    ok=result.success,
-                    data=result.__dict__,
-                    error=None
-                    if result.success
-                    else {
-                        "code": "align_failed",
-                        "message": result.message or "align solve failed",
-                        "details": None,
-                    },
-                )
-                print(json.dumps(payload, indent=2))
-            else:
-                print(f"Success: {result.success}")
-                if result.ra_rad is not None:
-                    print(f"RA: {rad_to_hms(result.ra_rad)}")
-                else:
-                    print("RA: None")
-                if result.dec_rad is not None:
-                    print(f"Dec: {rad_to_dms(result.dec_rad)}")
-                else:
-                    print("Dec: None")
-                print(f"Pixel scale: {result.pixel_scale_arcsec}")
-                if result.rotation_rad is not None:
-                    print(f"Rotation: {rad_to_deg(result.rotation_rad):.3f}°")
-                else:
-                    print("Rotation: None")
-                print(f"RMS: {result.rms_arcsec}")
-                print(f"Stars: {result.num_stars}")
-                print(f"Message: {result.message}")
-            return 0 if result.success else 1
         if args.mode == "goto":
             if args.target:
                 from astrolabe.services.target.resolver import TargetResolver
@@ -834,42 +634,34 @@ def run_align(args) -> int:
             else:
                 angular_err = None
 
-            if getattr(args, "json", False):
-                import json
-
-                payload = _json_envelope(
-                    command="pointing.goto",
-                    ok=result.success,
-                    data={
-                        "target_ra_deg": target_ra_deg,
-                        "target_dec_deg": target_dec_deg,
-                        "command_ra_deg": math.degrees(corrected_ra),
-                        "command_dec_deg": math.degrees(corrected_dec),
-                        "solve": result.__dict__,
-                        "final_error_arcsec": None
-                        if angular_err is None
-                        else math.degrees(angular_err) * 3600.0,
-                    },
-                    error=None
-                    if result.success
-                    else {
-                        "code": "pointing_goto_failed",
-                        "message": result.message or "pointing goto failed",
-                        "details": None,
-                    },
+            final_error_arcsec = (
+                None if angular_err is None else math.degrees(angular_err) * 3600.0
+            )
+            if result.success:
+                human = (
+                    f"Final error: {final_error_arcsec:.1f} arcsec"
+                    if final_error_arcsec is not None
+                    else "Final error: unknown"
                 )
-                print(json.dumps(payload, indent=2))
             else:
-                if result.success:
-                    if angular_err is not None:
-                        print(
-                            f"Final error: {math.degrees(angular_err) * 3600.0:.1f} arcsec"
-                        )
-                    else:
-                        print("Final error: unknown")
-                else:
-                    print(f"Pointing goto failed: {result.message}")
-            return 0 if result.success else 1
+                human = f"Pointing goto failed: {result.message}"
+            return emit_result(
+                args,
+                "pointing.goto",
+                result,
+                failure_code="pointing_goto_failed",
+                failure_message="pointing goto failed",
+                data={
+                    "target_ra_deg": target_ra_deg,
+                    "target_dec_deg": target_dec_deg,
+                    "command_ra_deg": math.degrees(corrected_ra),
+                    "command_dec_deg": math.degrees(corrected_dec),
+                    "solve": result.__dict__,
+                    "final_error_arcsec": final_error_arcsec,
+                },
+                human=human,
+            )
+
         if args.mode == "sync":
             result = service.sync_current(exposure_s=args.exposure)
         elif args.mode == "init":
@@ -882,41 +674,30 @@ def run_align(args) -> int:
             print("Unknown alignment mode.", file=sys.stderr)
             return 2
 
-        if getattr(args, "json", False):
-            import json
-
-            payload = _json_envelope(
-                command=f"pointing.{args.mode}",
-                ok=result.success,
-                data=result.__dict__,
-                error=None
-                if result.success
-                else {
-                    "code": f"pointing_{args.mode}_failed",
-                    "message": result.message or f"pointing {args.mode} failed",
-                    "details": None,
-                },
-            )
-            print(json.dumps(payload, indent=2))
-        else:
-            print(f"Success: {result.success}")
-            print(f"Solves attempted: {result.solves_attempted}")
-            print(f"Solves succeeded: {result.solves_succeeded}")
-            print(f"RMS (arcsec): {result.rms_arcsec}")
-            print(f"Message: {result.message}")
-        return 0 if result.success else 1
-    except NotImplementedFeature as e:
-        return _handle_not_implemented(f"align.{args.mode}", args, e)
+        return emit_result(
+            args,
+            f"pointing.{args.mode}",
+            result,
+            failure_code=f"pointing_{args.mode}_failed",
+            failure_message=f"pointing {args.mode} failed",
+            human="\n".join(
+                [
+                    f"Success: {result.success}",
+                    f"Solves attempted: {result.solves_attempted}",
+                    f"Solves succeeded: {result.solves_succeeded}",
+                    f"RMS (arcsec): {result.rms_arcsec}",
+                    f"Message: {result.message}",
+                ]
+            ),
+        )
+    except AstrolabeError as e:
+        return handle_error(args, f"align.{args.mode}", e)
 
 
 def run_polar(args) -> int:
-    _init_logging(getattr(args, "log_level", None))
-    config = load_config(_config_path_from_args(args))
-    mount = get_mount_backend(config)
-    camera = get_camera_backend(config)
-    solver = get_solver_backend(config)
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for polar.", file=sys.stderr)
+    config = prepare(args)
+    mount, camera, solver = mount_camera_solver(config)
+    note_dry_run(args, "polar")
     service = PolarAlignService(mount, camera, solver)
 
     try:
@@ -931,155 +712,90 @@ def run_polar(args) -> int:
             result.alt_correction_arcsec is not None
             and result.az_correction_arcsec is not None
         )
-        if getattr(args, "json", False):
-            import json
-
-            error = (
-                None
-                if success
-                else {
-                    "code": "polar_failed",
-                    "message": result.message or "polar alignment failed",
-                    "details": None,
-                }
+        human = (
+            "\n".join(
+                [
+                    f"Altitude correction (arcsec): {result.alt_correction_arcsec}",
+                    f"Azimuth correction (arcsec): {result.az_correction_arcsec}",
+                    f"Residual (arcsec): {result.residual_arcsec}",
+                    f"Confidence: {result.confidence}",
+                ]
             )
-            payload = _json_envelope(
-                command="polar",
-                ok=success,
-                data=result.__dict__,
-                error=error,
-            )
-            print(json.dumps(payload, indent=2))
-        else:
-            if success:
-                print(f"Altitude correction (arcsec): {result.alt_correction_arcsec}")
-                print(f"Azimuth correction (arcsec): {result.az_correction_arcsec}")
-                print(f"Residual (arcsec): {result.residual_arcsec}")
-                print(f"Confidence: {result.confidence}")
-            else:
-                print(
-                    f"Polar alignment failed: {result.message}",
-                    file=sys.stderr,
-                )
-        return 0 if success else 1
-    except NotImplementedFeature as e:
-        return _handle_not_implemented("polar", args, e)
-    except ServiceError as e:
-        if getattr(args, "json", False):
-            import json
-
-            payload = _json_envelope(
-                command="polar",
-                ok=False,
-                data=None,
-                error={
-                    "code": "service_error",
-                    "message": str(e),
-                    "details": None,
-                },
-            )
-            print(json.dumps(payload, indent=2))
-        else:
-            print(f"Error: {e}", file=sys.stderr)
-        return 1
+            if success
+            else f"Polar alignment failed: {result.message}"
+        )
+        return emit_result(
+            args,
+            "polar",
+            result,
+            ok=success,
+            failure_code="polar_failed",
+            failure_message="polar alignment failed",
+            human=human,
+            human_stream=None if success else sys.stderr,
+        )
+    except AstrolabeError as e:
+        return handle_error(args, "polar", e)
 
 
 def run_guide(args) -> int:
-    _init_logging(getattr(args, "log_level", None))
-    config = load_config(_config_path_from_args(args))
-    mount = get_mount_backend(config)
-    camera = get_camera_backend(config)
-    service = GuidingService(mount, camera)
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for guide.", file=sys.stderr)
+    config = prepare(args)
+    service = GuidingService(get_mount_backend(config), get_camera_backend(config))
+    note_dry_run(args, "guide")
 
     try:
         if args.action == "calibrate":
             result = service.calibrate(duration_s=args.duration)
-            if getattr(args, "json", False):
-                import json
-
-                payload = _json_envelope(
-                    command="guide",
-                    ok=result.success,
-                    data=result.__dict__,
-                    error=None
-                    if result.success
-                    else {
-                        "code": "guide_failed",
-                        "message": result.message or "guide calibration failed",
-                        "details": None,
-                    },
-                )
-                print(json.dumps(payload, indent=2))
-            else:
-                print(f"Success: {result.success}")
-                print(f"Message: {result.message}")
-            return 0 if result.success else 1
+            return emit_result(
+                args,
+                "guide",
+                result,
+                failure_code="guide_failed",
+                failure_message="guide calibration failed",
+                human=f"Success: {result.success}\nMessage: {result.message}",
+            )
 
         if args.action == "start":
             service.start(
                 aggression=args.aggression, min_move_arcsec=args.min_move_arcsec
             )
-            if getattr(args, "json", False):
-                import json
-
-                payload = _json_envelope(
-                    command="guide.start",
-                    ok=True,
-                    data=None,
-                    error=None,
-                )
-                print(json.dumps(payload, indent=2))
+            emit(args, "guide.start", ok=True)
             return 0
 
         if args.action == "stop":
             service.stop()
-            if getattr(args, "json", False):
-                import json
-
-                payload = _json_envelope(
-                    command="guide.stop",
-                    ok=True,
-                    data=None,
-                    error=None,
-                )
-                print(json.dumps(payload, indent=2))
+            emit(args, "guide.stop", ok=True)
             return 0
 
         if args.action == "status":
             status = service.status()
-            if getattr(args, "json", False):
-                import json
-
-                payload = _json_envelope(
-                    command="guide.status",
-                    ok=True,
-                    data=status.__dict__,
-                    error=None,
-                )
-                print(json.dumps(payload, indent=2))
-            else:
-                print(f"Running: {status.running}")
-                print(f"RMS (arcsec): {status.rms_arcsec}")
-                print(f"Star lost: {status.star_lost}")
-                print(f"Last error (arcsec): {status.last_error_arcsec}")
+            emit(
+                args,
+                "guide.status",
+                ok=True,
+                data=status.__dict__,
+                human="\n".join(
+                    [
+                        f"Running: {status.running}",
+                        f"RMS (arcsec): {status.rms_arcsec}",
+                        f"Star lost: {status.star_lost}",
+                        f"Last error (arcsec): {status.last_error_arcsec}",
+                    ]
+                ),
+            )
             return 0
 
         print("Unknown guiding action.", file=sys.stderr)
         return 2
-    except NotImplementedFeature as e:
+    except AstrolabeError as e:
         action = getattr(args, "action", None)
-        command = f"guide.{action}" if action else "guide"
-        return _handle_not_implemented(command, args, e)
+        return handle_error(args, f"guide.{action}" if action else "guide", e)
 
 
 def run_plan(args) -> int:
-    _init_logging(getattr(args, "log_level", None))
-    config = load_config(_config_path_from_args(args))
+    config = prepare(args)
     planner = Planner(config)
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for plan.", file=sys.stderr)
+    note_dry_run(args, "plan")
 
     try:
         if args.window_start_utc and args.window_start_local:
@@ -1103,31 +819,25 @@ def run_plan(args) -> int:
             mode=getattr(args, "mode", None),
             limit=getattr(args, "limit", None),
         )
-        if getattr(args, "json", False):
-            import json
-            from dataclasses import asdict
-
-            payload = _json_envelope(
-                command="plan",
-                ok=True,
-                data=asdict(result),
-                error=None,
-            )
-            print(json.dumps(payload, indent=2, default=str))
-        else:
-            print(format_plan_text(result, verbose=getattr(args, "verbose", False)))
+        emit(
+            args,
+            "plan",
+            ok=True,
+            data=asdict(result),
+            human=format_plan_text(result, verbose=getattr(args, "verbose", False)),
+            json_default=str,
+        )
         return 0
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 2
-    except NotImplementedFeature as e:
-        return _handle_not_implemented("plan", args, e)
+    except AstrolabeError as e:
+        return handle_error(args, "plan", e)
 
 
 def run_update(args) -> int:
-    _init_logging(getattr(args, "log_level", None))
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for update.", file=sys.stderr)
+    init_logging(getattr(args, "log_level", None))
+    note_dry_run(args, "update")
 
     try:
         if args.dataset != "catalog":
@@ -1162,7 +872,7 @@ def run_update(args) -> int:
         if catalog_dataset in (None, "hip"):
             max_mag = getattr(args, "max_mag", None)
             if max_mag is None:
-                max_mag = load_config(_config_path_from_args(args)).resolver_hip_max_mag
+                max_mag = load_config(config_path(args)).resolver_hip_max_mag
             hip_result = update_hipparcos(
                 source=getattr(args, "source", None),
                 output_path=getattr(args, "output", None),
@@ -1211,32 +921,19 @@ def run_update(args) -> int:
             print("Unknown catalog dataset.", file=sys.stderr)
             return 2
 
-        if getattr(args, "json", False):
-            import json
-
-            payload = _json_envelope(
-                command="update.catalog",
-                ok=True,
-                data={name: data for name, data, _ in results},
-                error=None,
-            )
-            print(json.dumps(payload, indent=2))
-        else:
-            for _, _, summary in results:
-                for line in summary:
-                    print(line)
+        emit(
+            args,
+            "update.catalog",
+            ok=True,
+            data={name: data for name, data, _ in results},
+            human="\n".join(line for _, _, summary in results for line in summary),
+        )
         return 0
     except Exception as e:
-        if getattr(args, "json", False):
-            import json
-
-            payload = _json_envelope(
-                command=f"update.{args.dataset}",
-                ok=False,
-                data=None,
-                error={"code": "update_failed", "message": str(e), "details": None},
-            )
-            print(json.dumps(payload, indent=2))
-        else:
-            print(f"Update failed: {e}", file=sys.stderr)
-        return 1
+        return emit_error(
+            args,
+            f"update.{args.dataset}",
+            code="update_failed",
+            message=str(e),
+            human=f"Update failed: {e}",
+        )

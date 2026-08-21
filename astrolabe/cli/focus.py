@@ -2,18 +2,12 @@ from __future__ import annotations
 
 from dataclasses import asdict
 import datetime
-import json
 from pathlib import Path
-import sys
 
 from astrolabe.camera import Image, get_camera_backend
-from astrolabe.cli.commands import (
-    _config_path_from_args,
-    _init_logging,
-    _json_envelope,
-    _parse_roi,
-)
-from astrolabe.config import load_config
+from astrolabe.cli.commands import _parse_roi
+from astrolabe.cli.output import emit, emit_error
+from astrolabe.cli.runtime import handle_error, note_dry_run, prepare
 from astrolabe.errors import AstrolabeError
 from astrolabe.services.focus import (
     FocusAnalyzer,
@@ -22,28 +16,6 @@ from astrolabe.services.focus import (
     FocusService,
 )
 from astrolabe.services.focus_monitor import FocusMonitor, FocusTrendEstimator
-
-
-def _emit_failure(
-    args,
-    *,
-    command: str,
-    code: str,
-    message: str,
-    data=None,
-    exit_code: int = 1,
-) -> int:
-    if getattr(args, "json", False):
-        payload = _json_envelope(
-            command=command,
-            ok=False,
-            data=data,
-            error={"code": code, "message": message, "details": None},
-        )
-        print(json.dumps(payload, indent=2))
-    else:
-        print(message, file=sys.stderr)
-    return exit_code
 
 
 def _focus_analyzer(args) -> FocusAnalyzer:
@@ -63,8 +35,7 @@ def _exposure(args, config) -> float | None:
 
 
 def _run_measure(args, config) -> int:
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for focus measurement.", file=sys.stderr)
+    note_dry_run(args, "focus measurement")
 
     try:
         analyzer = _focus_analyzer(args)
@@ -73,9 +44,9 @@ def _run_measure(args, config) -> int:
         if args.input_fits:
             path = Path(args.input_fits)
             if not path.is_file():
-                return _emit_failure(
+                return emit_error(
                     args,
-                    command="focus.measure",
+                    "focus.measure",
                     code="file_not_found",
                     message=f"Input file not found: {path}",
                 )
@@ -91,9 +62,9 @@ def _run_measure(args, config) -> int:
         else:
             exposure = _exposure(args, config)
             if exposure is None:
-                return _emit_failure(
+                return emit_error(
                     args,
-                    command="focus.measure",
+                    "focus.measure",
                     code="invalid_argument",
                     message=(
                         "Exposure is required (use --exposure or set "
@@ -111,38 +82,37 @@ def _run_measure(args, config) -> int:
                 roi=roi,
             )
     except (AstrolabeError, OSError, RuntimeError, ValueError) as exc:
-        return _emit_failure(
+        return emit_error(
             args,
-            command="focus.measure",
+            "focus.measure",
             code="focus_measure_failed",
             message=f"Focus measurement failed: {exc}",
         )
 
     data = asdict(result)
     if not result.valid:
-        return _emit_failure(
+        return emit_error(
             args,
-            command="focus.measure",
+            "focus.measure",
             code="focus_measurement_invalid",
             message=result.message or "Focus measurement is invalid",
             data=data,
         )
 
-    if getattr(args, "json", False):
-        payload = _json_envelope(
-            command="focus.measure",
-            ok=True,
-            data=data,
-            error=None,
-        )
-        print(json.dumps(payload, indent=2))
-    else:
-        print(f"HFR: {result.hfr_px:.2f} px")
-        print(
-            f"Stars: {result.star_count} accepted, "
-            f"{result.rejected_star_count} rejected"
-        )
-        print(f"Scatter: {result.hfr_mad_px:.2f} px (MAD)")
+    emit(
+        args,
+        "focus.measure",
+        ok=True,
+        data=data,
+        human="\n".join(
+            [
+                f"HFR: {result.hfr_px:.2f} px",
+                f"Stars: {result.star_count} accepted, "
+                f"{result.rejected_star_count} rejected",
+                f"Scatter: {result.hfr_mad_px:.2f} px (MAD)",
+            ]
+        ),
+    )
     return 0
 
 
@@ -160,22 +130,21 @@ def _monitor_line(result: FocusMeasurement, trend: str | None) -> str:
 
 def _run_monitor(args, config) -> int:
     if getattr(args, "json", False):
-        return _emit_failure(
+        return emit_error(
             args,
-            command="focus.monitor",
+            "focus.monitor",
             code="invalid_argument",
             message="focus monitor is interactive and does not support --json",
             exit_code=2,
         )
 
-    if getattr(args, "dry_run", False):
-        print("--dry-run has no effect for focus monitoring.", file=sys.stderr)
+    note_dry_run(args, "focus monitoring")
 
     frame_count = getattr(args, "frames", None)
     if frame_count is not None and frame_count < 1:
-        return _emit_failure(
+        return emit_error(
             args,
-            command="focus.monitor",
+            "focus.monitor",
             code="invalid_argument",
             message="--frames must be at least 1",
             exit_code=2,
@@ -183,9 +152,9 @@ def _run_monitor(args, config) -> int:
 
     exposure = _exposure(args, config)
     if exposure is None:
-        return _emit_failure(
+        return emit_error(
             args,
-            command="focus.monitor",
+            "focus.monitor",
             code="invalid_argument",
             message=(
                 "Exposure is required (use --exposure or set "
@@ -221,9 +190,9 @@ def _run_monitor(args, config) -> int:
         RuntimeError,
         ValueError,
     ) as exc:
-        return _emit_failure(
+        return emit_error(
             args,
-            command="focus.monitor",
+            "focus.monitor",
             code="focus_monitor_failed",
             message=f"Focus monitor failed: {exc}",
         )
@@ -234,16 +203,17 @@ def _run_monitor(args, config) -> int:
 def run_focus(args) -> int:
     """Run one-shot or live focus measurement."""
 
-    _init_logging(getattr(args, "log_level", None))
-    config = load_config(_config_path_from_args(args))
-
-    if args.action == "measure":
-        return _run_measure(args, config)
-    if args.action == "monitor":
-        return _run_monitor(args, config)
-    return _emit_failure(
+    try:
+        config = prepare(args)
+        if args.action == "measure":
+            return _run_measure(args, config)
+        if args.action == "monitor":
+            return _run_monitor(args, config)
+    except AstrolabeError as exc:
+        return handle_error(args, f"focus.{args.action}", exc)
+    return emit_error(
         args,
-        command="focus",
+        "focus",
         code="invalid_argument",
         message=f"Unknown focus action: {args.action}",
         exit_code=2,
