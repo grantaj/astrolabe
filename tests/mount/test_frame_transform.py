@@ -114,9 +114,7 @@ def _icrs_fk5_bias_matrix() -> np.ndarray:
     xi0 = 9.1 * mas_to_rad
     da0 = -22.9 * mas_to_rad
     return (
-        _axis_rotation(-eta0, "x")
-        @ _axis_rotation(xi0, "y")
-        @ _axis_rotation(da0, "z")
+        _axis_rotation(-eta0, "x") @ _axis_rotation(xi0, "y") @ _axis_rotation(da0, "z")
     )
 
 
