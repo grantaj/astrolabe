@@ -8,9 +8,9 @@ All coordinate/unit rules come from `conventions.md`.
 
 ### Image
 
-Current `main` represents a captured frame with an `Image` value containing a backend-defined payload, dimensions, UTC timestamp, exposure, and metadata.
+Current `main` represents a captured frame with the camera-owned `Image` value, exported as `astrolabe.camera.Image` and concretely defined in `astrolabe.camera.types`. It contains a backend-defined payload, dimensions, UTC timestamp, exposure, and metadata.
 
-The type is currently defined in `astrolabe.solver.types` even though camera produces it and solver/focus consume it. That ownership is a known architectural smell tracked by GitHub issue #57. Do not treat the current module location as a desired long-term dependency direction.
+A compatibility alias remains at `astrolabe.solver.types.Image` for older callers, but new camera/solver/focus code should depend on the camera-owned public surface rather than treating solver as the owner of captured images.
 
 Camera live frames may carry `FitsImageData` as the payload; ordinary INDI one-shot capture may carry an on-disk FITS path. Consumers must use the camera/imaging boundary rather than import INDI details.
 
