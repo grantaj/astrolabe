@@ -9,6 +9,7 @@ source = { editable = "." }
 dependencies = [
     { name = "matplotlib" },
     { name = "numpy" },
+    { name = "pyerfa" },
 ]
 
 [package.optional-dependencies]
@@ -30,6 +31,7 @@ requires-dist = [
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.6" },
+    { name = "pyerfa" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "pytest-ty", marker = "extra == 'dev'", specifier = ">=0.1.4" },
