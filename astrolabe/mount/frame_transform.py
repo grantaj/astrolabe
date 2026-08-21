@@ -22,31 +22,11 @@ def _require_utc(time_utc: datetime.datetime) -> None:
         raise ValueError("frame transformation time must be timezone-aware UTC")
 
 
-def _axis_rotation(angle_rad: float, axis: str) -> np.ndarray:
-    """Return the rotation convention used by Astropy's FK5 frame-bias matrix."""
-    s = math.sin(angle_rad)
-    c = math.cos(angle_rad)
-    if axis == "x":
-        return np.array([[1.0, 0.0, 0.0], [0.0, c, s], [0.0, -s, c]])
-    if axis == "y":
-        return np.array([[c, 0.0, -s], [0.0, 1.0, 0.0], [s, 0.0, c]])
-    if axis == "z":
-        return np.array([[c, s, 0.0], [-s, c, 0.0], [0.0, 0.0, 1.0]])
-    raise ValueError(f"unknown rotation axis: {axis}")
-
-
-def _icrs_to_fk5_bias_matrix() -> np.ndarray:
-    """Return the fixed ICRS→FK5 frame-bias matrix from USNO Circular 179."""
-    mas_to_rad = math.radians(1.0 / 3_600_000.0)
-    eta0 = -19.9 * mas_to_rad
-    xi0 = 9.1 * mas_to_rad
-    da0 = -22.9 * mas_to_rad
-    return (
-        _axis_rotation(-eta0, "x") @ _axis_rotation(xi0, "y") @ _axis_rotation(da0, "z")
-    )
-
-
-_ICRS_TO_FK5_BIAS = _icrs_to_fk5_bias_matrix()
+# ERFA models the fixed FK5 J2000.0 orientation with respect to the Hipparcos
+# frame. Hipparcos is aligned to ICRS for this purpose, so the transpose is the
+# ICRS -> FK5 frame-bias rotation required before epoch-of-date precession.
+_FK5_TO_ICRS_BIAS, _ = erfa.fk5hip()
+_ICRS_TO_FK5_BIAS = _FK5_TO_ICRS_BIAS.T
 
 
 def _tt_jd(time_utc: datetime.datetime) -> tuple[float, float]:
