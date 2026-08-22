@@ -53,11 +53,7 @@ def test_update_bsc_crosswalk_with_local_sources_is_deterministic(
 
     bsc_path = tmp_path / "bsc.tsv"
     bsc_path.write_text(
-        "# Dummy header\n"
-        "Name\tHD\n"
-        "61 Cyg\t201091\n"
-        "Gam Cru\t108248\n"
-        "Gam Cru\t108248\n",
+        "# Dummy header\nName\tHD\n61 Cyg\t201091\nGam Cru\t108248\nGam Cru\t108248\n",
         encoding="utf-8",
     )
 
@@ -96,10 +92,7 @@ def test_update_bsc_crosswalk_skips_ambiguous_system_alias(tmp_path, monkeypatch
     monkeypatch.setenv("HOME", str(tmp_path))
     hip_path = tmp_path / "hip_main.dat"
     hip_path.write_text(
-        _make_hip_line(104214, 201091)
-        + "\n"
-        + _make_hip_line(104217, 201092)
-        + "\n",
+        _make_hip_line(104214, 201091) + "\n" + _make_hip_line(104217, 201092) + "\n",
         encoding="utf-8",
     )
     bsc_path = tmp_path / "bsc.tsv"
