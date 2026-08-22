@@ -48,15 +48,23 @@ The small-angle representation is intended for ordinary pointing residuals, not 
 
 ## Learning
 
+Pointing does not have an alignment or initialization phase. Each normal `PointingService.point_to()` operation follows the same cycle:
+
+```text
+apply model -> slew -> solve -> measure residual -> update model
+```
+
 `PointingModel.update()` currently applies a bounded exponential-style update independently to both bias components:
 
 ```text
 b_new = (1 - weight) * b_old + weight * residual
 ```
 
-`weight` is clamped to `[0, 1]`; the current service default is `0.1`.
+`weight` is clamped to `[0, 1]`; the current service weight is `0.1`.
 
-The model should only be updated from a meaningful solved-target residual. A mount sync is different: sync changes the mount's own coordinate mapping, so the pre-sync discrepancy must not also be learned as a persistent Astrolabe correction.
+The model is updated only when the solver reports success and supplies complete, finite, physically valid solved coordinates. Solver-specific ambiguity or failure belongs at the solver boundary and must be reported as an unsuccessful solve. Rejected observations do not change the model.
+
+Mount sync is not part of this loop. Changing a mount's own coordinate mapping would create a second adaptive model and make the learned Astrolabe correction ambiguous, so ordinary pointing learns from the solved residual without syncing the mount.
 
 ## Persistence
 
@@ -70,7 +78,7 @@ load_pointing_model(path)
 save_pointing_model(model, path)
 ```
 
-The application composition layer chooses when persistence happens and which path to use. The current default path remains `~/.astrolabe/pointing.json`, preserving the existing file location while keeping storage policy out of the mathematical/service API.
+The application composition layer chooses when persistence happens and which path to use. The current CLI loads the model for a target-pointing operation and saves it only after `PointingService` accepts a residual for learning. The default path remains `~/.astrolabe/pointing.json`.
 
 ## Future model work
 
