@@ -137,7 +137,8 @@ def test_slew_to_times_out_while_mount_remains_busy(mount):
         patch("astrolabe.mount.indi.IndiClient.setprop_vector"),
         patch("astrolabe.mount.indi.IndiClient.getprop_state", return_value="Busy"),
         patch(
-            "astrolabe.mount.indi.time.monotonic", side_effect=[0.0, 0.0, 21.0]
+            "astrolabe.mount.indi.time.monotonic",
+            side_effect=[0.0, 0.0, 21.0],
         ),
         patch("astrolabe.mount.indi.time.sleep"),
     ):
