@@ -55,7 +55,8 @@ class TargetResolver:
         for normalized, (alias, hip_id) in sorted(alias_targets.items()):
             record = index.get_by_id(f"HIP {hip_id}")
             if record is None:
-                missing_aliases.add(normalized)
+                if index.get_by_alias(alias) is None:
+                    missing_aliases.add(normalized)
                 continue
 
             existing = index.get_by_alias(alias)
