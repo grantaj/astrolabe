@@ -72,6 +72,10 @@ Equivalently for this offset model, `b_new = b_old + weight * residual`. Feeding
 
 The model is updated only when the solver reports success and supplies complete, finite, physically valid solved coordinates. Solver-specific ambiguity or failure belongs at the solver boundary and must be reported as an unsuccessful solve. Rejected observations do not change the model.
 
+The v1 service also rejects an otherwise successful solve when its great-circle separation from the requested target exceeds **10 degrees**. This deliberately generous learning envelope is a corruption guard for the small-angle offset model, not a pointing-performance target: a solve farther away is treated as an outlier and is never incorporated into model state.
+
+Before capturing the image used for learning, `point_to()` waits for the mount to report a stable non-slewing state. If the mount does not settle within the service timeout, the operation fails rather than solving an in-flight field and learning that motion as pointing bias.
+
 Mount sync is not part of this loop. Changing a mount's own coordinate mapping would create a second adaptive model and make the learned Astrolabe correction ambiguous, so ordinary pointing learns from the solved residual without syncing the mount.
 
 ## Persistence
