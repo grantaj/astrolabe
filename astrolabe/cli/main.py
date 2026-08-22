@@ -166,7 +166,7 @@ def main():
     goto_parser = subparsers.add_parser(
         "goto",
         help="(deprecated) Alias for `pointing goto`",
-        description="Deprecated alias for `pointing goto`.",
+        description="This command is deprecated; use `pointing goto`.",
     )
     goto_parser.add_argument(
         "--target",
