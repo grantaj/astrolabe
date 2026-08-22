@@ -65,6 +65,7 @@ class PointingService:
         a successful, complete solve. Filesystem persistence remains the caller's
         responsibility.
         """
+        predicted_alpha, predicted_delta = self._model.predict()
         command_ra, command_dec = self.apply_model(ra_rad, dec_rad)
         self._mount.slew_to(command_ra, command_dec)
         solve = self.solve_current(exposure_s=exposure_s, use_mount_hints=False)
@@ -75,14 +76,23 @@ class PointingService:
             solved_ra = solve.ra_rad
             solved_dec = solve.dec_rad
             assert solved_ra is not None and solved_dec is not None
-            d_alpha, d_delta = _tangent_plane_error(
+            residual_alpha, residual_delta = _tangent_plane_error(
                 ra_target=ra_rad,
                 dec_target=dec_rad,
                 ra_solved=solved_ra,
                 dec_solved=solved_dec,
             )
-            final_error_arcsec = math.degrees(math.hypot(d_alpha, d_delta)) * 3600.0
-            self._model.update(d_alpha, d_delta, weight=0.1)
+            final_error_arcsec = (
+                math.degrees(math.hypot(residual_alpha, residual_delta)) * 3600.0
+            )
+
+            # The solve measures what remains after applying the current model.
+            # Reconstruct the underlying mount-bias observation before feeding it
+            # to the model's EMA; using the residual itself would make a stable
+            # bias converge to only half its true value.
+            observed_alpha = predicted_alpha + residual_alpha
+            observed_delta = predicted_delta + residual_delta
+            self._model.update(observed_alpha, observed_delta, weight=0.1)
 
         return PointingResult(
             success=trustworthy,
