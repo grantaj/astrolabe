@@ -2,11 +2,11 @@ import datetime
 
 import pytest
 
+import astrolabe.pointing.service as pointing_service_module
 from astrolabe.errors import ServiceError
 from astrolabe.mount.base import MountState
 from astrolabe.pointing import PointingModel, PointingService
 from astrolabe.solver.types import Image, SolveResult
-import astrolabe.pointing.service as pointing_service_module
 
 
 class FakeCamera:
