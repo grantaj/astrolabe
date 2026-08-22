@@ -1,10 +1,14 @@
 from dataclasses import dataclass
 import math
 
+from astrolabe.errors import ServiceError
 from astrolabe.solver.types import SolveRequest, SolveResult
 from astrolabe.util.math import normalize_angle_rad
 
 from .model import PointingModel
+
+
+_MAX_LEARNING_RESIDUAL_RAD = math.radians(10.0)
 
 
 @dataclass
@@ -17,6 +21,7 @@ class PointingResult:
     solve: SolveResult
     final_error_arcsec: float | None
     model_updated: bool
+    message: str | None = None
 
 
 class PointingService:
@@ -62,7 +67,8 @@ class PointingService:
         """Point at a target and learn from the solved residual when trustworthy.
 
         The supplied model is applied before the slew and updated in memory after
-        a successful, complete solve. Filesystem persistence remains the caller's
+        a successful, complete solve whose residual is within the v1 model's
+        learning envelope. Filesystem persistence remains the caller's
         responsibility.
         """
         predicted_alpha, predicted_delta = self._model.predict()
@@ -70,9 +76,10 @@ class PointingService:
         self._mount.slew_to(command_ra, command_dec)
         solve = self.solve_current(exposure_s=exposure_s, use_mount_hints=False)
 
-        trustworthy = _is_trustworthy_solve(solve)
+        rejection_reason = _solve_rejection_reason(solve)
         final_error_arcsec = None
-        if trustworthy:
+        model_updated = False
+        if rejection_reason is None:
             solved_ra = solve.ra_rad
             solved_dec = solve.dec_rad
             assert solved_ra is not None and solved_dec is not None
@@ -86,44 +93,87 @@ class PointingService:
                 math.degrees(math.hypot(residual_alpha, residual_delta)) * 3600.0
             )
 
-            # The solve measures what remains after applying the current model.
-            # Reconstruct the underlying mount-bias observation before feeding it
-            # to the model's EMA; using the residual itself would make a stable
-            # bias converge to only half its true value.
-            observed_alpha = predicted_alpha + residual_alpha
-            observed_delta = predicted_delta + residual_delta
-            self._model.update(observed_alpha, observed_delta, weight=0.1)
+            separation = _angular_separation_rad(
+                ra_a=ra_rad,
+                dec_a=dec_rad,
+                ra_b=solved_ra,
+                dec_b=solved_dec,
+            )
+            if separation > _MAX_LEARNING_RESIDUAL_RAD:
+                rejection_reason = (
+                    f"Solved field is {math.degrees(separation):.2f} deg from the "
+                    "requested target; refusing pointing-model update beyond the "
+                    f"{math.degrees(_MAX_LEARNING_RESIDUAL_RAD):.1f} deg learning envelope"
+                )
+            else:
+                # The solve measures what remains after applying the current model.
+                # Reconstruct the underlying mount-bias observation before feeding it
+                # to the model's EMA; using the residual itself would make a stable
+                # bias converge to only half its true value.
+                observed_alpha = predicted_alpha + residual_alpha
+                observed_delta = predicted_delta + residual_delta
+                self._model.update(observed_alpha, observed_delta, weight=0.1)
+                model_updated = True
 
         return PointingResult(
-            success=trustworthy,
+            success=rejection_reason is None,
             target_ra_rad=ra_rad,
             target_dec_rad=dec_rad,
             command_ra_rad=command_ra,
             command_dec_rad=command_dec,
             solve=solve,
             final_error_arcsec=final_error_arcsec,
-            model_updated=trustworthy,
+            model_updated=model_updated,
+            message=rejection_reason,
         )
 
     def apply_model(self, ra_rad: float, dec_rad: float) -> tuple[float, float]:
+        _validate_target(ra_rad, dec_rad)
         b_alpha, b_delta = self._model.predict()
+        if not math.isfinite(b_alpha) or not math.isfinite(b_delta):
+            raise ServiceError("Pointing model contains a non-finite bias")
+
         corrected_ra = normalize_angle_rad(ra_rad - b_alpha / math.cos(dec_rad))
         corrected_dec = dec_rad - b_delta
+        _validate_command(corrected_ra, corrected_dec)
         return corrected_ra, corrected_dec
 
 
-def _is_trustworthy_solve(result: SolveResult) -> bool:
-    """Return whether a solve can safely become a pointing-model observation.
+def _validate_target(ra_rad: float, dec_rad: float) -> None:
+    if not math.isfinite(ra_rad) or not math.isfinite(dec_rad):
+        raise ServiceError("Pointing target coordinates must be finite")
+    if not -math.pi / 2.0 <= dec_rad <= math.pi / 2.0:
+        raise ServiceError("Pointing target declination is outside the physical sky")
 
-    Solver backends own ambiguity/failure detection and report it through
-    ``success``. Pointing additionally fails closed on incomplete/non-finite or
-    physically impossible solved coordinates before learning from the result.
-    """
-    if not result.success or result.ra_rad is None or result.dec_rad is None:
-        return False
+
+def _validate_command(ra_rad: float, dec_rad: float) -> None:
+    if not math.isfinite(ra_rad) or not math.isfinite(dec_rad):
+        raise ServiceError("Pointing model produced non-finite mount coordinates")
+    if not -math.pi / 2.0 <= dec_rad <= math.pi / 2.0:
+        raise ServiceError("Pointing model produced an invalid mount declination")
+
+
+def _solve_rejection_reason(result: SolveResult) -> str | None:
+    """Return why a solve cannot become a pointing-model observation."""
+    if not result.success:
+        return result.message or "Plate solve failed"
+    if result.ra_rad is None or result.dec_rad is None:
+        return "Plate solve returned incomplete coordinates"
     if not math.isfinite(result.ra_rad) or not math.isfinite(result.dec_rad):
-        return False
-    return -math.pi / 2.0 <= result.dec_rad <= math.pi / 2.0
+        return "Plate solve returned non-finite coordinates"
+    if not -math.pi / 2.0 <= result.dec_rad <= math.pi / 2.0:
+        return "Plate solve returned an invalid declination"
+    return None
+
+
+def _angular_separation_rad(
+    *, ra_a: float, dec_a: float, ra_b: float, dec_b: float
+) -> float:
+    cos_separation = (
+        math.sin(dec_a) * math.sin(dec_b)
+        + math.cos(dec_a) * math.cos(dec_b) * math.cos(ra_b - ra_a)
+    )
+    return math.acos(max(-1.0, min(1.0, cos_separation)))
 
 
 def _tangent_plane_error(
