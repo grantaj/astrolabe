@@ -11,8 +11,8 @@ Astrolabe's core direction includes:
 - reliable local plate solving;
 - deterministic mount control;
 - solve-assisted pointing and centering;
-- polar-alignment measurement and guidance;
-- focused instrument utilities such as stellar focus measurement;
+- polar-alignment measurement and no-look guidance;
+- live manual focusing with no-look feedback;
 - an offline-first, observer-oriented target planner;
 - stable guiding as a later capability.
 
@@ -48,7 +48,8 @@ The v0 usability target is:
 1. connect to camera and mount;
 2. capture and plate-solve an image;
 3. slew and center a target via solve-based correction;
-4. perform polar alignment with actionable guidance.
+4. focus manually using live **audio feedback**, without needing to watch the terminal;
+5. perform polar alignment with actionable **audio feedback**, without needing to watch the terminal.
 
 Guiding is explicitly **post-MVP**. It may be added after the first working release and must not become a release prerequisite through architecture or sequencing accident.
 
