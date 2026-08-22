@@ -83,13 +83,13 @@ def test_update_bsc_crosswalk_with_local_sources_is_deterministic(
     ]
 
 
-def test_load_hd_to_hip_uses_first_mapping(tmp_path):
+def test_load_hd_to_hip_drops_ambiguous_mapping(tmp_path):
     source = tmp_path / "hip_main.dat"
     source.write_text(
         _make_hip_line(10, 20) + "\n" + _make_hip_line(11, 20) + "\n",
         encoding="utf-8",
     )
-    assert _load_hd_to_hip(source)["20"] == "10"
+    assert "20" not in _load_hd_to_hip(source)
 
 
 def test_update_bsc_crosswalk_skips_ambiguous_system_alias(tmp_path, monkeypatch):
