@@ -101,13 +101,6 @@ class Config:
         return self._data.get("planner", {}).get("aperture_mm", None)
 
     @property
-    def resolver_catalogs(self):
-        return self._data.get("resolver", {}).get(
-            "catalogs",
-            ["core_dso", "hip_subset", "star_aliases", "bayer_flamsteed"],
-        )
-
-    @property
     def resolver_hip_max_mag(self):
         return self._data.get("resolver", {}).get("hip_max_mag", 7.0)
 
