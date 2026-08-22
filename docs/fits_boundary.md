@@ -22,9 +22,12 @@ write_fits_image(path, pixels, *, extra_header=None, extra_cards=None) -> Path
 
 Scope is a **simple 2D primary image**: `SIMPLE`/`BITPIX`/`NAXIS`/`NAXIS1`/
 `NAXIS2`/`END`, 80-character cards, 2880-byte block padding, big-endian data,
-`BITPIX` 8/16/32/-32/-64, and `BSCALE`/`BZERO` scaling (including the
+`BITPIX` 8/16/32/64/-32/-64, and `BSCALE`/`BZERO` scaling (including the
 signed-plus-`BZERO` form INDI cameras use for unsigned 16-bit frames). `SIMPLE`
 must be the primary header's first keyword.
+
+Path-based readers transparently accept gzip streams detected by magic bytes.
+Other compressed transports and compression inside FITS remain out of scope.
 
 Encoding is **value-preserving, not dtype-preserving**. Unsigned 16-bit input is
 written in the standard signed-plus-`BZERO` form and therefore reads back as
@@ -39,7 +42,7 @@ encoder derives from the array itself (`SIMPLE`, `BITPIX`, `NAXIS`, `NAXISn`,
 `BSCALE`, `BZERO`, `EXTEND`, `END`): a duplicate would be appended after the
 mandatory cards and win when the reader builds its header dict.
 
-Explicitly out of scope: extensions and HDU lists, tables, compression,
+Explicitly out of scope: extensions and HDU lists, tables, HDU compression,
 continued/hierarch cards, and any WCS evaluation. A WCS-tagged frame may be
 *written* by passing header cards through `extra_header`, but Astrolabe does not
 interpret them. Callers needing more than this should own the extra behaviour
@@ -65,9 +68,8 @@ blank and `END` cards dropped — and is what callers extracting keywords should
 `view` validates primary-HDU *structure*, not pixel decodability: `SIMPLE` present,
 first and true; `BITPIX` in the standard set 8/16/32/64/-32/-64; `NAXIS >= 0` with
 non-negative `NAXISn`; and a data unit at least as long as the header declares.
-`BITPIX = 64` and any dimensionality, including `NAXIS = 0`, are therefore accepted
-for header inspection though `load_fits_pixels` cannot decode them. `view --show`
-does require the decodable 2-D subset.
+Any dimensionality, including `NAXIS = 0`, is therefore accepted for header
+inspection. `view --show` does require the decodable 2-D subset.
 
 `view` no longer emits `dependency_missing`/exit 2: the boundary has no optional
 dependency to be missing.

@@ -1,4 +1,5 @@
 import datetime
+import gzip
 from pathlib import Path
 
 import numpy as np
@@ -122,6 +123,7 @@ def test_fits_loader_rejects_non_2d_primary_image(tmp_path):
         (np.uint16, "float64"),
         (np.int16, ">i2"),
         (np.int32, ">i4"),
+        (np.int64, ">i8"),
         (np.float32, ">f4"),
         (np.float64, ">f8"),
     ],
@@ -177,7 +179,7 @@ def test_fits_writer_rejects_non_2d_and_unsupported_dtypes(tmp_path):
     with pytest.raises(ValueError, match="2D monochrome"):
         fits_image_bytes(np.zeros((2, 2, 3), dtype=np.uint16))
     with pytest.raises(ValueError, match="unsupported FITS pixel dtype"):
-        fits_image_bytes(np.zeros((2, 2), dtype=np.int64))
+        fits_image_bytes(np.zeros((2, 2), dtype=np.uint64))
 
 
 def test_load_fits_header_cards_preserves_order_and_comments(tmp_path):
@@ -271,7 +273,8 @@ def test_fits_writer_rejects_passthrough_cards_naming_reserved_keywords():
 
 
 @pytest.mark.parametrize(
-    "dtype", [np.uint8, np.uint16, np.int16, np.int32, np.float32, np.float64]
+    "dtype",
+    [np.uint8, np.uint16, np.int16, np.int32, np.int64, np.float32, np.float64],
 )
 def test_writer_accepts_reader_output_unchanged(tmp_path, dtype):
     """Round-trip closure: reader output must be valid writer input. #53 relies on it."""
@@ -291,7 +294,7 @@ def test_writer_accepts_reader_output_unchanged(tmp_path, dtype):
         assert second == first
 
 
-@pytest.mark.parametrize("code", ["i2", "i4", "f4", "f8"])
+@pytest.mark.parametrize("code", ["i2", "i4", "i8", "f4", "f8"])
 def test_writer_encodes_either_byte_order_identically(code):
     pixels = np.arange(12).reshape(3, 4) * 501
 
@@ -372,7 +375,7 @@ def test_validate_fits_structure_accepts_any_valid_primary_hdu(tmp_path, name):
     validate_fits_structure(path)
 
 
-def test_validate_fits_structure_accepts_bitpix_64_that_the_decoder_rejects(tmp_path):
+def test_bitpix_64_decodes_as_signed_int64(tmp_path):
     cards = [
         "SIMPLE  =                    T",
         "BITPIX  =                   64",
@@ -381,11 +384,53 @@ def test_validate_fits_structure_accepts_bitpix_64_that_the_decoder_rejects(tmp_
         "NAXIS2  =                    2",
     ]
     path = tmp_path / "i8.fits"
-    path.write_bytes(_header_bytes(cards) + bytes(2880))
+    pixels = np.array([[-(2**63), -1], [0, 2**63 - 1]], dtype=">i8")
+    path.write_bytes(_header_bytes(cards) + pixels.tobytes().ljust(2880, b"\0"))
 
     validate_fits_structure(path)
-    with pytest.raises(ValueError, match="unsupported FITS BITPIX=64"):
-        load_fits_pixels(path)
+    frame = load_fits_pixels(path)
+
+    assert frame.pixels.dtype == np.dtype(">i8")
+    np.testing.assert_array_equal(frame.pixels, pixels)
+    assert frame.saturation_level == float(np.iinfo(np.int64).max)
+
+
+def test_every_path_accessor_accepts_gzip_magic_without_a_gzip_suffix(tmp_path):
+    expected = golden_fits_bytes("image2d")
+    path = tmp_path / "magic-only.bin"
+    path.write_bytes(gzip.compress(expected))
+
+    frame = load_fits_pixels(path)
+
+    assert frame.pixels.dtype == np.dtype(">i2")
+    assert frame.pixels.shape == (3, 4)
+    assert load_fits_header_cards(path) == load_fits_header_cards(
+        _write_bytes(tmp_path / "plain.fits", expected)
+    )
+    assert fits_header_text(path) == golden_header_text("image2d")
+    validate_fits_structure(path)
+
+
+def _write_bytes(path: Path, data: bytes) -> Path:
+    path.write_bytes(data)
+    return path
+
+
+def test_path_accessors_use_magic_not_suffix(tmp_path):
+    expected = golden_fits_bytes("image2d")
+    plain_with_gzip_suffix = _write_bytes(tmp_path / "plain.fits.gz", expected)
+
+    assert load_fits_pixels(plain_with_gzip_suffix).pixels.shape == (3, 4)
+    assert fits_header_text(plain_with_gzip_suffix) == golden_header_text("image2d")
+    validate_fits_structure(plain_with_gzip_suffix)
+
+
+def test_validate_fits_structure_rejects_a_truncated_gzip_data_unit(tmp_path):
+    truncated = golden_fits_bytes("image2d")[:2880]
+    path = _write_bytes(tmp_path / "truncated.bin", gzip.compress(truncated))
+
+    with pytest.raises(ValueError, match="payload is truncated"):
+        validate_fits_structure(path)
 
 
 def test_validate_fits_structure_rejects_a_truncated_data_unit(tmp_path):

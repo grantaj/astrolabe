@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+import gzip
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -14,12 +16,25 @@ from astrolabe.camera.types import Image
 
 _FITS_BLOCK_BYTES = 2880
 _FITS_CARD_BYTES = 80
+_GZIP_MAGIC = b"\x1f\x8b"
 
 
 @dataclass(frozen=True)
 class PixelFrame:
     pixels: np.ndarray
     saturation_level: float | None = None
+
+
+@contextmanager
+def _open_fits_path(path: Path) -> Iterator[BinaryIO]:
+    with path.open("rb") as raw:
+        magic = raw.read(len(_GZIP_MAGIC))
+        raw.seek(0)
+        if magic != _GZIP_MAGIC:
+            yield raw
+            return
+        with gzip.GzipFile(fileobj=raw, mode="rb") as handle:
+            yield handle
 
 
 def _parse_fits_value(card: str) -> str | None:
@@ -104,6 +119,7 @@ def _read_fits_pixels(handle: BinaryIO, source: str) -> PixelFrame:
         8: np.dtype(">u1"),
         16: np.dtype(">i2"),
         32: np.dtype(">i4"),
+        64: np.dtype(">i8"),
         -32: np.dtype(">f4"),
         -64: np.dtype(">f8"),
     }
@@ -143,7 +159,7 @@ def load_fits_pixels(path: str | Path) -> PixelFrame:
     """Read the simple 2D primary-image FITS written by INDI camera drivers."""
 
     fits_path = Path(path)
-    with fits_path.open("rb") as handle:
+    with _open_fits_path(fits_path) as handle:
         return _read_fits_pixels(handle, str(fits_path))
 
 
@@ -157,7 +173,7 @@ def load_fits_header_cards(path: str | Path) -> list[str]:
     """Read the primary header as ordered right-stripped cards, blank cards and ``END`` dropped."""
 
     fits_path = Path(path)
-    with fits_path.open("rb") as handle:
+    with _open_fits_path(fits_path) as handle:
         cards, _ = _read_header_cards(handle, str(fits_path))
     return [stripped for card in cards if (stripped := card.rstrip())]
 
@@ -166,7 +182,7 @@ def fits_header_text(path: str | Path) -> str:
     """Serialise the primary header verbatim: 80-column cards through ``END``, block-padded."""
 
     fits_path = Path(path)
-    with fits_path.open("rb") as handle:
+    with _open_fits_path(fits_path) as handle:
         cards, _ = _read_header_cards(handle, str(fits_path), keep_end=True)
     text = "\n".join(cards)
     return text + " " * (-len(text) % _FITS_BLOCK_BYTES)
@@ -180,8 +196,10 @@ def validate_fits_structure(path: str | Path) -> None:
     """Check the primary HDU declares a well-formed data unit, without decoding it."""
 
     fits_path = Path(path)
-    with fits_path.open("rb") as handle:
+    with _open_fits_path(fits_path) as handle:
         header, data_offset = _fits_header(handle, str(fits_path))
+        handle.seek(0, 2)
+        stream_size = handle.tell()
     if header.get("SIMPLE", "").upper() not in {"T", "TRUE"}:
         raise ValueError(f"not a simple FITS primary HDU: {fits_path}")
 
@@ -201,7 +219,7 @@ def validate_fits_structure(path: str | Path) -> None:
         count *= length
 
     declared = 0 if naxis == 0 else count * abs(bitpix) // 8
-    if fits_path.stat().st_size - data_offset < declared:
+    if stream_size - data_offset < declared:
         raise ValueError(f"FITS pixel payload is truncated: {fits_path}")
 
 
@@ -210,6 +228,7 @@ _BITPIX_BY_DTYPE = {
     np.dtype("int16"): 16,
     np.dtype("uint16"): 16,
     np.dtype("int32"): 32,
+    np.dtype("int64"): 64,
     np.dtype("float32"): -32,
     np.dtype("float64"): -64,
 }

@@ -7,6 +7,7 @@ the safety net for the CLI plumbing refactor and must not be relaxed.
 
 from __future__ import annotations
 
+import gzip
 import json
 import sys
 
@@ -504,6 +505,82 @@ def test_view_show_loads_pixel_data_without_astropy(monkeypatch, capsys, tmp_pat
     assert payload["data"]["show"] is True
     assert shown["shown"] is True
     assert np.array_equal(shown["data"], pixels)
+
+
+def test_view_show_loads_signed_int64_pixels(monkeypatch, capsys, tmp_path):
+    import numpy as np
+
+    from astrolabe.camera.pixels import write_fits_image
+
+    pixels = np.array([[-(2**63), -1], [0, 2**63 - 1]], dtype=np.int64)
+    path = write_fits_image(tmp_path / "i64.fits", pixels)
+    shown = {}
+
+    class FakePlt:
+        def imshow(self, data, **kwargs):
+            shown["data"] = data
+
+        def title(self, text):
+            pass
+
+        def colorbar(self):
+            pass
+
+        def show(self):
+            pass
+
+    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", FakePlt())
+    code, out, err = run_cli(
+        monkeypatch, capsys, "--json", "view", "--in", str(path), "--show"
+    )
+
+    assert code == 0
+    assert shown["data"].dtype == np.dtype(">i8")
+    np.testing.assert_array_equal(shown["data"], pixels)
+
+
+@pytest.mark.parametrize("suffix", ["frame.fits.gz", "magic-only.bin"])
+def test_view_accepts_gzip_by_magic(monkeypatch, capsys, tmp_path, suffix):
+    path = tmp_path / suffix
+    path.write_bytes(gzip.compress(golden_fits_bytes("image2d")))
+
+    code, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(path))
+    payload = envelope(out)
+
+    assert code == 0
+    assert payload["data"]["header"] == golden_header_text("image2d")
+
+
+def test_view_treats_plain_fits_with_gzip_suffix_as_plain(
+    monkeypatch, capsys, tmp_path
+):
+    path = tmp_path / "plain.fits.gz"
+    path.write_bytes(golden_fits_bytes("image2d"))
+
+    code, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(path))
+    payload = envelope(out)
+
+    assert code == 0
+    assert payload["data"]["header"] == golden_header_text("image2d")
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        b"\x1f\x8bmalformed",
+        gzip.compress(golden_fits_bytes("image2d")[:2880]),
+    ],
+    ids=["malformed", "truncated-payload"],
+)
+def test_view_maps_invalid_gzip_to_view_failed(monkeypatch, capsys, tmp_path, contents):
+    path = tmp_path / "bad.bin"
+    path.write_bytes(contents)
+
+    code, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(path))
+    payload = envelope(out)
+
+    assert code == 1
+    assert payload["error"]["code"] == "view_failed"
 
 
 # --------------------------------------------------------------------------
