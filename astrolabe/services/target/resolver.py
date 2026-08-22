@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -8,9 +9,16 @@ from .types import TargetMatch, TargetRecord
 
 
 class TargetResolver:
-    def __init__(self, index: TargetIndex, min_score: float = 0.7) -> None:
+    def __init__(
+        self,
+        index: TargetIndex,
+        min_score: float = 0.7,
+        *,
+        missing_aliases: Iterable[str] = (),
+    ) -> None:
         self._index = index
         self._min_score = min_score
+        self._missing_aliases = {normalize_query(alias) for alias in missing_aliases}
 
     @classmethod
     def from_catalog_paths(
@@ -29,31 +37,37 @@ class TargetResolver:
         for record in load_hip_subset_csv(hip_subset_path):
             index.add_record(record)
 
-        alias_map: dict[str, str] = {}
-        for alias, hip_id in load_alias_csv(star_aliases_path).items():
-            alias_map[alias] = hip_id
-        for alias, hip_id in load_alias_csv(bayer_flamsteed_path).items():
-            alias_map[alias] = hip_id
+        # Resolver catalogue order is fixed policy. Core catalogue aliases/names win,
+        # followed by curated common names, checked-in Bayer/Flamsteed aliases, then
+        # the optional generated BSC crosswalk. Lower-priority sources never override
+        # a higher-priority alias.
+        alias_targets: dict[str, tuple[str, str]] = {}
+        _merge_aliases(alias_targets, load_alias_csv(star_aliases_path))
+        _merge_aliases(alias_targets, load_alias_csv(bayer_flamsteed_path))
         if bsc_crosswalk_path and bsc_crosswalk_path.exists():
-            for alias, hip_id in load_alias_csv(bsc_crosswalk_path).items():
-                alias_map[alias] = hip_id
+            _merge_aliases(
+                alias_targets,
+                load_alias_csv(bsc_crosswalk_path),
+                allow_conflicts=True,
+            )
 
-        for alias, hip_id in alias_map.items():
+        missing_aliases: set[str] = set()
+        for normalized, (alias, hip_id) in sorted(alias_targets.items()):
             record = index.get_by_id(f"HIP {hip_id}")
-            if record:
-                index.add_record(
-                    TargetRecord(
-                        id=record.id,
-                        name=record.name,
-                        ra_deg=record.ra_deg,
-                        dec_deg=record.dec_deg,
-                        target_type=record.target_type,
-                        mag=record.mag,
-                        aliases=[alias],
-                    )
-                )
+            if record is None:
+                missing_aliases.add(normalized)
+                continue
 
-        return cls(index=index, min_score=min_score)
+            existing = index.get_by_alias(alias)
+            if existing is not None and existing.id != record.id:
+                continue
+            index.add_alias(alias, record)
+
+        return cls(
+            index=index,
+            min_score=min_score,
+            missing_aliases=missing_aliases,
+        )
 
     @classmethod
     def from_repo_data(
@@ -98,12 +112,19 @@ class TargetResolver:
         if record:
             return [TargetMatch(record=record, match_score=1.0, match_reason="id")]
 
+        # An exact known alias whose backing HIP record is unavailable is a terminal
+        # miss. Falling through to fuzzy search can silently select a different star.
+        if normalized in self._missing_aliases:
+            return []
+
         record = self._index.get_by_alias(normalized)
         if record:
             return [TargetMatch(record=record, match_score=0.95, match_reason="alias")]
 
         parsed = parse_bayer_flamsteed(normalized)
         if parsed:
+            if normalize_query(parsed) in self._missing_aliases:
+                return []
             record = self._index.get_by_alias(parsed)
             if record:
                 return [
@@ -115,14 +136,38 @@ class TargetResolver:
         return self._fuzzy_matches(normalized, limit)
 
     def _fuzzy_matches(self, normalized: str, limit: int) -> list[TargetMatch]:
-        matches: list[TargetMatch] = []
+        matches: list[tuple[float, str, TargetRecord]] = []
         for alias, record in self._index.iter_aliases():
             score = SequenceMatcher(None, normalized, alias).ratio()
             if score < self._min_score:
                 continue
-            matches.append(
-                TargetMatch(record=record, match_score=score, match_reason="fuzzy")
-            )
+            matches.append((score, alias, record))
 
-        matches.sort(key=lambda m: m.match_score, reverse=True)
-        return matches[:limit]
+        matches.sort(key=lambda item: (-item[0], item[1], normalize_query(item[2].id)))
+        return [
+            TargetMatch(record=record, match_score=score, match_reason="fuzzy")
+            for score, _, record in matches[:limit]
+        ]
+
+
+def _merge_aliases(
+    target: dict[str, tuple[str, str]],
+    aliases: dict[str, str],
+    *,
+    allow_conflicts: bool = False,
+) -> None:
+    for alias, hip_id in sorted(
+        aliases.items(), key=lambda item: (normalize_query(item[0]), item[0], item[1])
+    ):
+        normalized = normalize_query(alias)
+        existing = target.get(normalized)
+        if existing is None:
+            target[normalized] = (alias, hip_id)
+            continue
+        if existing[1] == hip_id:
+            continue
+        if allow_conflicts:
+            continue
+        raise ValueError(
+            f"Conflicting alias {alias!r}: HIP {existing[1]} and HIP {hip_id}"
+        )
