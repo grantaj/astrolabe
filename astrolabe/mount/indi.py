@@ -31,6 +31,8 @@ _CONNECT_RETRIES = 3
 _CONNECT_RETRY_SLEEP_S = 0.5
 _COORD_SET_WAIT_S = 0.1
 _SLEW_STATE_TIMEOUT_S = 20.0
+_TRACK_STATE_TIMEOUT_S = 2.0
+_TRACK_STATE_POLL_S = 0.1
 
 # INDI property state values
 _INDI_ON = "On"
@@ -308,13 +310,31 @@ class IndiMountBackend(MountBackend):
     def set_tracking(self, enabled: bool) -> None:
         if not self._connected:
             self.connect()
-        # TELESCOPE_TRACK_STATE is a 1OFMANY switch: set the desired element to "On"
-        if enabled:
-            prop = f"{self.device}.TELESCOPE_TRACK_STATE.TRACK_ON"
-        else:
-            prop = f"{self.device}.TELESCOPE_TRACK_STATE.TRACK_OFF"
-        if self._client.has_prop(prop):
-            self._client.setprop(prop, _INDI_ON, kind="s", soft=True)
+        # TELESCOPE_TRACK_STATE is a 1OFMANY switch: set the desired element to "On".
+        element = "TRACK_ON" if enabled else "TRACK_OFF"
+        prop = f"{self.device}.TELESCOPE_TRACK_STATE.{element}"
+        if not self._client.has_prop(prop):
+            state = "enable" if enabled else "disable"
+            raise BackendError(
+                f"Mount device '{self.device}' cannot {state} tracking: "
+                f"{element} is unavailable."
+            )
+
+        self._client.setprop(prop, _INDI_ON, kind="s", soft=False)
+
+        deadline = time.monotonic() + _TRACK_STATE_TIMEOUT_S
+        while True:
+            if self.get_state().tracking == enabled:
+                return
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(_TRACK_STATE_POLL_S)
+
+        state = "enabled" if enabled else "disabled"
+        raise BackendError(
+            f"Mount device '{self.device}' did not report tracking {state} "
+            f"within {_TRACK_STATE_TIMEOUT_S:.1f}s."
+        )
 
     def pulse_guide(self, ra_ms: float, dec_ms: float) -> None:
         """Send a timed pulse guide command to the mount.
