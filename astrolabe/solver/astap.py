@@ -59,7 +59,7 @@ class AstapSolverBackend(SolverBackend):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir) / "astap_result"
-            cmd = [self.binary, "-f", str(fits_path), "-r", "-o", str(base)]
+            cmd = [self.binary, "-f", str(fits_path), "-o", str(base)]
             if self.database_path:
                 cmd += ["-d", self.database_path]
             if request.ra_hint_rad is not None and request.dec_hint_rad is not None:
@@ -69,10 +69,11 @@ class AstapSolverBackend(SolverBackend):
                 spd_deg = 90.0 - dec_deg
                 cmd += ["-ra", str(ra_hours), "-spd", str(spd_deg)]
             if request.scale_hint_arcsec is not None:
-                cmd += ["-scale", str(request.scale_hint_arcsec)]
+                fov_deg = request.scale_hint_arcsec * request.image.height_px / 3600.0
+                cmd += ["-fov", str(fov_deg)]
             if request.search_radius_rad is not None:
                 radius_deg = rad_to_degrees(request.search_radius_rad)
-                cmd += ["-radius", str(radius_deg)]
+                cmd += ["-r", str(radius_deg)]
             if request.extra_options:
                 for k, v in request.extra_options.items():
                     cmd += [f"--{k}", str(v)]
