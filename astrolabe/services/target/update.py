@@ -162,16 +162,21 @@ def _parse_hipparcos_line(line: str) -> dict | None:
 def _load_hd_to_hip(path: Path) -> dict[str, str]:
     opener = gzip.open if path.suffix == ".gz" else open
     mapping: dict[str, str] = {}
+    ambiguous: set[str] = set()
     with opener(path, "rt", encoding="utf-8", errors="ignore") as handle:
         for line in handle:
             if len(line) < 396:
                 continue
             hip_id = line[8:14].strip()
             hd = line[390:396].strip()
-            if not hip_id or not hd:
+            if not hip_id or not hd or hd in ambiguous:
                 continue
-            if hd not in mapping:
+            existing = mapping.get(hd)
+            if existing is None:
                 mapping[hd] = hip_id
+            elif existing != hip_id:
+                del mapping[hd]
+                ambiguous.add(hd)
     return mapping
 
 
