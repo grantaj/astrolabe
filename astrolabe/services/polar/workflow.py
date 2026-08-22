@@ -28,14 +28,8 @@ from .types import (
     PolarWorkflowState,
     _PolarMeasurement,
     _PoseObservation,
+    _SolveHint,
 )
-
-
-@dataclass(frozen=True)
-class _SolveHint:
-    ra_rad: float
-    dec_rad: float
-    scale_arcsec: float | None
 
 
 @dataclass(frozen=True)
@@ -168,7 +162,7 @@ class _PolarAdjustmentWorkflow:
                 config=config,
                 feedback=feedback,
                 on_update=on_update,
-                initial_hint=None,
+                initial_hint=measurement.hint,
             )
             if not az_stage.success:
                 return self._failed_adjust_result(
@@ -335,6 +329,7 @@ class _PolarAdjustmentWorkflow:
             )
             if live is None:
                 consecutive_failures += 1
+                stable_count = 0
                 invalid = feedback.update(None, valid=False)
                 self._notify(
                     on_update,
@@ -366,6 +361,7 @@ class _PolarAdjustmentWorkflow:
                 and observation.timestamp_utc <= previous_timestamp
             ):
                 consecutive_failures += 1
+                stable_count = 0
                 invalid = feedback.update(None, valid=False)
                 self._notify(
                     on_update,
@@ -399,6 +395,7 @@ class _PolarAdjustmentWorkflow:
                 )
             except ValueError as exc:
                 consecutive_failures += 1
+                stable_count = 0
                 invalid = feedback.update(None, valid=False)
                 self._notify(
                     on_update,
@@ -433,6 +430,7 @@ class _PolarAdjustmentWorkflow:
                     )
                 except ValueError as exc:
                     consecutive_failures += 1
+                    stable_count = 0
                     invalid = feedback.update(None, valid=False)
                     self._notify(
                         on_update,
@@ -460,6 +458,7 @@ class _PolarAdjustmentWorkflow:
                     or abs(step_rad) > config.max_step_rad
                 ):
                     consecutive_failures += 1
+                    stable_count = 0
                     invalid = feedback.update(None, valid=False)
                     reason = (
                         "wrong-axis/coupled motion exceeds the trust limit"
