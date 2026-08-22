@@ -132,9 +132,7 @@ def test_required_alias_sources_have_deterministic_priority(tmp_path):
     core.write_text("id,name,ra_deg,dec_deg,type,mag\n", encoding="utf-8")
     hip = tmp_path / "hip.csv"
     hip.write_text(
-        "hip_id,ra_deg,dec_deg,mag,name\n"
-        "1,1.0,2.0,1.0,HIP 1\n"
-        "2,3.0,4.0,1.0,HIP 2\n",
+        "hip_id,ra_deg,dec_deg,mag,name\n1,1.0,2.0,1.0,HIP 1\n2,3.0,4.0,1.0,HIP 2\n",
         encoding="utf-8",
     )
     common = tmp_path / "common.csv"
@@ -162,9 +160,7 @@ def test_conflicting_required_alias_sources_fail_closed(tmp_path):
     core.write_text("id,name,ra_deg,dec_deg,type,mag\n", encoding="utf-8")
     hip = tmp_path / "hip.csv"
     hip.write_text(
-        "hip_id,ra_deg,dec_deg,mag,name\n"
-        "1,1.0,2.0,1.0,HIP 1\n"
-        "2,3.0,4.0,1.0,HIP 2\n",
+        "hip_id,ra_deg,dec_deg,mag,name\n1,1.0,2.0,1.0,HIP 1\n2,3.0,4.0,1.0,HIP 2\n",
         encoding="utf-8",
     )
     common = tmp_path / "common.csv"
