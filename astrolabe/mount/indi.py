@@ -233,6 +233,10 @@ class IndiMountBackend(MountBackend):
             if prop_state.lower() != _INDI_BUSY.lower():
                 break
             time.sleep(0.2)
+        else:
+            raise BackendError(
+                f"Timed out waiting for mount device '{self.device}' slew to complete."
+            )
 
     def sync(self, ra_rad: float, dec_rad: float) -> None:
         if not self._connected:
