@@ -70,7 +70,7 @@ set_tracking(enabled)
 pulse_guide(ra_ms, dec_ms)
 ```
 
-`slew_to` and `sync` accept canonical ICRS/radian coordinates. Mount-native epoch/unit/property conversion stays inside the mount capability.
+`slew_to` and `sync` accept canonical ICRS/radian coordinates. Mount-native epoch/unit/property conversion stays inside the mount capability. `sync` is a primitive mount capability, not part of Pointing's normal learning workflow.
 
 ## Current service surfaces
 
@@ -78,17 +78,18 @@ Services orchestrate capability contracts and own domain policy/math, not hardwa
 
 ### PointingService
 
-The coherent pointing capability is exported from `astrolabe.pointing`. `PointingService` receives a `PointingModel` explicitly and exposes operations equivalent to:
+The coherent pointing capability is exported from `astrolabe.pointing`. `PointingService` receives a `PointingModel` explicitly and exposes the normal operations:
 
 ```text
 solve_current(exposure_s=None, use_mount_hints=True) -> SolveResult
-sync_current(exposure_s=None) -> PointingResult
-initial_alignment(target_count, exposure_s=None, max_attempts=None) -> PointingResult
-apply_model(ra_rad, dec_rad) -> (ra_rad, dec_rad)
-update_model_from_target(...) -> None
+point_to(ra_rad, dec_rad, exposure_s=None) -> PointingResult
 ```
 
-Pointing persistence is explicit: `load_pointing_model(path)` and `save_pointing_model(model, path)` are separate pointing-owned helpers, while the application composition layer chooses the path (including the default `~/.astrolabe/pointing.json`). Ordinary model/service use does not implicitly read or write the filesystem.
+`point_to` owns the target-pointing lifecycle: apply the current model, slew, solve without mount-position hints, measure the residual to the requested target, and update the supplied model when the solve is trustworthy. Solver backends own ambiguity/failure detection through `SolveResult.success`; Pointing additionally rejects incomplete, non-finite, or physically impossible solved coordinates before learning.
+
+There is no `initial_alignment()` or Pointing-level `sync_current()` phase. Ordinary target pointing is the model-observation path.
+
+Pointing persistence is explicit: `load_pointing_model(path)` and `save_pointing_model(model, path)` are separate pointing-owned helpers, while the application composition layer chooses the path (including the default `~/.astrolabe/pointing.json`) and saves only accepted updates. Ordinary model/service use does not implicitly read or write the filesystem.
 
 ### PolarAlignService
 
@@ -116,7 +117,7 @@ The planner accepts an observing window/location/constraints and returns ranked 
 
 ## Placeholder services on current main
 
-`GotoService.center_target(...)` and the guiding service methods are present as architectural/CLI placeholders but currently raise `NotImplementedFeature`.
+The guiding service methods are present as architectural/CLI placeholders but currently raise `NotImplementedFeature`.
 
 Do not build new code against imagined completed behaviour from old planning documents. Their future implementation is defined by current GitHub issues.
 
