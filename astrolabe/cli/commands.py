@@ -545,12 +545,17 @@ def run_align(args) -> int:
     try:
         if args.mode == "solve":
             result = service.solve_current(exposure_s=args.exposure)
+            is_align_alias = getattr(args, "command", None) == "align"
             return emit_result(
                 args,
                 command_name,
                 result,
-                failure_code="pointing_solve_failed",
-                failure_message="pointing solve failed",
+                failure_code="align_failed"
+                if is_align_alias
+                else "pointing_solve_failed",
+                failure_message="align solve failed"
+                if is_align_alias
+                else "pointing solve failed",
                 human=format_solve_summary(result),
             )
 
@@ -570,6 +575,9 @@ def run_align(args) -> int:
         if result.model_updated and model_path is not None:
             save_pointing_model(model, model_path)
 
+        failure_message = (
+            result.message or result.solve.message or "pointing goto failed"
+        )
         if result.success:
             human = (
                 f"Final error: {result.final_error_arcsec:.1f} arcsec"
@@ -577,7 +585,7 @@ def run_align(args) -> int:
                 else "Final error: unknown"
             )
         else:
-            human = f"Pointing goto failed: {result.solve.message}"
+            human = f"Pointing goto failed: {failure_message}"
 
         failure_code = (
             "goto_failed"
@@ -587,10 +595,10 @@ def run_align(args) -> int:
         return emit_result(
             args,
             command_name,
-            result.solve,
+            result,
             ok=result.success,
             failure_code=failure_code,
-            failure_message="pointing goto failed",
+            failure_message=failure_message,
             data={
                 "target_ra_deg": target_ra_deg,
                 "target_dec_deg": target_dec_deg,
