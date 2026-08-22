@@ -6,6 +6,7 @@ stdout + stderr in human mode, and the process exit code.
 
 from __future__ import annotations
 
+from dataclasses import replace
 import datetime
 import importlib
 import json
@@ -54,6 +55,9 @@ def patch_backends(monkeypatch, *, mount=None, camera=None, solver=None) -> None
     No tolerance for missing modules or names: if a factory moves, these tests
     must fail loudly rather than quietly reach real hardware backends.
     """
+    if isinstance(solver, FakeSolver) and isinstance(mount, FakeMount):
+        solver.mount = mount
+
     wanted = {
         "get_mount_backend": mount,
         "get_camera_backend": camera,
@@ -160,16 +164,35 @@ def solve_result(success: bool = True) -> SolveResult:
 
 
 class FakeSolver:
-    def __init__(self, result: SolveResult | None = None, available: bool = True):
-        self.result = result or solve_result()
+    def __init__(
+        self,
+        result: SolveResult | Exception | None = None,
+        available: bool = True,
+    ):
+        self._result = result if result is not None else solve_result()
+        self._follow_mount_slew = result is None
         self.available = available
         self.requests: list = []
+        self.mount: FakeMount | None = None
+
+    @property
+    def result(self) -> SolveResult | Exception:
+        return self._result
+
+    @result.setter
+    def result(self, value: SolveResult | Exception) -> None:
+        self._result = value
+        self._follow_mount_slew = False
 
     def is_available(self) -> dict:
         return {"ok": self.available, "detail": "found"}
 
     def solve(self, request):
         self.requests.append(request)
-        if isinstance(self.result, Exception):
-            raise self.result
-        return self.result
+        if isinstance(self._result, Exception):
+            raise self._result
+        if self._follow_mount_slew and self._result.success and self.mount is not None:
+            for call in reversed(self.mount.calls):
+                if call[0] == "slew_to":
+                    return replace(self._result, ra_rad=call[1], dec_rad=call[2])
+        return self._result
