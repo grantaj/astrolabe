@@ -44,7 +44,7 @@ dec_corrected = dec_target - b_delta
 
 The corrected RA is normalized after applying the offset.
 
-The small-angle representation is intended for ordinary pointing residuals, not arbitrary large separations or operations near the singularity at the celestial poles.
+The small-angle representation is intended for ordinary pointing residuals, not arbitrary large separations or operations near the singularity at the celestial poles. Pointing validates both the requested target and the model-corrected command before issuing hardware motion; non-finite coordinates or declinations outside the physical sky fail closed.
 
 ## Learning
 
@@ -53,6 +53,8 @@ Pointing does not have an alignment or initialization phase. Each normal `Pointi
 ```text
 apply model -> slew -> solve -> measure residual -> update model
 ```
+
+The mount backend's `slew_to()` contract is synchronous: it returns only once the backend has confirmed that commanded motion is no longer in progress, or raises a backend error if completion cannot be confirmed. Pointing therefore never starts the learning exposure while a successful slew call is still in flight.
 
 The solved target residual is what remains **after** the current bias estimate has already been applied. The v1 model represents the underlying mount bias, so Pointing first reconstructs the corresponding bias observation:
 
@@ -70,11 +72,9 @@ Equivalently for this offset model, `b_new = b_old + weight * residual`. Feeding
 
 `weight` is clamped to `[0, 1]`; the current service weight is `0.1`.
 
-The model is updated only when the solver reports success and supplies complete, finite, physically valid solved coordinates. Solver-specific ambiguity or failure belongs at the solver boundary and must be reported as an unsuccessful solve. Rejected observations do not change the model.
+The model is updated only when the solver reports success, supplies complete finite physically valid solved coordinates, and the solved field lies within **10 degrees great-circle separation** of the requested target. The 10-degree bound is a deliberately generous safety envelope for the offset-only v1 model: it permits coarse initial pointing errors while preventing an unrelated but formally successful blind solve from becoming a catastrophic model update. It is not a centering tolerance or a claim that a 10-degree pointing error is acceptable final performance. Rejected observations do not change the model, although a geometrically valid outlier can still report its measured final error.
 
-The v1 service also rejects an otherwise successful solve when its great-circle separation from the requested target exceeds **10 degrees**. This deliberately generous learning envelope is a corruption guard for the small-angle offset model, not a pointing-performance target: a solve farther away is treated as an outlier and is never incorporated into model state.
-
-Before capturing the image used for learning, `point_to()` waits for the mount to report a stable non-slewing state. If the mount does not settle within the service timeout, the operation fails rather than solving an in-flight field and learning that motion as pointing bias.
+Solver-specific ambiguity or failure belongs at the solver boundary and must be reported as an unsuccessful solve. Pointing's additional geometric trust gate is deliberately solver-independent.
 
 Mount sync is not part of this loop. Changing a mount's own coordinate mapping would create a second adaptive model and make the learned Astrolabe correction ambiguous, so ordinary pointing learns from the solved residual without syncing the mount.
 
