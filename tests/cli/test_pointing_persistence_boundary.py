@@ -79,7 +79,9 @@ def test_pointing_goto_loads_and_saves_persisted_model(monkeypatch, capsys, tmp_
     assert persisted.num_samples == 4
 
 
-def test_pointing_goto_does_not_save_rejected_observation(monkeypatch, capsys, tmp_path):
+def test_pointing_goto_does_not_save_rejected_observation(
+    monkeypatch, capsys, tmp_path
+):
     monkeypatch.setenv("HOME", str(tmp_path))
     model_path = tmp_path / ".astrolabe" / "pointing.json"
     original = PointingModel(b_alpha_rad=0.125, b_delta_rad=-0.25, num_samples=3)
