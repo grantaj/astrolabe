@@ -10,10 +10,13 @@ from .model import PointingModel
 @dataclass
 class PointingResult:
     success: bool
-    solves_attempted: int
-    solves_succeeded: int
-    rms_arcsec: float | None
-    message: str | None = None
+    target_ra_rad: float
+    target_dec_rad: float
+    command_ra_rad: float
+    command_dec_rad: float
+    solve: SolveResult
+    final_error_arcsec: float | None
+    model_updated: bool
 
 
 class PointingService:
@@ -50,64 +53,44 @@ class PointingService:
         )
         return self._solver.solve(request)
 
-    def sync_current(self, exposure_s: float | None = None) -> PointingResult:
-        result = self.solve_current(exposure_s=exposure_s)
-        if result.success and result.ra_rad is not None and result.dec_rad is not None:
-            # A mount sync changes the mount's coordinate mapping to agree with the
-            # solved sky position. Do not also learn the pre-sync discrepancy into
-            # the pointing model or later gotos would compensate twice.
-            self._mount.sync(result.ra_rad, result.dec_rad)
-            return PointingResult(
-                success=True,
-                solves_attempted=1,
-                solves_succeeded=1,
-                rms_arcsec=result.rms_arcsec,
-                message=result.message,
-            )
-        return PointingResult(
-            success=False,
-            solves_attempted=1,
-            solves_succeeded=0,
-            rms_arcsec=result.rms_arcsec,
-            message=result.message or "Pointing sync failed",
-        )
-
-    def initial_alignment(
+    def point_to(
         self,
-        target_count: int,
+        ra_rad: float,
+        dec_rad: float,
         exposure_s: float | None = None,
-        max_attempts: int | None = None,
     ) -> PointingResult:
-        if target_count <= 0:
-            raise ValueError("target_count must be positive")
-        attempts = 0
-        successes = 0
-        last_rms = None
-        while successes < target_count:
-            if max_attempts is not None and attempts >= max_attempts:
-                break
-            attempts += 1
-            result = self.solve_current(exposure_s=exposure_s)
-            last_rms = result.rms_arcsec
-            if (
-                result.success
-                and result.ra_rad is not None
-                and result.dec_rad is not None
-            ):
-                # As in sync_current(), the sync itself corrects the mount model;
-                # keeping the pre-sync delta in our pointing model would apply
-                # the same correction again on a subsequent pointing-aware goto.
-                self._mount.sync(result.ra_rad, result.dec_rad)
-                successes += 1
+        """Point at a target and learn from the solved residual when trustworthy.
+
+        The supplied model is applied before the slew and updated in memory after
+        a successful, complete solve. Filesystem persistence remains the caller's
+        responsibility.
+        """
+        command_ra, command_dec = self.apply_model(ra_rad, dec_rad)
+        self._mount.slew_to(command_ra, command_dec)
+        solve = self.solve_current(exposure_s=exposure_s, use_mount_hints=False)
+
+        final_error_arcsec = None
+        model_updated = False
+        if _is_trustworthy_solve(solve):
+            d_alpha, d_delta = _tangent_plane_error(
+                ra_target=ra_rad,
+                dec_target=dec_rad,
+                ra_solved=solve.ra_rad,
+                dec_solved=solve.dec_rad,
+            )
+            final_error_arcsec = math.degrees(math.hypot(d_alpha, d_delta)) * 3600.0
+            self._model.update(d_alpha, d_delta, weight=0.1)
+            model_updated = True
 
         return PointingResult(
-            success=successes >= target_count,
-            solves_attempted=attempts,
-            solves_succeeded=successes,
-            rms_arcsec=last_rms,
-            message=None
-            if successes >= target_count
-            else "Pointing calibrate incomplete",
+            success=solve.success,
+            target_ra_rad=ra_rad,
+            target_dec_rad=dec_rad,
+            command_ra_rad=command_ra,
+            command_dec_rad=command_dec,
+            solve=solve,
+            final_error_arcsec=final_error_arcsec,
+            model_updated=model_updated,
         )
 
     def apply_model(self, ra_rad: float, dec_rad: float) -> tuple[float, float]:
@@ -116,23 +99,13 @@ class PointingService:
         corrected_dec = dec_rad - b_delta
         return corrected_ra, corrected_dec
 
-    def update_model_from_target(
-        self,
-        *,
-        ra_target: float,
-        dec_target: float,
-        result: SolveResult,
-        weight: float = 0.1,
-    ) -> None:
-        if result.ra_rad is None or result.dec_rad is None:
-            return
-        d_alpha, d_delta = _tangent_plane_error(
-            ra_target=ra_target,
-            dec_target=dec_target,
-            ra_solved=result.ra_rad,
-            dec_solved=result.dec_rad,
-        )
-        self._model.update(d_alpha, d_delta, weight=weight)
+
+def _is_trustworthy_solve(result: SolveResult) -> bool:
+    if not result.success or result.ra_rad is None or result.dec_rad is None:
+        return False
+    if not math.isfinite(result.ra_rad) or not math.isfinite(result.dec_rad):
+        return False
+    return -math.pi / 2.0 <= result.dec_rad <= math.pi / 2.0
 
 
 def _tangent_plane_error(
