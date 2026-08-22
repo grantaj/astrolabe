@@ -140,6 +140,22 @@ def test_point_to_applies_model_slews_solves_and_updates_model():
     assert model.num_samples == 1
 
 
+def test_point_to_learns_underlying_bias_not_post_correction_residual():
+    target_ra = 0.9
+    target_dec = 0.4
+    model = PointingModel(b_alpha_rad=0.01, b_delta_rad=-0.02)
+    solver = FakeSolver(_solve_result(ra_rad=target_ra, dec_rad=target_dec))
+    service = PointingService(FakeMount(), FakeCamera(), solver, model=model)
+
+    result = service.point_to(target_ra, target_dec)
+
+    assert result.success is True
+    assert result.final_error_arcsec == pytest.approx(0.0)
+    assert model.b_alpha_rad == pytest.approx(0.01)
+    assert model.b_delta_rad == pytest.approx(-0.02)
+    assert model.num_samples == 1
+
+
 def test_point_to_does_not_learn_from_failed_solve():
     model = PointingModel()
     mount = FakeMount()
