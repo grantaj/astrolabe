@@ -30,8 +30,8 @@ def test_build_bayer_flamsteed_from_local_archival_inputs(tmp_path, monkeypatch)
     with open(output, "r", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     assert {(row["alias"], row["hip_id"]) for row in rows} == {
-        ("9 canis major", "32349"),
+        ("9 canis majoris", "32349"),
         ("9 cma", "32349"),
-        ("alpha canis major", "32349"),
+        ("alpha canis majoris", "32349"),
         ("alpha cma", "32349"),
     }
