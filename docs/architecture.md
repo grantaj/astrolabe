@@ -36,7 +36,7 @@ The shared `astrolabe.indi` layer owns low-level INDI transport mechanics. Devic
 
 ### Mount-native frame conversion stays with the mount
 
-Astrolabe's canonical celestial frame is ICRS/J2000-equivalent. A mount backend may need epoch-of-date/apparent coordinates. That mount-native transformation remains mount-owned and must not leak into services.
+Astrolabe's canonical celestial frame is ICRS. A mount backend may need epoch-of-date/apparent coordinates. That mount-native transformation remains mount-owned and must not leak into services.
 
 A mount that natively accepts the canonical frame should avoid unnecessary transformation. This rule does not prohibit a domain capability from using an explicitly owned observational frame when the physical problem requires it; such a transform must not be confused with the mount's native coordinate contract. See `conventions.md`.
 
