@@ -216,8 +216,10 @@ class IndiMountBackend(MountBackend):
                 "(EQUATORIAL_EOD_COORD or EQUATORIAL_COORD)."
             )
 
-        # Best-effort: wait for the slew property state to return OK.
-        # Simulators may not report Busy.
+        # `slew_to` is synchronous at the MountBackend boundary. A simulator or
+        # driver that never reports Busy is treated as already settled; once Busy
+        # is observed, failure to leave that state before the backend timeout is
+        # an explicit hardware failure rather than permission to capture in flight.
         coord_prop = (
             f"{self.device}.EQUATORIAL_EOD_COORD"
             if has_jnow
@@ -231,8 +233,11 @@ class IndiMountBackend(MountBackend):
                 time.sleep(0.2)
                 continue
             if prop_state.lower() != _INDI_BUSY.lower():
-                break
+                return
             time.sleep(0.2)
+        raise BackendError(
+            f"Timed out waiting for mount device '{self.device}' slew to complete."
+        )
 
     def sync(self, ra_rad: float, dec_rad: float) -> None:
         if not self._connected:
