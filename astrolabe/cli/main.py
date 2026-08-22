@@ -164,7 +164,9 @@ def main():
     )
 
     goto_parser = subparsers.add_parser(
-        "goto", help="(deprecated) Alias for `pointing goto`"
+        "goto",
+        help="(deprecated) Alias for `pointing goto`",
+        description="Deprecated alias for `pointing goto`.",
     )
     goto_parser.add_argument(
         "--target",
@@ -213,7 +215,11 @@ def main():
     pointing_subparsers = pointing_parser.add_subparsers(dest="mode", required=True)
     _add_pointing_subcommands(pointing_subparsers)
 
-    align_parser = subparsers.add_parser("align", help="(deprecated) Use `pointing`")
+    align_parser = subparsers.add_parser(
+        "align",
+        help="(deprecated) Use `pointing`",
+        description="Deprecated alias for `pointing`.",
+    )
     align_subparsers = align_parser.add_subparsers(dest="mode", required=True)
     _add_pointing_subcommands(align_subparsers)
 
