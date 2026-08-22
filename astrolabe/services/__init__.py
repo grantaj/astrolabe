@@ -1,4 +1,12 @@
-from .polar import PolarAlignService, PolarResult
+from .polar import (
+    PolarAdjustConfig,
+    PolarAdjustmentUpdate,
+    PolarAdjustResult,
+    PolarAlignService,
+    PolarAxis,
+    PolarResult,
+    PolarWorkflowState,
+)
 from .guide import GuidingService, GuidingStatus, CalibrationResult
 from .pointing import PointingService, PointingResult
 from .focus import FocusAnalyzer, FocusConfig, FocusMeasurement, FocusService
@@ -6,8 +14,13 @@ from .focus_monitor import FocusMonitor, FocusMonitorSession, FocusTrendEstimato
 from .target import TargetResolver, TargetMatch, TargetRecord
 
 __all__ = [
+    "PolarAdjustConfig",
+    "PolarAdjustmentUpdate",
+    "PolarAdjustResult",
     "PolarAlignService",
+    "PolarAxis",
     "PolarResult",
+    "PolarWorkflowState",
     "GuidingService",
     "GuidingStatus",
     "CalibrationResult",
