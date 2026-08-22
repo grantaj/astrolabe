@@ -12,9 +12,8 @@ import json
 import pytest
 
 from astrolabe.errors import NotImplementedFeature, ServiceError
-from astrolabe.services.goto import GotoResult
+from astrolabe.pointing import PointingResult
 from astrolabe.services.guide import CalibrationResult, GuidingStatus
-from astrolabe.services.pointing import PointingResult
 from astrolabe.services.polar.types import PolarResult
 from golden import (
     FakeCamera,
@@ -79,6 +78,19 @@ def test_no_command_prints_help(monkeypatch, capsys):
     code, out, err = run_cli(monkeypatch, capsys)
     assert code == 0
     assert "usage: astrolabe" in out
+
+
+def test_goto_help_hides_retired_centering_flags(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["astrolabe", "goto", "--help"])
+    with pytest.raises(SystemExit) as exc:
+        from astrolabe.cli.main import main
+
+        main()
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "deprecated" in out
+    assert "--tolerance-arcsec" not in out
+    assert "--max-iterations" not in out
 
 
 # --------------------------------------------------------------------------
@@ -514,7 +526,7 @@ def test_resolve_not_found_human(monkeypatch, capsys):
 
 
 # --------------------------------------------------------------------------
-# goto
+# goto compatibility alias
 # --------------------------------------------------------------------------
 
 
@@ -530,7 +542,7 @@ def test_goto_target_not_found(monkeypatch, capsys, backends):
     assert err == "Target not found: ZZZNOTATARGET\n"
 
 
-def test_goto_fallback_slew_json(monkeypatch, capsys, backends):
+def test_goto_alias_json_uses_pointing_operation(monkeypatch, capsys, backends):
     mount, _, _ = backends
     code, out, err = run_cli(
         monkeypatch, capsys, "--json", "goto", "--ra-deg", "10", "--dec-deg", "20"
@@ -538,66 +550,56 @@ def test_goto_fallback_slew_json(monkeypatch, capsys, backends):
     payload = envelope(out)
     assert code == 0
     assert payload["command"] == "goto"
-    assert payload["data"] == {
-        "mode": "fallback_slew",
-        "ra_deg": 10.0,
-        "dec_deg": 20.0,
+    assert set(payload["data"]) == {
+        "target_ra_deg",
+        "target_dec_deg",
+        "command_ra_deg",
+        "command_dec_deg",
+        "solve",
+        "final_error_arcsec",
     }
-    assert mount.calls[-1][0] == "slew_to"
+    assert payload["data"]["target_ra_deg"] == 10.0
+    assert payload["data"]["target_dec_deg"] == 20.0
+    assert any(call[0] == "slew_to" for call in mount.calls)
 
 
-def test_goto_fallback_slew_human(monkeypatch, capsys, backends):
+def test_goto_alias_human_success(monkeypatch, capsys, backends):
     code, out, err = run_cli(
         monkeypatch, capsys, "goto", "--ra-deg", "10", "--dec-deg", "20"
     )
     assert code == 0
-    assert out == "Goto fallback: mount slew issued.\n"
+    assert out.startswith("Final error: ")
 
 
-def test_goto_service_success_human(monkeypatch, capsys, backends):
-    _service(
-        monkeypatch,
-        "GotoService",
-        center_target=_return(
-            GotoResult(
-                success=True, final_error_arcsec=12.5, iterations=2, message="centered"
-            )
-        ),
-    )
+def test_goto_retired_centering_flags_remain_accepted(monkeypatch, capsys, backends):
     code, out, err = run_cli(
-        monkeypatch, capsys, "goto", "--ra-deg", "10", "--dec-deg", "20"
+        monkeypatch,
+        capsys,
+        "goto",
+        "--ra-deg",
+        "10",
+        "--dec-deg",
+        "20",
+        "--tolerance-arcsec",
+        "5",
+        "--max-iterations",
+        "9",
     )
     assert code == 0
-    assert out == (
-        "Success: True\nFinal error: 12.5\nIterations: 2\nMessage: centered\n"
-    )
 
 
-def test_goto_service_failure_json(monkeypatch, capsys, backends):
-    _service(
-        monkeypatch,
-        "GotoService",
-        center_target=_return(
-            GotoResult(
-                success=False, final_error_arcsec=None, iterations=5, message="lost"
-            )
-        ),
-    )
+def test_goto_alias_failure_json(monkeypatch, capsys, backends):
+    _, _, solver = backends
+    solver.result = solve_result(success=False)
     code, out, err = run_cli(
         monkeypatch, capsys, "--json", "goto", "--ra-deg", "10", "--dec-deg", "20"
     )
     payload = envelope(out)
     assert code == 1
     assert payload["ok"] is False
-    assert payload["data"] == {
-        "success": False,
-        "final_error_arcsec": None,
-        "iterations": 5,
-        "message": "lost",
-    }
     assert payload["error"] == {
         "code": "goto_failed",
-        "message": "lost",
+        "message": "no stars",
         "details": None,
     }
 
@@ -655,93 +657,31 @@ def test_pointing_solve_json(monkeypatch, capsys, backends):
     code, out, err = run_cli(monkeypatch, capsys, "--json", "pointing", "solve")
     payload = envelope(out)
     assert code == 1
-    assert payload["command"] == "align.solve"
+    assert payload["command"] == "pointing.solve"
     assert payload["error"] == {
-        "code": "align_failed",
+        "code": "pointing_solve_failed",
         "message": "no stars",
         "details": None,
     }
     assert payload["data"]["raw_output"] == "RAW SOLVER TEXT"
 
 
-def test_pointing_sync_json(monkeypatch, capsys, backends):
-    _service(
-        monkeypatch,
-        "PointingService",
-        sync_current=_return(
-            PointingResult(
-                success=True,
-                solves_attempted=1,
-                solves_succeeded=1,
-                rms_arcsec=1.5,
-                message="synced",
-            )
-        ),
-    )
-    code, out, err = run_cli(monkeypatch, capsys, "--json", "pointing", "sync")
-    payload = envelope(out)
-    assert code == 0
-    assert payload["command"] == "pointing.sync"
-    assert payload["data"]["solves_succeeded"] == 1
-
-
-def test_pointing_init_human_failure(monkeypatch, capsys, backends):
-    _service(
-        monkeypatch,
-        "PointingService",
-        initial_alignment=_return(
-            PointingResult(
-                success=False,
-                solves_attempted=3,
-                solves_succeeded=1,
-                rms_arcsec=None,
-                message="too few",
-            )
-        ),
-    )
-    code, out, err = run_cli(monkeypatch, capsys, "pointing", "init")
-    assert code == 1
-    assert out == (
-        "Success: False\n"
-        "Solves attempted: 3\n"
-        "Solves succeeded: 1\n"
-        "RMS (arcsec): None\n"
-        "Message: too few\n"
-    )
-
-
-def test_pointing_init_json_failure(monkeypatch, capsys, backends):
-    _service(
-        monkeypatch,
-        "PointingService",
-        initial_alignment=_return(
-            PointingResult(
-                success=False,
-                solves_attempted=3,
-                solves_succeeded=1,
-                rms_arcsec=None,
-                message=None,
-            )
-        ),
-    )
-    code, out, err = run_cli(monkeypatch, capsys, "--json", "pointing", "init")
-    payload = envelope(out)
-    assert code == 1
-    assert payload["command"] == "pointing.init"
-    assert payload["error"] == {
-        "code": "pointing_init_failed",
-        "message": "pointing init failed",
-        "details": None,
-    }
-
-
 def test_pointing_goto_json(monkeypatch, capsys, backends):
     _service(
         monkeypatch,
         "PointingService",
-        solve_current=_return(solve_result()),
-        apply_model=_return((0.2, 0.3)),
-        update_model_from_target=_return(None),
+        point_to=_return(
+            PointingResult(
+                success=True,
+                target_ra_rad=0.1,
+                target_dec_rad=0.2,
+                command_ra_rad=0.2,
+                command_dec_rad=0.3,
+                solve=solve_result(),
+                final_error_arcsec=12.5,
+                model_updated=False,
+            )
+        ),
     )
     code, out, err = run_cli(
         monkeypatch,
@@ -766,15 +706,25 @@ def test_pointing_goto_json(monkeypatch, capsys, backends):
         "final_error_arcsec",
     }
     assert payload["data"]["target_ra_deg"] == 11.0
-    assert payload["data"]["command_ra_deg"] == pytest.approx(11.459155902616465)
+    assert payload["data"]["command_ra_deg"] == pytest.approx(11.459155902616466)
 
 
 def test_pointing_goto_human_failure(monkeypatch, capsys, backends):
     _service(
         monkeypatch,
         "PointingService",
-        solve_current=_return(solve_result(success=False)),
-        apply_model=_return((0.2, 0.3)),
+        point_to=_return(
+            PointingResult(
+                success=False,
+                target_ra_rad=0.1,
+                target_dec_rad=0.2,
+                command_ra_rad=0.2,
+                command_dec_rad=0.3,
+                solve=solve_result(success=False),
+                final_error_arcsec=None,
+                model_updated=False,
+            )
+        ),
     )
     code, out, err = run_cli(
         monkeypatch, capsys, "pointing", "goto", "--ra-deg", "11", "--dec-deg", "22"
@@ -789,7 +739,7 @@ def test_pointing_goto_requires_coordinates(monkeypatch, capsys, backends):
     assert err == "pointing goto requires --target or both --ra-deg and --dec-deg\n"
 
 
-def test_align_alias_uses_same_command_names(monkeypatch, capsys, backends):
+def test_align_alias_uses_own_command_name(monkeypatch, capsys, backends):
     _service(
         monkeypatch,
         "PointingService",
@@ -801,17 +751,49 @@ def test_align_alias_uses_same_command_names(monkeypatch, capsys, backends):
     assert payload["command"] == "align.solve"
 
 
-def test_pointing_not_implemented(monkeypatch, capsys, backends):
+def test_align_goto_is_same_pointing_operation(monkeypatch, capsys, backends):
     _service(
         monkeypatch,
         "PointingService",
-        sync_current=_raise(NotImplementedFeature("Pointing sync not implemented")),
+        point_to=_return(
+            PointingResult(
+                success=True,
+                target_ra_rad=0.1,
+                target_dec_rad=0.2,
+                command_ra_rad=0.2,
+                command_dec_rad=0.3,
+                solve=solve_result(),
+                final_error_arcsec=12.5,
+                model_updated=False,
+            )
+        ),
     )
-    code, out, err = run_cli(monkeypatch, capsys, "--json", "pointing", "sync")
+    code, out, err = run_cli(
+        monkeypatch,
+        capsys,
+        "--json",
+        "align",
+        "goto",
+        "--ra-deg",
+        "11",
+        "--dec-deg",
+        "22",
+    )
     payload = envelope(out)
-    assert code == 2
-    assert payload["command"] == "align.sync"
-    assert payload["error"]["code"] == "not_implemented"
+    assert code == 0
+    assert payload["command"] == "align.goto"
+    assert payload["data"]["final_error_arcsec"] == 12.5
+
+
+@pytest.mark.parametrize("mode", ["init", "sync"])
+def test_pointing_alignment_phase_commands_are_removed(monkeypatch, capsys, mode):
+    monkeypatch.setattr("sys.argv", ["astrolabe", "pointing", mode])
+    with pytest.raises(SystemExit) as exc:
+        from astrolabe.cli.main import main
+
+        main()
+    assert exc.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
 
 
 # --------------------------------------------------------------------------
@@ -1302,8 +1284,8 @@ _JSON_INVOCATIONS = [
     ("mount", "track", "--on"),
     ("resolve", "M110"),
     ("goto", "--ra-deg", "1", "--dec-deg", "2"),
-    ("pointing", "sync"),
-    ("align", "sync"),
+    ("pointing", "solve"),
+    ("align", "solve"),
     ("polar", "--ra-rotation-deg", "30", "--latitude-deg", "-33"),
     ("guide", "calibrate", "--duration", "1"),
     ("guide", "start", "--aggression", "0.5", "--min-move-arcsec", "1"),
@@ -1320,11 +1302,6 @@ def test_json_mode_emits_single_envelope(monkeypatch, capsys, backends, tmp_path
     fits = tmp_path / "frame.fits"
     fits.write_text("x")
     argv = tuple(part.format(fits=fits) for part in argv)
-    _service(
-        monkeypatch,
-        "PointingService",
-        sync_current=_raise(NotImplementedFeature("Pointing sync not implemented")),
-    )
     monkeypatch.setattr(
         "astrolabe.cli.commands.socket.create_connection",
         lambda *a, **k: _Closable(),
@@ -1372,10 +1349,15 @@ def test_unknown_pointing_mode(monkeypatch, capsys, backends):
     from astrolabe.cli.commands import run_align
 
     args = SimpleNamespace(
-        mode="bogus", json=False, log_level=None, config=None, dry_run=False
+        command="pointing",
+        mode="bogus",
+        json=False,
+        log_level=None,
+        config=None,
+        dry_run=False,
     )
     assert run_align(args) == 2
-    assert capsys.readouterr().err == "Unknown alignment mode.\n"
+    assert capsys.readouterr().err == "Unknown pointing mode.\n"
 
 
 def test_unknown_update_dataset(monkeypatch, capsys):
@@ -1427,7 +1409,7 @@ _DRY_RUN_NOTICES = [
         ("goto", "--ra-deg", "1", "--dec-deg", "2"),
         "--dry-run has no effect for goto.\n",
     ),
-    (("pointing", "sync"), "--dry-run has no effect for align.\n"),
+    (("pointing", "solve"), "--dry-run has no effect for pointing.\n"),
     (
         ("polar", "--ra-rotation-deg", "30", "--latitude-deg", "-33"),
         "--dry-run has no effect for polar.\n"
