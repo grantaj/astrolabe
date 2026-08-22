@@ -72,11 +72,14 @@ class PointingService:
         trustworthy = _is_trustworthy_solve(solve)
         final_error_arcsec = None
         if trustworthy:
+            solved_ra = solve.ra_rad
+            solved_dec = solve.dec_rad
+            assert solved_ra is not None and solved_dec is not None
             d_alpha, d_delta = _tangent_plane_error(
                 ra_target=ra_rad,
                 dec_target=dec_rad,
-                ra_solved=solve.ra_rad,
-                dec_solved=solve.dec_rad,
+                ra_solved=solved_ra,
+                dec_solved=solved_dec,
             )
             final_error_arcsec = math.degrees(math.hypot(d_alpha, d_delta)) * 3600.0
             self._model.update(d_alpha, d_delta, weight=0.1)
