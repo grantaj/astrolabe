@@ -34,11 +34,11 @@ Services must not import INDI or solver-specific implementations directly. Camer
 
 The shared `astrolabe.indi` layer owns low-level INDI transport mechanics. Device semantics remain with camera or mount rather than moving into a generic INDI device framework.
 
-### Mount frame conversion stays with the mount
+### Mount-native frame conversion stays with the mount
 
-Astrolabe's canonical celestial frame is ICRS/J2000-equivalent. A mount backend may need epoch-of-date/apparent coordinates. That time-dependent transformation remains mount-owned and must not leak into services.
+Astrolabe's canonical celestial frame is ICRS. A mount backend may need epoch-of-date/apparent coordinates. That mount-native transformation remains mount-owned and must not leak into services.
 
-A mount that natively accepts the canonical frame should avoid unnecessary transformation.
+A mount that natively accepts the canonical frame should avoid unnecessary transformation. This rule does not prohibit a domain capability from using an explicitly owned observational frame when the physical problem requires it; such a transform must not be confused with the mount's native coordinate contract. See `conventions.md`.
 
 ### Services own domain orchestration, not platform effects
 
@@ -92,7 +92,9 @@ Pointing does not sync the mount as part of learning. Raw mount operations and m
 
 ### Polar alignment
 
-Owns solve-based polar-axis measurement and correction geometry. Current measurement uses multiple solved poses and requires enough observations for a meaningful fit; algorithmic details belong in the implementation/tests rather than this high-level document.
+Owns solve-based polar-axis measurement and live manual correction geometry. The initial measurement uses multiple solved ICRS poses and requires enough observations for a meaningful fit. Interactive adjustment reuses that fit, disables tracking, and converts each solved ICRS field at its explicit UTC timestamp/site into a contained local horizon representation so Earth rotation cannot masquerade as physical mount-base motion. Azimuth and altitude are then guided as separate scalar stages through the generic feedback capability.
+
+The local-horizon representation is polar-owned observational geometry, not a mount-native coordinate frame and not a new application-wide coordinate model. Algorithmic details belong in the implementation/tests rather than this high-level document.
 
 ### Focus
 
@@ -119,4 +121,4 @@ Initial operational rule: one active session owns a hardware resource at a time.
 - backend semantics: focused adapter tests;
 - end-to-end external-tool/device behaviour: explicitly marked integration tests.
 
-Architectural regressions include hardware imports in services, mount-frame conversion outside the mount boundary, broad application configuration leaking into capabilities, hidden side effects in ordinary domain APIs, or presentation policy leaking into domain services.
+Architectural regressions include hardware imports in services, mount-native frame conversion outside the mount boundary, broad application configuration leaking into capabilities, hidden side effects in ordinary domain APIs, or presentation policy leaking into domain services.
