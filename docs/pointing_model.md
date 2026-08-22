@@ -54,7 +54,7 @@ Pointing does not have an alignment or initialization phase. Each normal `Pointi
 apply model -> slew -> solve -> measure residual -> update model
 ```
 
-The mount backend's `slew_to()` contract is synchronous: it returns only once the backend has confirmed that commanded motion is no longer in progress, or raises a backend error if completion cannot be confirmed. Pointing therefore never starts the learning exposure while a successful slew call is still in flight.
+After issuing the slew, Pointing waits for the mount to report a stable non-slewing state before capturing the learning exposure. If the mount does not settle within the Pointing service timeout, the operation fails rather than solving an in-flight field and learning that motion as pointing bias.
 
 The solved target residual is what remains **after** the current bias estimate has already been applied. The v1 model represents the underlying mount bias, so Pointing first reconstructs the corresponding bias observation:
 
