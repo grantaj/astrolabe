@@ -16,6 +16,7 @@ from .types import (
     PolarResult,
     _PolarMeasurement,
     _PoseObservation,
+    _SolveHint,
 )
 from .workflow import _PolarAdjustmentWorkflow
 
@@ -124,6 +125,7 @@ class PolarAlignService:
             )
 
         confidence = correction_confidence(fit, poses)
+        last_pose = poses[-1]
         return _PolarMeasurement(
             result=PolarResult(
                 alt_correction_arcsec=rad_to_arcsec(alt_err),
@@ -133,6 +135,11 @@ class PolarAlignService:
             ),
             poses=tuple(poses),
             fit=fit,
+            hint=_SolveHint(
+                ra_rad=last_pose.ra_rad,
+                dec_rad=last_pose.dec_rad,
+                scale_arcsec=last_pose.scale_arcsec,
+            ),
         )
 
     def _capture_and_solve(self, exposure_s: float) -> _PoseObservation | None:
@@ -152,11 +159,15 @@ class PolarAlignService:
         if result.ra_rad is None or result.dec_rad is None:
             return None
 
+        scale = result.pixel_scale_arcsec
+        if scale is not None and (not math.isfinite(scale) or scale <= 0.0):
+            scale = None
         return _PoseObservation(
             ra_rad=result.ra_rad,
             dec_rad=result.dec_rad,
             rms_arcsec=result.rms_arcsec,
             timestamp_utc=image.timestamp_utc,
+            scale_arcsec=scale,
         )
 
     def _rotate_ra(self, delta_rad: float, settle_time_s: float) -> None:
