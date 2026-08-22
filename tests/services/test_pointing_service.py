@@ -4,6 +4,7 @@ import math
 
 import pytest
 
+from astrolabe.errors import ServiceError
 from astrolabe.mount.base import MountState
 from astrolabe.pointing import PointingModel, PointingService
 from astrolabe.solver.types import Image, SolveRequest, SolveResult
@@ -115,6 +116,52 @@ def test_apply_model_correction():
     assert dec_cmd == pytest.approx(0.5 + 0.02)
 
 
+@pytest.mark.parametrize(
+    ("ra_rad", "dec_rad"),
+    [
+        (math.nan, 0.4),
+        (0.9, math.nan),
+        (0.9, math.pi),
+    ],
+)
+def test_point_to_rejects_invalid_target_before_slew(ra_rad, dec_rad):
+    mount = FakeMount()
+    service = PointingService(
+        mount, FakeCamera(), FakeSolver(_solve_result()), model=PointingModel()
+    )
+
+    with pytest.raises(ServiceError):
+        service.point_to(ra_rad, dec_rad)
+
+    assert mount.slew_calls == []
+
+
+def test_point_to_rejects_invalid_model_command_before_slew():
+    mount = FakeMount()
+    model = PointingModel(b_delta_rad=-2.0)
+    service = PointingService(
+        mount, FakeCamera(), FakeSolver(_solve_result()), model=model
+    )
+
+    with pytest.raises(ServiceError, match="invalid mount declination"):
+        service.point_to(0.9, 0.4)
+
+    assert mount.slew_calls == []
+
+
+def test_point_to_rejects_non_finite_model_before_slew():
+    mount = FakeMount()
+    model = PointingModel(b_alpha_rad=math.nan)
+    service = PointingService(
+        mount, FakeCamera(), FakeSolver(_solve_result()), model=model
+    )
+
+    with pytest.raises(ServiceError, match="non-finite bias"):
+        service.point_to(0.9, 0.4)
+
+    assert mount.slew_calls == []
+
+
 def test_point_to_applies_model_slews_solves_and_updates_model():
     target_ra = 0.9
     target_dec = 0.4
@@ -167,6 +214,7 @@ def test_point_to_does_not_learn_from_failed_solve():
     assert result.success is False
     assert result.model_updated is False
     assert result.final_error_arcsec is None
+    assert result.message == "failed"
     assert model.num_samples == 0
 
 
@@ -180,6 +228,7 @@ def test_point_to_does_not_learn_from_incomplete_solve():
     assert result.success is False
     assert result.model_updated is False
     assert result.final_error_arcsec is None
+    assert result.message == "Plate solve returned incomplete coordinates"
     assert model.num_samples == 0
 
 
@@ -201,6 +250,26 @@ def test_point_to_does_not_learn_from_invalid_solved_coordinates(ra_rad, dec_rad
     assert result.success is False
     assert result.model_updated is False
     assert result.final_error_arcsec is None
+    assert result.message is not None
+    assert model.num_samples == 0
+
+
+def test_point_to_rejects_outlier_solve_without_learning():
+    target_ra = 0.9
+    target_dec = 0.4
+    model = PointingModel()
+    solver = FakeSolver(
+        _solve_result(ra_rad=target_ra + math.radians(30.0), dec_rad=target_dec)
+    )
+    service = PointingService(FakeMount(), FakeCamera(), solver, model=model)
+
+    result = service.point_to(target_ra, target_dec)
+
+    assert result.success is False
+    assert result.model_updated is False
+    assert result.final_error_arcsec is not None
+    assert result.message is not None
+    assert "learning envelope" in result.message
     assert model.num_samples == 0
 
 
