@@ -65,7 +65,9 @@ class _AxisStageResult:
 class _PolarAdjustmentWorkflow:
     """Polar-owned state machine; presentation remains at the CLI boundary."""
 
-    def __init__(self, mount, camera, solver, measure: Callable[..., _PolarMeasurement]):
+    def __init__(
+        self, mount, camera, solver, measure: Callable[..., _PolarMeasurement]
+    ):
         self._mount = mount
         self._camera = camera
         self._solver = solver
@@ -359,7 +361,10 @@ class _PolarAdjustmentWorkflow:
 
             observation = live.observation
             hint = live.hint
-            if previous_timestamp is not None and observation.timestamp_utc <= previous_timestamp:
+            if (
+                previous_timestamp is not None
+                and observation.timestamp_utc <= previous_timestamp
+            ):
                 consecutive_failures += 1
                 invalid = feedback.update(None, valid=False)
                 self._notify(
@@ -544,7 +549,10 @@ class _PolarAdjustmentWorkflow:
             search_radius_rad=search_radius_rad if hint is not None else None,
         )
         result = self._solver.solve(request)
-        if not _trustworthy_live_solve(result, max_solve_rms_arcsec) and hint is not None:
+        if (
+            not _trustworthy_live_solve(result, max_solve_rms_arcsec)
+            and hint is not None
+        ):
             # Bounded fallback: retry the same frame once without a positional
             # hint.  Retaining a valid scale hint narrows the blind fallback
             # without allowing a stale position to trap the workflow.
