@@ -3,7 +3,7 @@ import math
 
 from astrolabe.errors import ServiceError
 from astrolabe.solver.types import SolveRequest, SolveResult
-from astrolabe.util.math import normalize_angle_rad
+from astrolabe.util.math import angular_separation_rad, normalize_angle_rad
 
 from .model import PointingModel
 
@@ -93,11 +93,11 @@ class PointingService:
                 math.degrees(math.hypot(residual_alpha, residual_delta)) * 3600.0
             )
 
-            separation = _angular_separation_rad(
-                ra_a=ra_rad,
-                dec_a=dec_rad,
-                ra_b=solved_ra,
-                dec_b=solved_dec,
+            separation = angular_separation_rad(
+                ra_rad,
+                dec_rad,
+                solved_ra,
+                solved_dec,
             )
             if separation > _MAX_LEARNING_RESIDUAL_RAD:
                 rejection_reason = (
@@ -133,10 +133,10 @@ class PointingService:
         if not math.isfinite(b_alpha) or not math.isfinite(b_delta):
             raise ServiceError("Pointing model contains a non-finite bias")
 
-        corrected_ra = normalize_angle_rad(ra_rad - b_alpha / math.cos(dec_rad))
+        raw_corrected_ra = ra_rad - b_alpha / math.cos(dec_rad)
         corrected_dec = dec_rad - b_delta
-        _validate_command(corrected_ra, corrected_dec)
-        return corrected_ra, corrected_dec
+        _validate_command(raw_corrected_ra, corrected_dec)
+        return normalize_angle_rad(raw_corrected_ra), corrected_dec
 
 
 def _validate_target(ra_rad: float, dec_rad: float) -> None:
@@ -164,16 +164,6 @@ def _solve_rejection_reason(result: SolveResult) -> str | None:
     if not -math.pi / 2.0 <= result.dec_rad <= math.pi / 2.0:
         return "Plate solve returned an invalid declination"
     return None
-
-
-def _angular_separation_rad(
-    *, ra_a: float, dec_a: float, ra_b: float, dec_b: float
-) -> float:
-    cos_separation = (
-        math.sin(dec_a) * math.sin(dec_b)
-        + math.cos(dec_a) * math.cos(dec_b) * math.cos(ra_b - ra_a)
-    )
-    return math.acos(max(-1.0, min(1.0, cos_separation)))
 
 
 def _tangent_plane_error(
