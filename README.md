@@ -19,7 +19,9 @@ Current implemented capabilities include:
 
 Normal target pointing is one operation: apply the current error model, slew, solve the resulting position, measure the residual, and update the model from a trustworthy solve. There is no separate pointing initialization/alignment phase and Pointing does not sync the mount as part of learning. `pointing goto` is the canonical CLI command; `align goto` and top-level `goto` remain compatibility aliases. Use `mount slew` for a deliberately raw slew.
 
-The guiding service is still a placeholder on current `main`; guiding commands report `not_implemented`.
+The live polar and focus workflows are not yet MVP-complete: real audio playback is still missing, and live focus monitoring does not yet provide a truthful no-look focus guidance policy. The v0 interaction target requires both manual focus and polar adjustment to be usable by ear without watching the terminal.
+
+The guiding service is still a placeholder on current `main`; guiding commands report `not_implemented`. Guiding is post-MVP and does not block the first working release.
 
 For the exact command surface, use `astrolabe --help` and the relevant subcommand `--help`. `docs/cli.md` records the stable CLI contract without duplicating every parser flag.
 
