@@ -13,6 +13,8 @@ def test_empty_config():
     assert config.solver_binary == "astap"
     assert config.solver_database_path is None
     assert config.solver_search_radius_deg is None
+    assert config.solver_fov_deg is None
+    assert config.solver_fov_tolerance_deg is None
     assert config.camera_backend == "indi"
     assert config.camera_device == "CCD Simulator"
     assert config.camera_output_dir is None
@@ -40,6 +42,8 @@ name = "nova"
 binary = "/opt/nova/bin"
 database_path = "~/.astap"
 search_radius_deg = 15.5
+fov_deg = 2.66
+fov_tolerance_deg = 0.25
 
 [camera]
 backend = "mock"
@@ -75,6 +79,8 @@ aperture_mm = 200.0
     assert config.solver_database_path == str(Path("~/.astap").expanduser())
     assert isinstance(config.solver_database_path, str)
     assert config.solver_search_radius_deg == 15.5
+    assert config.solver_fov_deg == 2.66
+    assert config.solver_fov_tolerance_deg == 0.25
 
     assert config.camera_backend == "mock"
     assert config.camera_device == "Test Camera"

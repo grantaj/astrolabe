@@ -36,6 +36,14 @@ class Config:
         return self._data.get("solver", {}).get("search_radius_deg", None)
 
     @property
+    def solver_fov_deg(self):
+        return self._data.get("solver", {}).get("fov_deg", None)
+
+    @property
+    def solver_fov_tolerance_deg(self):
+        return self._data.get("solver", {}).get("fov_tolerance_deg", None)
+
+    @property
     def camera_backend(self):
         return self._data.get("camera", {}).get("backend", "indi")
 
