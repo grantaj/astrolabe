@@ -8,7 +8,12 @@ from dataclasses import asdict, replace
 
 from astrolabe.cli.commands import run_polar as run_polar_measure
 from astrolabe.cli.output import emit, emit_error
-from astrolabe.cli.runtime import config_path, handle_error, mount_camera_solver, prepare
+from astrolabe.cli.runtime import (
+    config_path,
+    handle_error,
+    mount_camera_solver,
+    prepare,
+)
 from astrolabe.config import load_config
 from astrolabe.errors import AstrolabeError
 from astrolabe.services.feedback import FeedbackDirection
