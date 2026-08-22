@@ -63,7 +63,7 @@ The authoritative dependency/internal-component policy is in `CONTRIBUTING.md`; 
 
 ### Camera
 
-Owns camera connection/capture, the camera-owned `Image` contract, and the synchronous live-frame session. One-shot capture remains appropriate for occasional solving; the live path exists for interactive consumers such as focus monitoring. See `live_camera.md`.
+Owns camera connection/capture, the camera-owned `Image` contract, the synchronous live-frame session, and Astrolabe's narrow FITS read/write boundary. One-shot capture remains appropriate for occasional solving; the live path exists for interactive consumers such as focus monitoring. See `live_camera.md`, `fits_boundary.md`.
 
 ### Solver
 

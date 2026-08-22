@@ -10,6 +10,7 @@ import shutil
 from astrolabe.config import load_config
 from astrolabe.solver import get_solver_backend
 from astrolabe.camera import get_camera_backend
+from astrolabe.camera.pixels import load_fits_header_cards, load_fits_pixels
 from astrolabe.mount import get_mount_backend
 from astrolabe.cli.output import (
     emit,
@@ -306,19 +307,6 @@ def run_capture(args) -> int:
 
 
 def run_view(args) -> int:
-    try:
-        from astropy.io import fits
-    except ModuleNotFoundError:
-        return emit_error(
-            args,
-            "view",
-            code="dependency_missing",
-            message=(
-                "astropy is required for 'astrolabe view'. "
-                "Install with: pip install -e .[tools]"
-            ),
-            exit_code=2,
-        )
     note_dry_run(args, "view")
 
     fits_path = args.input_fits
@@ -330,21 +318,21 @@ def run_view(args) -> int:
             message=f"Input file not found: {fits_path}",
         )
     try:
-        hdul = fits.open(fits_path)
-        header_text = hdul[0].header.tostring(sep="\n")
-        data = hdul[0].data
+        header_text = "\n".join(load_fits_header_cards(fits_path))
+        # Decode the data unit even when it is not displayed: this validates
+        # SIMPLE, NAXIS and payload length.
+        frame = load_fits_pixels(fits_path)
         if args.show:
             import matplotlib.pyplot as plt
 
-            plt.imshow(data, cmap="gray", origin="lower")
+            plt.imshow(frame.pixels, cmap="gray", origin="lower")
             plt.title(f"{os.path.basename(fits_path)}")
             plt.colorbar()
             plt.show()
-        hdul.close()
     except AstrolabeError as e:
         return handle_error(args, "view", e)
     except Exception as e:
-        # astropy/matplotlib failures keep their own recoverable error code.
+        # FITS decode/matplotlib failures keep their own recoverable error code.
         return emit_error(
             args,
             "view",

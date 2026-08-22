@@ -71,7 +71,7 @@ The topology below reflects current `main`. Use `--help` for exact arguments.
 
 ### A few non-obvious current boundaries
 
-- `view` takes its FITS input via `--in` on current `main`.
+- `view` takes its FITS input via `--in` on current `main`; its `header` field is the primary header in file order, decoded by Astrolabe's own narrow FITS boundary — see `fits_boundary.md`.
 - `polar` requires an RA rotation and observer latitude; it also exposes exposure/settling and pose-count controls.
 - `focus measure` accepts either `--in` FITS input or camera-capture controls. `focus monitor` consumes the camera-owned live-frame path, may be bounded with `--frames N`, and deliberately rejects global `--json` with one structured error rather than creating an NDJSON stream.
 - `pointing` currently uses `solve`, `sync`, `init`, and `goto`; older names such as `where`, `calibrate`, `recover`, `status`, and `diagnose` are not part of the current parser.

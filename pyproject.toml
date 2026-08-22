@@ -17,10 +17,6 @@ dev = [
     "pytest-ty>=0.1.4",
     "pre-commit>=3.6",
 ]
-tools = [
-    "astropy",
-    "astroquery",
-]
 
 [project.scripts]
 astrolabe = "astrolabe.cli.main:main"

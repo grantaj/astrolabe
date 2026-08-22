@@ -8,6 +8,7 @@ the safety net for the CLI plumbing refactor and must not be relaxed.
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 
@@ -356,6 +357,102 @@ def test_view_failure_json(monkeypatch, capsys, tmp_path):
     assert code == 1
     assert payload["error"]["code"] == "view_failed"
     assert payload["error"]["message"].startswith("Error viewing FITS file: ")
+
+
+def _sample_fits(tmp_path):
+    import numpy as np
+
+    from astrolabe.camera.pixels import write_fits_image
+
+    pixels = (np.arange(6).reshape(2, 3) * 1000).astype(np.uint16)
+    path = write_fits_image(
+        tmp_path / "frame.fits", pixels, extra_header={"OBJECT": "M42"}
+    )
+    return path, pixels
+
+
+def test_view_reports_the_fits_header_json(monkeypatch, capsys, tmp_path):
+    path, _ = _sample_fits(tmp_path)
+    code, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(path))
+    payload = envelope(out)
+    assert code == 0
+    assert payload["data"]["path"] == str(path)
+    assert payload["data"]["show"] is False
+    header = payload["data"]["header"]
+    assert isinstance(header, str)
+    assert header.splitlines()[0] == "SIMPLE  =                    T"
+    assert "NAXIS1  =                    3" in header
+    assert "OBJECT  = 'M42     '" in header
+
+
+def test_view_reports_the_fits_header_human(monkeypatch, capsys, tmp_path):
+    path, _ = _sample_fits(tmp_path)
+    code, out, err = run_cli(monkeypatch, capsys, "view", "--in", str(path))
+    assert code == 0
+    assert out.startswith("FITS Header:\nSIMPLE  =")
+
+
+def test_view_rejects_a_valid_header_with_a_truncated_payload(
+    monkeypatch, capsys, tmp_path
+):
+    """`view` decodes the data unit even without --show."""
+    import numpy as np
+
+    from astrolabe.camera.pixels import fits_image_bytes
+
+    payload = fits_image_bytes(np.zeros((40, 40), dtype=np.uint16))
+    truncated = tmp_path / "truncated.fits"
+    truncated.write_bytes(payload[: len(payload) - 2880])
+
+    code, out, err = run_cli(
+        monkeypatch, capsys, "--json", "view", "--in", str(truncated)
+    )
+    payload_json = envelope(out)
+    assert code == 1
+    assert payload_json["error"]["code"] == "view_failed"
+
+
+def test_view_rejects_a_header_block_without_simple(monkeypatch, capsys, tmp_path):
+    junk = tmp_path / "junk.fits"
+    cards = b"".join(
+        [f"JUNK{i:<4}=                    {i}".ljust(80).encode() for i in range(35)]
+    )
+    junk.write_bytes((cards + b"END".ljust(80)).ljust(2880))
+
+    code, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(junk))
+    payload_json = envelope(out)
+    assert code == 1
+    assert payload_json["error"]["code"] == "view_failed"
+
+
+def test_view_show_loads_pixel_data_without_astropy(monkeypatch, capsys, tmp_path):
+    import numpy as np
+
+    path, pixels = _sample_fits(tmp_path)
+    shown = {}
+
+    class FakePlt:
+        def imshow(self, data, **kwargs):
+            shown["data"] = data
+
+        def title(self, text):
+            pass
+
+        def colorbar(self):
+            pass
+
+        def show(self):
+            shown["shown"] = True
+
+    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", FakePlt())
+    code, out, err = run_cli(
+        monkeypatch, capsys, "--json", "view", "--in", str(path), "--show"
+    )
+    payload = envelope(out)
+    assert code == 0
+    assert payload["data"]["show"] is True
+    assert shown["shown"] is True
+    assert np.array_equal(shown["data"], pixels)
 
 
 # --------------------------------------------------------------------------

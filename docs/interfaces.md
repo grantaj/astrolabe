@@ -14,6 +14,8 @@ A compatibility alias remains at `astrolabe.solver.types.Image` for older caller
 
 Camera live frames may carry `FitsImageData` as the payload; ordinary INDI one-shot capture may carry an on-disk FITS path. Consumers must use the camera/imaging boundary rather than import INDI details.
 
+`astrolabe.camera.pixels` converts any of those payloads to a `PixelFrame` and is the single FITS read/write boundary. See `fits_boundary.md`.
+
 ### SolveRequest / SolveResult
 
 Solver-owned request/result values are the stable solver boundary.

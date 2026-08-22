@@ -158,12 +158,25 @@ def test_view_error_mapping(monkeypatch, capsys, tmp_path, exc, exit_code, code)
     """`view` catches AstrolabeError ahead of its broad `except Exception`."""
     fits = tmp_path / "frame.fits"
     fits.write_text("x")
-    monkeypatch.setattr("astropy.io.fits.open", lambda path: _raise(exc))
+    monkeypatch.setattr(
+        "astrolabe.cli.commands.load_fits_header_cards", lambda path: _raise(exc)
+    )
     result, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(fits))
     payload = envelope(out)
     assert result == exit_code
     assert payload["command"] == "view"
     assert payload["error"] == {"code": code, "message": "boom", "details": None}
+
+
+def test_view_truncated_fits_maps_to_view_failed(monkeypatch, capsys, tmp_path):
+    """A malformed FITS file fails through Astrolabe's own decode path."""
+    fits = tmp_path / "frame.fits"
+    fits.write_bytes(b"SIMPLE  =                    T" + b" " * 100)
+    result, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(fits))
+    payload = envelope(out)
+    assert result == 1
+    assert payload["error"]["code"] == "view_failed"
+    assert payload["error"]["message"].startswith("Error viewing FITS file:")
 
 
 def test_view_non_astrolabe_error_still_maps_to_view_failed(
@@ -172,7 +185,8 @@ def test_view_non_astrolabe_error_still_maps_to_view_failed(
     fits = tmp_path / "frame.fits"
     fits.write_text("x")
     monkeypatch.setattr(
-        "astropy.io.fits.open", lambda path: _raise(OSError("bad header"))
+        "astrolabe.cli.commands.load_fits_header_cards",
+        lambda path: _raise(OSError("bad header")),
     )
     result, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(fits))
     payload = envelope(out)

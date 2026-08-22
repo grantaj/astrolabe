@@ -84,7 +84,7 @@ RUN curl --proto "=https" --tlsv1.2 -LsSfO https://github.com/astral-sh/uv/relea
 
 COPY pyproject.toml uv.lock ./
 RUN uv venv --python 3.11 .venv \
-    && uv sync --extra dev --extra tools
+    && uv sync --extra dev
 
 # ── Layer 6: Application code ───────────────────────────────────────
 # .dockerignore excludes tycho2/, so COPY won't overwrite downloaded data
