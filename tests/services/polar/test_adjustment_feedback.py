@@ -202,9 +202,7 @@ def test_realistic_solve_noise_does_not_false_complete_or_reverse_sign():
         for update in updates
         if update.feedback is not None and update.feedback.valid
     ]
-    assert all(
-        direction is FeedbackDirection.POSITIVE for direction in directions[:-3]
-    )
+    assert all(direction is FeedbackDirection.POSITIVE for direction in directions[:-3])
     assert directions[-3:] == [FeedbackDirection.CENTERED] * 3
     assert stage.success is True
     assert stage.samples == len(applied_deg)
