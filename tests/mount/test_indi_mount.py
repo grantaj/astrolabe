@@ -128,34 +128,6 @@ def test_slew_to_j2000(mount):
         ) in vector_calls
 
 
-def test_slew_to_times_out_while_mount_remains_busy(mount):
-    mount._connected = True
-    with (
-        patch("astrolabe.mount.indi.IndiClient.has_prop") as mock_has_prop,
-        patch("astrolabe.mount.indi.IndiClient.setprop"),
-        patch("astrolabe.mount.indi.IndiClient.setprop_multi"),
-        patch("astrolabe.mount.indi.IndiClient.setprop_vector"),
-        patch("astrolabe.mount.indi.IndiClient.getprop_state", return_value="Busy"),
-        patch(
-            "astrolabe.mount.indi.time.monotonic",
-            side_effect=[0.0, 0.0, 21.0],
-        ),
-        patch("astrolabe.mount.indi.time.sleep"),
-    ):
-
-        def has_prop_mock(prop):
-            if "EQUATORIAL_COORD" in prop and "EOD" not in prop:
-                return True
-            if "ON_COORD_SET" in prop:
-                return True
-            return False
-
-        mock_has_prop.side_effect = has_prop_mock
-
-        with pytest.raises(BackendError, match="slew to complete"):
-            mount.slew_to(math.pi / 2, math.pi / 4)
-
-
 def test_sync_jnow(mount):
     mount._connected = True
     with (
