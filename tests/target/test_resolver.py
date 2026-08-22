@@ -7,6 +7,7 @@ from astrolabe.services.target.index import (
     load_hip_subset_csv,
 )
 from astrolabe.services.target.resolver import TargetResolver
+from astrolabe.services.target.types import TargetRecord
 
 
 def _data_path(name: str) -> Path:
@@ -64,15 +65,82 @@ def test_repo_canopus_alias_has_backing_hip_record():
     assert results[0].match_reason == "alias"
 
 
-def test_repo_acrux_alias_has_no_backing_hip_record():
+def test_missing_alias_backing_record_is_terminal_miss():
     aliases = load_alias_csv(_data_path("star_aliases.csv"))
     hip_records = {
         record.id.removeprefix("HIP ")
         for record in load_hip_subset_csv(_data_path("hip_subset.csv"))
     }
-
     assert aliases["Acrux"] == "60718"
     assert aliases["Acrux"] not in hip_records
+
+    resolver = TargetResolver.from_catalog_paths(
+        core_dso_path=_data_path("catalog_curated.csv"),
+        hip_subset_path=_data_path("hip_subset.csv"),
+        star_aliases_path=_data_path("star_aliases.csv"),
+        bayer_flamsteed_path=_data_path("bayer_flamsteed.csv"),
+        min_score=0.0,
+    )
+
+    assert resolver.resolve("Acrux") == []
+
+
+def test_required_alias_sources_have_deterministic_priority(tmp_path):
+    core = tmp_path / "core.csv"
+    core.write_text("id,name,ra_deg,dec_deg,type,mag\n", encoding="utf-8")
+    hip = tmp_path / "hip.csv"
+    hip.write_text(
+        "hip_id,ra_deg,dec_deg,mag,name\n"
+        "1,1.0,2.0,1.0,HIP 1\n"
+        "2,3.0,4.0,1.0,HIP 2\n",
+        encoding="utf-8",
+    )
+    common = tmp_path / "common.csv"
+    common.write_text("alias,hip_id\nShared,1\n", encoding="utf-8")
+    bayer = tmp_path / "bayer.csv"
+    bayer.write_text("alias,hip_id\nalpha aaa,1\n", encoding="utf-8")
+    optional = tmp_path / "optional.csv"
+    optional.write_text("alias,hip_id\nShared,2\n", encoding="utf-8")
+
+    resolver = TargetResolver.from_catalog_paths(
+        core_dso_path=core,
+        hip_subset_path=hip,
+        star_aliases_path=common,
+        bayer_flamsteed_path=bayer,
+        bsc_crosswalk_path=optional,
+    )
+
+    results = resolver.resolve("Shared")
+    assert results[0].record.id == "HIP 1"
+    assert results[0].match_reason == "alias"
+
+
+def test_conflicting_required_alias_sources_fail_closed(tmp_path):
+    core = tmp_path / "core.csv"
+    core.write_text("id,name,ra_deg,dec_deg,type,mag\n", encoding="utf-8")
+    hip = tmp_path / "hip.csv"
+    hip.write_text(
+        "hip_id,ra_deg,dec_deg,mag,name\n"
+        "1,1.0,2.0,1.0,HIP 1\n"
+        "2,3.0,4.0,1.0,HIP 2\n",
+        encoding="utf-8",
+    )
+    common = tmp_path / "common.csv"
+    common.write_text("alias,hip_id\nShared,1\n", encoding="utf-8")
+    bayer = tmp_path / "bayer.csv"
+    bayer.write_text("alias,hip_id\nshared,2\n", encoding="utf-8")
+
+    try:
+        TargetResolver.from_catalog_paths(
+            core_dso_path=core,
+            hip_subset_path=hip,
+            star_aliases_path=common,
+            bayer_flamsteed_path=bayer,
+        )
+    except ValueError as exc:
+        assert "Conflicting alias" in str(exc)
+    else:
+        raise AssertionError("conflicting required aliases must fail closed")
 
 
 def test_resolver_fuzzy():
@@ -84,3 +152,15 @@ def test_resolver_fuzzy():
     results = resolver.resolve("Siriuss")
     assert results
     assert results[0].match_reason == "fuzzy"
+
+
+def test_fuzzy_ties_are_sorted_by_alias_then_id():
+    index = TargetIndex()
+    first = TargetRecord(id="HIP 2", name="abcy", ra_deg=0.0, dec_deg=0.0)
+    second = TargetRecord(id="HIP 1", name="abcx", ra_deg=0.0, dec_deg=0.0)
+    index.add_record(first)
+    index.add_record(second)
+
+    results = TargetResolver(index, min_score=0.0).resolve("abcz", limit=2)
+
+    assert [match.record.name for match in results] == ["abcx", "abcy"]
