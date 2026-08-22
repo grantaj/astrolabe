@@ -61,6 +61,7 @@ class PolarAdjustConfig:
     search_radius_rad: float = math.radians(2.0)
     cross_track_limit_rad: float = math.radians(2.0 / 60.0)
     max_step_rad: float = math.radians(5.0)
+    max_solve_rms_arcsec: float = 10.0
     stable_samples: int = 3
     max_consecutive_failures: int = 3
     max_samples_per_axis: int = 120
@@ -74,6 +75,11 @@ class PolarAdjustConfig:
         for name, value in angular.items():
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"{name} must be finite and > 0")
+        if (
+            not math.isfinite(self.max_solve_rms_arcsec)
+            or self.max_solve_rms_arcsec <= 0.0
+        ):
+            raise ValueError("max_solve_rms_arcsec must be finite and > 0")
         if self.stable_samples < 2:
             raise ValueError("stable_samples must be >= 2")
         if self.max_consecutive_failures < 1:
@@ -136,5 +142,3 @@ class _PolarMeasurement:
     result: PolarResult
     poses: tuple[_PoseObservation, ...]
     fit: _CircleFitResult | None
-    alt_correction_rad: float | None
-    az_correction_rad: float | None
