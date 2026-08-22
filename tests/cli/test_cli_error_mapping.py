@@ -159,7 +159,7 @@ def test_view_error_mapping(monkeypatch, capsys, tmp_path, exc, exit_code, code)
     fits = tmp_path / "frame.fits"
     fits.write_text("x")
     monkeypatch.setattr(
-        "astrolabe.cli.commands.load_fits_header_cards", lambda path: _raise(exc)
+        "astrolabe.cli.commands.validate_fits_structure", lambda path: _raise(exc)
     )
     result, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(fits))
     payload = envelope(out)
@@ -185,7 +185,7 @@ def test_view_non_astrolabe_error_still_maps_to_view_failed(
     fits = tmp_path / "frame.fits"
     fits.write_text("x")
     monkeypatch.setattr(
-        "astrolabe.cli.commands.load_fits_header_cards",
+        "astrolabe.cli.commands.validate_fits_structure",
         lambda path: _raise(OSError("bad header")),
     )
     result, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(fits))

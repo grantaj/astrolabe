@@ -1,18 +1,30 @@
 from dataclasses import dataclass
 import math
+import time
 
+from astrolabe.errors import ServiceError
 from astrolabe.solver.types import SolveRequest, SolveResult
-from astrolabe.util.math import normalize_angle_rad
+from astrolabe.util.math import angular_separation_rad, normalize_angle_rad
 
 from .model import PointingModel
+
+
+_MAX_LEARNING_RESIDUAL_RAD = math.radians(10.0)
+_SLEW_SETTLE_TIMEOUT_S = 30.0
+_SLEW_SETTLE_POLL_S = 0.2
+_SLEW_SETTLE_STABLE_READS = 2
 
 
 @dataclass
 class PointingResult:
     success: bool
-    solves_attempted: int
-    solves_succeeded: int
-    rms_arcsec: float | None
+    target_ra_rad: float
+    target_dec_rad: float
+    command_ra_rad: float
+    command_dec_rad: float
+    solve: SolveResult
+    final_error_arcsec: float | None
+    model_updated: bool
     message: str | None = None
 
 
@@ -50,89 +62,130 @@ class PointingService:
         )
         return self._solver.solve(request)
 
-    def sync_current(self, exposure_s: float | None = None) -> PointingResult:
-        result = self.solve_current(exposure_s=exposure_s)
-        if result.success and result.ra_rad is not None and result.dec_rad is not None:
-            # A mount sync changes the mount's coordinate mapping to agree with the
-            # solved sky position. Do not also learn the pre-sync discrepancy into
-            # the pointing model or later gotos would compensate twice.
-            self._mount.sync(result.ra_rad, result.dec_rad)
-            return PointingResult(
-                success=True,
-                solves_attempted=1,
-                solves_succeeded=1,
-                rms_arcsec=result.rms_arcsec,
-                message=result.message,
-            )
-        return PointingResult(
-            success=False,
-            solves_attempted=1,
-            solves_succeeded=0,
-            rms_arcsec=result.rms_arcsec,
-            message=result.message or "Pointing sync failed",
-        )
-
-    def initial_alignment(
+    def point_to(
         self,
-        target_count: int,
+        ra_rad: float,
+        dec_rad: float,
         exposure_s: float | None = None,
-        max_attempts: int | None = None,
     ) -> PointingResult:
-        if target_count <= 0:
-            raise ValueError("target_count must be positive")
-        attempts = 0
-        successes = 0
-        last_rms = None
-        while successes < target_count:
-            if max_attempts is not None and attempts >= max_attempts:
-                break
-            attempts += 1
-            result = self.solve_current(exposure_s=exposure_s)
-            last_rms = result.rms_arcsec
-            if (
-                result.success
-                and result.ra_rad is not None
-                and result.dec_rad is not None
-            ):
-                # As in sync_current(), the sync itself corrects the mount model;
-                # keeping the pre-sync delta in our pointing model would apply
-                # the same correction again on a subsequent pointing-aware goto.
-                self._mount.sync(result.ra_rad, result.dec_rad)
-                successes += 1
+        """Point at a target and learn from the solved residual when trustworthy.
+
+        The supplied model is applied before the slew and updated in memory after
+        a successful, complete solve whose residual is within the v1 model's
+        learning envelope. Filesystem persistence remains the caller's
+        responsibility.
+        """
+        predicted_alpha, predicted_delta = self._model.predict()
+        command_ra, command_dec = self.apply_model(ra_rad, dec_rad)
+        self._mount.slew_to(command_ra, command_dec)
+        self._wait_for_slew_settle()
+        solve = self.solve_current(exposure_s=exposure_s, use_mount_hints=False)
+
+        rejection_reason = _solve_rejection_reason(solve)
+        final_error_arcsec = None
+        model_updated = False
+        if rejection_reason is None:
+            solved_ra = solve.ra_rad
+            solved_dec = solve.dec_rad
+            assert solved_ra is not None and solved_dec is not None
+            residual_alpha, residual_delta = _tangent_plane_error(
+                ra_target=ra_rad,
+                dec_target=dec_rad,
+                ra_solved=solved_ra,
+                dec_solved=solved_dec,
+            )
+            final_error_arcsec = (
+                math.degrees(math.hypot(residual_alpha, residual_delta)) * 3600.0
+            )
+
+            separation = angular_separation_rad(
+                ra_rad,
+                dec_rad,
+                solved_ra,
+                solved_dec,
+            )
+            if separation > _MAX_LEARNING_RESIDUAL_RAD:
+                rejection_reason = (
+                    f"Solved field is {math.degrees(separation):.2f} deg from the "
+                    "requested target; refusing pointing-model update beyond the "
+                    f"{math.degrees(_MAX_LEARNING_RESIDUAL_RAD):.1f} deg learning envelope"
+                )
+            else:
+                # The solve measures what remains after applying the current model.
+                # Reconstruct the underlying mount-bias observation before feeding it
+                # to the model's EMA; using the residual itself would make a stable
+                # bias converge to only half its true value.
+                observed_alpha = predicted_alpha + residual_alpha
+                observed_delta = predicted_delta + residual_delta
+                self._model.update(observed_alpha, observed_delta, weight=0.1)
+                model_updated = True
 
         return PointingResult(
-            success=successes >= target_count,
-            solves_attempted=attempts,
-            solves_succeeded=successes,
-            rms_arcsec=last_rms,
-            message=None
-            if successes >= target_count
-            else "Pointing calibrate incomplete",
+            success=rejection_reason is None,
+            target_ra_rad=ra_rad,
+            target_dec_rad=dec_rad,
+            command_ra_rad=command_ra,
+            command_dec_rad=command_dec,
+            solve=solve,
+            final_error_arcsec=final_error_arcsec,
+            model_updated=model_updated,
+            message=rejection_reason,
         )
 
     def apply_model(self, ra_rad: float, dec_rad: float) -> tuple[float, float]:
+        _validate_target(ra_rad, dec_rad)
         b_alpha, b_delta = self._model.predict()
-        corrected_ra = normalize_angle_rad(ra_rad - b_alpha / math.cos(dec_rad))
-        corrected_dec = dec_rad - b_delta
-        return corrected_ra, corrected_dec
+        if not math.isfinite(b_alpha) or not math.isfinite(b_delta):
+            raise ServiceError("Pointing model contains a non-finite bias")
 
-    def update_model_from_target(
-        self,
-        *,
-        ra_target: float,
-        dec_target: float,
-        result: SolveResult,
-        weight: float = 0.1,
-    ) -> None:
-        if result.ra_rad is None or result.dec_rad is None:
-            return
-        d_alpha, d_delta = _tangent_plane_error(
-            ra_target=ra_target,
-            dec_target=dec_target,
-            ra_solved=result.ra_rad,
-            dec_solved=result.dec_rad,
+        raw_corrected_ra = ra_rad - b_alpha / math.cos(dec_rad)
+        corrected_dec = dec_rad - b_delta
+        _validate_command(raw_corrected_ra, corrected_dec)
+        return normalize_angle_rad(raw_corrected_ra), corrected_dec
+
+    def _wait_for_slew_settle(self) -> None:
+        """Wait until the mount reports a stable non-slewing state."""
+        deadline = time.monotonic() + _SLEW_SETTLE_TIMEOUT_S
+        stable_reads = 0
+        while time.monotonic() < deadline:
+            if self._mount.get_state().slewing:
+                stable_reads = 0
+            else:
+                stable_reads += 1
+                if stable_reads >= _SLEW_SETTLE_STABLE_READS:
+                    return
+            time.sleep(_SLEW_SETTLE_POLL_S)
+        raise ServiceError(
+            "Mount did not report a settled slew within "
+            f"{_SLEW_SETTLE_TIMEOUT_S:.0f} seconds"
         )
-        self._model.update(d_alpha, d_delta, weight=weight)
+
+
+def _validate_target(ra_rad: float, dec_rad: float) -> None:
+    if not math.isfinite(ra_rad) or not math.isfinite(dec_rad):
+        raise ServiceError("Pointing target coordinates must be finite")
+    if not -math.pi / 2.0 <= dec_rad <= math.pi / 2.0:
+        raise ServiceError("Pointing target declination is outside the physical sky")
+
+
+def _validate_command(ra_rad: float, dec_rad: float) -> None:
+    if not math.isfinite(ra_rad) or not math.isfinite(dec_rad):
+        raise ServiceError("Pointing model produced non-finite mount coordinates")
+    if not -math.pi / 2.0 <= dec_rad <= math.pi / 2.0:
+        raise ServiceError("Pointing model produced an invalid mount declination")
+
+
+def _solve_rejection_reason(result: SolveResult) -> str | None:
+    """Return why a solve cannot become a pointing-model observation."""
+    if not result.success:
+        return result.message or "Plate solve failed"
+    if result.ra_rad is None or result.dec_rad is None:
+        return "Plate solve returned incomplete coordinates"
+    if not math.isfinite(result.ra_rad) or not math.isfinite(result.dec_rad):
+        return "Plate solve returned non-finite coordinates"
+    if not -math.pi / 2.0 <= result.dec_rad <= math.pi / 2.0:
+        return "Plate solve returned an invalid declination"
+    return None
 
 
 def _tangent_plane_error(

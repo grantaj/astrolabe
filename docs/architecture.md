@@ -19,7 +19,6 @@ CLI / application composition
           +--> polar
           +--> focus
           +--> feedback
-          +--> goto      (placeholder on current main)
           `--> guiding   (placeholder on current main)
 
 leaf utilities: util/*
@@ -79,7 +78,17 @@ Owns offline normalization and resolution of user/catalog target names into coor
 
 ### Pointing
 
-Current `main` has one coherent `astrolabe.pointing` capability exporting `PointingModel`, `PointingService`, and explicit pointing-specific persistence helpers. The model is pure prediction/update state; `PointingService` receives a model explicitly; loading/saving the default `~/.astrolabe/pointing.json` file is an application-composition concern rather than an implicit service side effect.
+`astrolabe.pointing` owns target pointing and pointing-model learning. Its normal target operation is one continuous lifecycle:
+
+```text
+apply current model -> slew -> solve -> measure target residual -> update model
+```
+
+There is no prerequisite alignment or initialization phase. A trustworthy solved pointing is an observation of the mount's current error and is incorporated into the supplied in-memory `PointingModel`; failed, incomplete, ambiguous (backend-rejected), or otherwise untrustworthy solves are not learned.
+
+The model remains explicit. `PointingService` does not load or save files. Pointing-owned persistence helpers exist separately, and the application composition layer decides whether an accepted model update is persisted to the default `~/.astrolabe/pointing.json` or another path.
+
+Pointing does not sync the mount as part of learning. Raw mount operations and mount-internal coordinate mapping are distinct from Astrolabe's pointing error model.
 
 ### Polar alignment
 

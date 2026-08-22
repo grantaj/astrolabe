@@ -1,11 +1,13 @@
 import datetime
 import inspect
 import math
+
 import pytest
 
+from astrolabe.errors import ServiceError
+from astrolabe.mount.base import MountState
 from astrolabe.pointing import PointingModel, PointingService
 from astrolabe.solver.types import Image, SolveRequest, SolveResult
-from astrolabe.mount.base import MountState
 
 
 class FakeCamera:
@@ -46,11 +48,11 @@ class FakeSolver:
 
 class FakeMount:
     def __init__(self):
-        self.sync_calls: list[tuple[float, float]] = []
+        self.slew_calls: list[tuple[float, float]] = []
         self.state = MountState(
             connected=True,
             ra_rad=1.0,
-            dec_rad=2.0,
+            dec_rad=0.5,
             tracking=True,
             slewing=False,
             timestamp_utc=datetime.datetime.now(datetime.timezone.utc),
@@ -59,8 +61,26 @@ class FakeMount:
     def get_state(self):
         return self.state
 
-    def sync(self, ra_rad, dec_rad):
-        self.sync_calls.append((ra_rad, dec_rad))
+    def slew_to(self, ra_rad, dec_rad):
+        self.slew_calls.append((ra_rad, dec_rad))
+
+
+def _solve_result(
+    *,
+    success: bool = True,
+    ra_rad: float | None = 1.0,
+    dec_rad: float | None = 0.5,
+) -> SolveResult:
+    return SolveResult(
+        success=success,
+        ra_rad=ra_rad,
+        dec_rad=dec_rad,
+        pixel_scale_arcsec=1.0 if success else None,
+        rotation_rad=0.0 if success else None,
+        rms_arcsec=1.5 if success else None,
+        num_stars=8 if success else None,
+        message="ok" if success else "failed",
+    )
 
 
 def test_service_requires_explicit_model():
@@ -70,18 +90,7 @@ def test_service_requires_explicit_model():
 
 def test_solve_current_uses_mount_hint_and_solver():
     camera = FakeCamera()
-    solver = FakeSolver(
-        SolveResult(
-            success=True,
-            ra_rad=1.1,
-            dec_rad=2.2,
-            pixel_scale_arcsec=1.0,
-            rotation_rad=0.0,
-            rms_arcsec=2.0,
-            num_stars=10,
-            message=None,
-        )
-    )
+    solver = FakeSolver(_solve_result(ra_rad=1.1, dec_rad=0.4))
     mount = FakeMount()
     service = PointingService(mount, camera, solver, model=PointingModel())
 
@@ -94,72 +103,12 @@ def test_solve_current_uses_mount_hint_and_solver():
     assert solver.requests[0].dec_hint_rad == mount.state.dec_rad
 
 
-def test_sync_current_syncs_on_success():
-    camera = FakeCamera()
-    solver = FakeSolver(
-        SolveResult(
-            success=True,
-            ra_rad=3.0,
-            dec_rad=4.0,
-            pixel_scale_arcsec=1.0,
-            rotation_rad=0.0,
-            rms_arcsec=1.5,
-            num_stars=8,
-            message="ok",
-        )
-    )
-    mount = FakeMount()
-    service = PointingService(mount, camera, solver, model=PointingModel())
-
-    result = service.sync_current(exposure_s=1.0)
-
-    assert result.success is True
-    assert mount.sync_calls == [(3.0, 4.0)]
-
-
-def test_initial_alignment_counts_successes():
-    camera = FakeCamera()
-    solver = FakeSolver(
-        SolveResult(
-            success=True,
-            ra_rad=3.0,
-            dec_rad=4.0,
-            pixel_scale_arcsec=1.0,
-            rotation_rad=0.0,
-            rms_arcsec=1.5,
-            num_stars=8,
-            message=None,
-        )
-    )
-    mount = FakeMount()
-    service = PointingService(mount, camera, solver, model=PointingModel())
-
-    result = service.initial_alignment(target_count=2, exposure_s=1.0)
-
-    assert result.success is True
-    assert result.solves_attempted == 2
-    assert result.solves_succeeded == 2
-    assert len(mount.sync_calls) == 2
-
-
 def test_apply_model_correction():
     camera = FakeCamera()
-    solver = FakeSolver(
-        SolveResult(
-            success=True,
-            ra_rad=0.0,
-            dec_rad=0.0,
-            pixel_scale_arcsec=1.0,
-            rotation_rad=0.0,
-            rms_arcsec=1.5,
-            num_stars=8,
-            message=None,
-        )
-    )
+    solver = FakeSolver(_solve_result())
     mount = FakeMount()
-    service = PointingService(mount, camera, solver, model=PointingModel())
-    service._model.b_alpha_rad = 0.01
-    service._model.b_delta_rad = -0.02
+    model = PointingModel(b_alpha_rad=0.01, b_delta_rad=-0.02)
+    service = PointingService(mount, camera, solver, model=model)
 
     ra_cmd, dec_cmd = service.apply_model(1.0, 0.5)
 
@@ -167,56 +116,174 @@ def test_apply_model_correction():
     assert dec_cmd == pytest.approx(0.5 + 0.02)
 
 
-def test_update_model_from_target():
-    camera = FakeCamera()
-    solver = FakeSolver(
-        SolveResult(
-            success=True,
-            ra_rad=1.0,
-            dec_rad=1.0,
-            pixel_scale_arcsec=1.0,
-            rotation_rad=0.0,
-            rms_arcsec=1.5,
-            num_stars=8,
-            message=None,
-        )
-    )
+@pytest.mark.parametrize(
+    ("ra_rad", "dec_rad"),
+    [
+        (math.nan, 0.4),
+        (0.9, math.nan),
+        (0.9, math.pi),
+    ],
+)
+def test_point_to_rejects_invalid_target_before_slew(ra_rad, dec_rad):
     mount = FakeMount()
-    service = PointingService(mount, camera, solver, model=PointingModel())
-    service.update_model_from_target(
-        ra_target=0.9,
-        dec_target=0.8,
-        result=solver.result,
+    service = PointingService(
+        mount, FakeCamera(), FakeSolver(_solve_result()), model=PointingModel()
     )
-    assert service._model.num_samples == 1
+
+    with pytest.raises(ServiceError):
+        service.point_to(ra_rad, dec_rad)
+
+    assert mount.slew_calls == []
 
 
-def test_update_model_from_target_accepts_weight():
-    camera = FakeCamera()
-    solver = FakeSolver(
-        SolveResult(
-            success=True,
-            ra_rad=1.0,
-            dec_rad=1.0,
-            pixel_scale_arcsec=1.0,
-            rotation_rad=0.0,
-            rms_arcsec=1.5,
-            num_stars=8,
-            message=None,
-        )
-    )
+def test_point_to_rejects_invalid_model_command_before_slew():
     mount = FakeMount()
-    service = PointingService(mount, camera, solver, model=PointingModel())
-
-    service.update_model_from_target(
-        ra_target=0.9,
-        dec_target=0.8,
-        result=solver.result,
-        weight=1.0,
+    model = PointingModel(b_delta_rad=-2.0)
+    service = PointingService(
+        mount, FakeCamera(), FakeSolver(_solve_result()), model=model
     )
 
-    assert service._model.b_alpha_rad == pytest.approx((1.0 - 0.9) * math.cos(0.8))
-    assert service._model.b_delta_rad == pytest.approx(1.0 - 0.8)
+    with pytest.raises(ServiceError, match="invalid mount declination"):
+        service.point_to(0.9, 0.4)
+
+    assert mount.slew_calls == []
+
+
+def test_point_to_rejects_non_finite_model_before_slew():
+    mount = FakeMount()
+    model = PointingModel(b_alpha_rad=math.nan)
+    service = PointingService(
+        mount, FakeCamera(), FakeSolver(_solve_result()), model=model
+    )
+
+    with pytest.raises(ServiceError, match="non-finite bias"):
+        service.point_to(0.9, 0.4)
+
+    assert mount.slew_calls == []
+
+
+def test_point_to_applies_model_slews_solves_and_updates_model():
+    target_ra = 0.9
+    target_dec = 0.4
+    model = PointingModel(b_alpha_rad=0.01, b_delta_rad=-0.02)
+    mount = FakeMount()
+    solver = FakeSolver(_solve_result(ra_rad=0.92, dec_rad=0.41))
+    service = PointingService(mount, FakeCamera(), solver, model=model)
+
+    result = service.point_to(target_ra, target_dec, exposure_s=2.0)
+
+    expected_ra = target_ra - 0.01 / math.cos(target_dec)
+    expected_dec = target_dec + 0.02
+    assert len(mount.slew_calls) == 1
+    assert mount.slew_calls[0][0] == pytest.approx(expected_ra)
+    assert mount.slew_calls[0][1] == pytest.approx(expected_dec)
+    assert solver.requests[0].ra_hint_rad is None
+    assert solver.requests[0].dec_hint_rad is None
+    assert result.success is True
+    assert result.model_updated is True
+    assert result.command_ra_rad == pytest.approx(expected_ra)
+    assert result.command_dec_rad == pytest.approx(expected_dec)
+    assert result.final_error_arcsec is not None
+    assert model.num_samples == 1
+
+
+def test_point_to_learns_underlying_bias_not_post_correction_residual():
+    target_ra = 0.9
+    target_dec = 0.4
+    model = PointingModel(b_alpha_rad=0.01, b_delta_rad=-0.02)
+    solver = FakeSolver(_solve_result(ra_rad=target_ra, dec_rad=target_dec))
+    service = PointingService(FakeMount(), FakeCamera(), solver, model=model)
+
+    result = service.point_to(target_ra, target_dec)
+
+    assert result.success is True
+    assert result.final_error_arcsec == pytest.approx(0.0)
+    assert model.b_alpha_rad == pytest.approx(0.01)
+    assert model.b_delta_rad == pytest.approx(-0.02)
+    assert model.num_samples == 1
+
+
+def test_point_to_does_not_learn_from_failed_solve():
+    model = PointingModel()
+    mount = FakeMount()
+    solver = FakeSolver(_solve_result(success=False, ra_rad=None, dec_rad=None))
+    service = PointingService(mount, FakeCamera(), solver, model=model)
+
+    result = service.point_to(0.9, 0.4)
+
+    assert result.success is False
+    assert result.model_updated is False
+    assert result.final_error_arcsec is None
+    assert result.message == "failed"
+    assert model.num_samples == 0
+
+
+def test_point_to_does_not_learn_from_incomplete_solve():
+    model = PointingModel()
+    solver = FakeSolver(_solve_result(success=True, ra_rad=None, dec_rad=0.4))
+    service = PointingService(FakeMount(), FakeCamera(), solver, model=model)
+
+    result = service.point_to(0.9, 0.4)
+
+    assert result.success is False
+    assert result.model_updated is False
+    assert result.final_error_arcsec is None
+    assert result.message == "Plate solve returned incomplete coordinates"
+    assert model.num_samples == 0
+
+
+@pytest.mark.parametrize(
+    ("ra_rad", "dec_rad"),
+    [
+        (math.nan, 0.4),
+        (0.9, math.nan),
+        (0.9, math.pi),
+    ],
+)
+def test_point_to_does_not_learn_from_invalid_solved_coordinates(ra_rad, dec_rad):
+    model = PointingModel()
+    solver = FakeSolver(_solve_result(success=True, ra_rad=ra_rad, dec_rad=dec_rad))
+    service = PointingService(FakeMount(), FakeCamera(), solver, model=model)
+
+    result = service.point_to(0.9, 0.4)
+
+    assert result.success is False
+    assert result.model_updated is False
+    assert result.final_error_arcsec is None
+    assert result.message is not None
+    assert model.num_samples == 0
+
+
+def test_point_to_rejects_outlier_solve_without_learning():
+    target_ra = 0.9
+    target_dec = 0.4
+    model = PointingModel()
+    solver = FakeSolver(
+        _solve_result(ra_rad=target_ra + math.radians(30.0), dec_rad=target_dec)
+    )
+    service = PointingService(FakeMount(), FakeCamera(), solver, model=model)
+
+    result = service.point_to(target_ra, target_dec)
+
+    assert result.success is False
+    assert result.model_updated is False
+    assert result.final_error_arcsec is not None
+    assert result.message is not None
+    assert "learning envelope" in result.message
+    assert model.num_samples == 0
+
+
+def test_point_to_wraps_ra_error_on_short_arc():
+    model = PointingModel()
+    target_ra = 2.0 * math.pi - 0.01
+    solved_ra = 0.01
+    solver = FakeSolver(_solve_result(ra_rad=solved_ra, dec_rad=0.0))
+    service = PointingService(FakeMount(), FakeCamera(), solver, model=model)
+
+    result = service.point_to(target_ra, 0.0)
+
+    assert result.model_updated is True
+    assert model.b_alpha_rad == pytest.approx(0.002)
 
 
 def test_legacy_service_import_is_compatibility_alias():

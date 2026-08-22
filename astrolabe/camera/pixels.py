@@ -31,7 +31,9 @@ def _parse_fits_value(card: str) -> str | None:
     return value
 
 
-def _read_header_cards(handle: BinaryIO, source: str) -> tuple[list[str], int]:
+def _read_header_cards(
+    handle: BinaryIO, source: str, *, keep_end: bool = False
+) -> tuple[list[str], int]:
     cards: list[str] = []
     blocks = 0
     handle.seek(0)
@@ -46,7 +48,13 @@ def _read_header_cards(handle: BinaryIO, source: str) -> tuple[list[str], int]:
                 card = raw.decode("ascii", errors="strict")
             except UnicodeDecodeError as exc:
                 raise ValueError(f"invalid FITS header: {source}") from exc
+            if blocks == 1 and offset == 0 and card[:8].strip() != "SIMPLE":
+                raise ValueError(
+                    f"FITS primary header must begin with SIMPLE: {source}"
+                )
             if card[:8].strip() == "END":
+                if keep_end:
+                    cards.append(card)
                 return cards, blocks * _FITS_BLOCK_BYTES
             cards.append(card)
 
@@ -154,6 +162,49 @@ def load_fits_header_cards(path: str | Path) -> list[str]:
     return [stripped for card in cards if (stripped := card.rstrip())]
 
 
+def fits_header_text(path: str | Path) -> str:
+    """Serialise the primary header verbatim: 80-column cards through ``END``, block-padded."""
+
+    fits_path = Path(path)
+    with fits_path.open("rb") as handle:
+        cards, _ = _read_header_cards(handle, str(fits_path), keep_end=True)
+    text = "\n".join(cards)
+    return text + " " * (-len(text) % _FITS_BLOCK_BYTES)
+
+
+# The standard set, wider than the camera subset `_read_fits_pixels` decodes.
+_STANDARD_BITPIX = frozenset({8, 16, 32, 64, -32, -64})
+
+
+def validate_fits_structure(path: str | Path) -> None:
+    """Check the primary HDU declares a well-formed data unit, without decoding it."""
+
+    fits_path = Path(path)
+    with fits_path.open("rb") as handle:
+        header, data_offset = _fits_header(handle, str(fits_path))
+    if header.get("SIMPLE", "").upper() not in {"T", "TRUE"}:
+        raise ValueError(f"not a simple FITS primary HDU: {fits_path}")
+
+    bitpix = _header_int(header, "BITPIX")
+    if bitpix not in _STANDARD_BITPIX:
+        raise ValueError(f"unsupported FITS BITPIX={bitpix}")
+
+    naxis = _header_int(header, "NAXIS")
+    if naxis < 0:
+        raise ValueError("FITS NAXIS must be non-negative")
+
+    count = 1
+    for axis in range(1, naxis + 1):
+        length = _header_int(header, f"NAXIS{axis}")
+        if length < 0:
+            raise ValueError(f"FITS NAXIS{axis} must be non-negative")
+        count *= length
+
+    declared = 0 if naxis == 0 else count * abs(bitpix) // 8
+    if fits_path.stat().st_size - data_offset < declared:
+        raise ValueError(f"FITS pixel payload is truncated: {fits_path}")
+
+
 _BITPIX_BY_DTYPE = {
     np.dtype("uint8"): 8,
     np.dtype("int16"): 16,
@@ -257,15 +308,17 @@ def fits_image_bytes(
         raise ValueError("FITS image dimensions must be positive")
 
     dtype = pixels.dtype
+    # The reader returns big-endian views, so accept either byte order.
+    native = dtype.newbyteorder("=")
     try:
-        bitpix = _BITPIX_BY_DTYPE[dtype]
+        bitpix = _BITPIX_BY_DTYPE[native]
     except KeyError as exc:
         raise ValueError(f"unsupported FITS pixel dtype: {dtype}") from exc
 
     height, width = pixels.shape
-    bzero = _UNSIGNED_BZERO.get(dtype)
+    bzero = _UNSIGNED_BZERO.get(native)
     if bzero is None:
-        raw = pixels.astype(dtype.newbyteorder(">"))
+        raw = pixels.astype(native.newbyteorder(">"))
     else:
         raw = (pixels.astype(np.int64) - int(bzero)).astype(">i2")
 

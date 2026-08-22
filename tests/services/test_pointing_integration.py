@@ -233,6 +233,36 @@ def _blur_fits(path: Path) -> Path:
     return write_fits_image(out_path, blurred, extra_cards=hint_cards)
 
 
+class _BlurCamera:
+    """Integration-only camera wrapper that keeps simulator stars solvable by ASTAP."""
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def connect(self):
+        return self._inner.connect()
+
+    def disconnect(self):
+        return self._inner.disconnect()
+
+    def is_connected(self):
+        return self._inner.is_connected()
+
+    def capture(self, exposure_s, gain=None, binning=None, roi=None):
+        image = self._inner.capture(
+            exposure_s=exposure_s, gain=gain, binning=binning, roi=roi
+        )
+        blurred_path = _blur_fits(Path(str(image.data)))
+        return Image(
+            data=str(blurred_path),
+            width_px=image.width_px,
+            height_px=image.height_px,
+            timestamp_utc=image.timestamp_utc,
+            exposure_s=image.exposure_s,
+            metadata=image.metadata,
+        )
+
+
 def _solve_with_blur(service: PointingService, exposure_s: float) -> SolveResult:
     needs_disconnect = False
     if not service._camera.is_connected():  # noqa: SLF001 - integration helper
@@ -404,7 +434,7 @@ def test_pointing_goto_learns_offset(tmp_path):
         pytest.skip(f"ASTAP not available: {availability.get('detail')}")
 
     base_mount = get_mount_backend(config)
-    camera = get_camera_backend(config)
+    camera = _BlurCamera(get_camera_backend(config))
     model = PointingModel()
 
     perturb_ra_rad = 0.01
@@ -421,9 +451,6 @@ def test_pointing_goto_learns_offset(tmp_path):
 
         def slew_to(self, ra_rad, dec_rad):
             self._inner.slew_to(ra_rad + self._d_ra, dec_rad + self._d_dec)
-
-        def sync(self, ra_rad, dec_rad):
-            return self._inner.sync(ra_rad, dec_rad)
 
     mount = PerturbedMount(base_mount, d_ra=perturb_ra_rad, d_dec=perturb_dec_rad)
     service = PointingService(mount, camera, solver, model=model)
@@ -444,21 +471,10 @@ def test_pointing_goto_learns_offset(tmp_path):
     target_dec_rad = math.radians(target.dec_deg)
 
     def run_pointing_once():
-        cmd_ra, cmd_dec = service.apply_model(target_ra_rad, target_dec_rad)
-        mount.slew_to(cmd_ra, cmd_dec)
-        _wait_for_slew_complete(mount)
-        result = _solve_with_blur(service, exposure_s=2.0)
-        if not result.success or result.ra_rad is None or result.dec_rad is None:
-            pytest.skip(f"Pointing solve failed: {result.message}")
-        service.update_model_from_target(
-            ra_target=target_ra_rad,
-            dec_target=target_dec_rad,
-            result=result,
-            weight=1.0,
-        )
-        d_alpha = (result.ra_rad - target_ra_rad) * math.cos(target_dec_rad)
-        d_delta = result.dec_rad - target_dec_rad
-        return math.hypot(d_alpha, d_delta)
+        result = service.point_to(target_ra_rad, target_dec_rad, exposure_s=2.0)
+        if not result.success or result.final_error_arcsec is None:
+            pytest.skip(f"Pointing solve failed: {result.solve.message}")
+        return math.radians(result.final_error_arcsec / 3600.0)
 
     expected_err = math.hypot(
         perturb_ra_rad * math.cos(target_dec_rad),

@@ -17,6 +17,9 @@ class TargetIndex:
             for alias in record.aliases:
                 self._alias_index[normalize_query(alias)] = record
 
+    def add_alias(self, alias: str, record: TargetRecord) -> None:
+        self._alias_index[normalize_query(alias)] = record
+
     def get_by_id(self, key: str) -> TargetRecord | None:
         return self._id_index.get(normalize_query(key))
 
@@ -81,6 +84,11 @@ def load_alias_csv(path: Path) -> dict[str, str]:
         for row in reader:
             alias = row["alias"].strip()
             hip_id = row["hip_id"].strip()
+            existing = aliases.get(alias)
+            if existing is not None and existing != hip_id:
+                raise ValueError(
+                    f"Conflicting alias {alias!r}: HIP {existing} and HIP {hip_id}"
+                )
             aliases[alias] = hip_id
     return aliases
 

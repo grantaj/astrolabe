@@ -50,7 +50,7 @@ Do not introduce NDJSON/streaming output under the global `--json` flag without 
 
 ## Current command topology
 
-The topology below reflects current `main`. Use `--help` for exact arguments.
+The topology below reflects the current implementation. Use `--help` for exact arguments.
 
 | Command | Subcommands / purpose | Current status |
 | --- | --- | --- |
@@ -60,8 +60,8 @@ The topology below reflects current `main`. Use `--help` for exact arguments.
 | `view` | inspect a FITS file; optional graphical display | implemented |
 | `mount` | `status`, `slew`, `track`, `park`, `stop` | implemented |
 | `resolve` | resolve target names/catalog IDs offline | implemented |
-| `goto` | target resolution + closed-loop service, currently falling back to a plain mount slew | partial / fallback |
-| `pointing` | `solve`, `sync`, `init`, `goto` | implemented |
+| `goto` | deprecated alias for `pointing goto` | compatibility alias |
+| `pointing` | `solve`, `goto` | implemented |
 | `align` | deprecated alias for `pointing` | compatibility alias |
 | `polar` | N-pose polar-axis measurement/correction estimate | implemented |
 | `focus` | `measure` one-shot multi-star HFR; `monitor` live HFR/trend reporting | implemented |
@@ -69,12 +69,20 @@ The topology below reflects current `main`. Use `--help` for exact arguments.
 | `plan` | offline-first target planning | implemented |
 | `update catalog` | all/default catalog updates; `openngc`, `hip`, `bsc` subsets | implemented |
 
+### Pointing command semantics
+
+`pointing goto` is the single normal target-pointing operation. It applies the current persisted pointing model, slews, plate-solves the resulting position, measures the target residual, and incorporates a trustworthy residual into the model. There is no separate initialization/calibration phase and no Pointing-level sync step.
+
+`align goto` and top-level `goto` are compatibility spellings for the same Pointing operation. They retain their own command identifiers for automation compatibility but do not own different domain behavior. The old top-level `goto` tolerance/iteration flags remain accepted but hidden as compatibility no-ops; Astrolabe does not pretend to provide a separate iterative-centering service.
+
+Use `mount slew` when the desired operation is deliberately just an uncorrected mount slew rather than solve-assisted pointing and learning.
+
 ### A few non-obvious current boundaries
 
-- `view` takes its FITS input via `--in` on current `main`; its `header` field is the primary header in file order, decoded by Astrolabe's own narrow FITS boundary — see `fits_boundary.md`.
+- `view` takes its FITS input via `--in` on current main; its `header` field is the primary header in file order, decoded by Astrolabe's own narrow FITS boundary — see `fits_boundary.md`.
 - `polar` requires an RA rotation and observer latitude; it also exposes exposure/settling and pose-count controls.
 - `focus measure` accepts either `--in` FITS input or camera-capture controls. `focus monitor` consumes the camera-owned live-frame path, may be bounded with `--frames N`, and deliberately rejects global `--json` with one structured error rather than creating an NDJSON stream.
-- `pointing` currently uses `solve`, `sync`, `init`, and `goto`; older names such as `where`, `calibrate`, `recover`, `status`, and `diagnose` are not part of the current parser.
+- `pointing` exposes only `solve` and `goto`; older names such as `sync`, `init`, `where`, `calibrate`, `recover`, `status`, and `diagnose` are not part of the current parser.
 
 ## Stability rule
 

@@ -1,3 +1,5 @@
+import csv
+
 import pytest
 
 from astrolabe.services.target.update import _parse_hipparcos_line, update_hipparcos
@@ -47,8 +49,31 @@ def test_update_hipparcos_filters_by_mag(tmp_path, monkeypatch):
     output = tmp_path / "hip_subset.csv"
     meta = update_hipparcos(source=str(source), output_path=str(output), max_mag=1.0)
     assert meta["stars_written"] == 1
+    assert meta["source_catalog"] == "I/239"
     assert output.exists()
 
     content = output.read_text(encoding="utf-8")
     assert "32349" in content
     assert "91262" not in content
+
+
+def test_update_hipparcos_sorts_by_hip_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    source = tmp_path / "hip_main.dat"
+    source.write_text(
+        "\n".join(
+            [
+                _make_line(91262, 0.03, 279.234734, 38.783688),
+                _make_line(32349, -1.46, 101.287155, -16.716116),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    output = tmp_path / "hip_subset.csv"
+    update_hipparcos(source=str(source), output_path=str(output), max_mag=7.0)
+
+    with open(output, "r", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [row["hip_id"] for row in rows] == ["32349", "91262"]

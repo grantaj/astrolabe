@@ -14,6 +14,8 @@ load_fits_pixels(path)        -> PixelFrame
 load_fits_bytes(data)         -> PixelFrame
 image_to_pixels(Image)        -> PixelFrame
 load_fits_header_cards(path)  -> list[str]
+fits_header_text(path)        -> str
+validate_fits_structure(path) -> None
 fits_image_bytes(pixels, *, extra_header=None, extra_cards=None) -> bytes
 write_fits_image(path, pixels, *, extra_header=None, extra_cards=None) -> Path
 ```
@@ -21,12 +23,14 @@ write_fits_image(path, pixels, *, extra_header=None, extra_cards=None) -> Path
 Scope is a **simple 2D primary image**: `SIMPLE`/`BITPIX`/`NAXIS`/`NAXIS1`/
 `NAXIS2`/`END`, 80-character cards, 2880-byte block padding, big-endian data,
 `BITPIX` 8/16/32/-32/-64, and `BSCALE`/`BZERO` scaling (including the
-signed-plus-`BZERO` form INDI cameras use for unsigned 16-bit frames).
+signed-plus-`BZERO` form INDI cameras use for unsigned 16-bit frames). `SIMPLE`
+must be the primary header's first keyword.
 
 Encoding is **value-preserving, not dtype-preserving**. Unsigned 16-bit input is
 written in the standard signed-plus-`BZERO` form and therefore reads back as
 `float64` with identical values; every other supported dtype reads back as the
-big-endian view of itself. Consumers that need a specific dtype must cast.
+big-endian view of itself. Consumers that need a specific dtype must cast. The
+writer accepts either byte order, so reader output is always valid writer input.
 
 `extra_header` emits typed cards; `extra_cards` copies already-formatted cards
 through verbatim, so a caller can preserve metadata it read from a source file
@@ -41,26 +45,29 @@ continued/hierarch cards, and any WCS evaluation. A WCS-tagged frame may be
 interpret them. Callers needing more than this should own the extra behaviour
 locally rather than widening this module.
 
-Failures raise `ValueError` with the offending source, keyword or value named.
+Failures raise `ValueError` with the offending source, keyword or value named,
+including a primary header that does not begin with `SIMPLE`.
 Header keywords are case-insensitive and must be at most 8 alphanumeric/`_`/`-`
 characters; all header text must be printable ASCII.
 
 ## The `view` header field
 
-`astrolabe view` emits `load_fits_header_cards()` joined by newlines as its JSON
-`header` field: the file's primary header, in file order, where
+`astrolabe view` emits `fits_header_text()` as its JSON `header` field: every
+80-column card of the primary header through `END`, newline-joined and padded so
+the total length is a multiple of 2880. This is byte-identical to what `view`
+emitted before the boundary was brought in-repo.
 
-- cards are right-stripped (not padded to 80 columns, as they were before the
-  boundary was brought in-repo);
-- wholly blank padding cards are dropped;
-- the structural `END` card is excluded.
+`load_fits_header_cards()` is the machine-facing accessor instead — right-stripped,
+blank and `END` cards dropped — and is what callers extracting keywords should use.
 
-Card order, comments, and non-`KEY= VALUE` cards such as `COMMENT`/`HISTORY` are
-preserved. Automation that parses by keyword is unaffected; automation depending
-on fixed 80-column card widths must strip or pad.
+## What `view` accepts
+
+`view` validates primary-HDU *structure*, not pixel decodability: `SIMPLE` present,
+first and true; `BITPIX` in the standard set 8/16/32/64/-32/-64; `NAXIS >= 0` with
+non-negative `NAXISn`; and a data unit at least as long as the header declares.
+`BITPIX = 64` and any dimensionality, including `NAXIS = 0`, are therefore accepted
+for header inspection though `load_fits_pixels` cannot decode them. `view --show`
+does require the decodable 2-D subset.
 
 `view` no longer emits `dependency_missing`/exit 2: the boundary has no optional
-dependency to be missing. `view` still decodes the data unit on every
-invocation, not only under `--show`, so a file whose header is readable but
-whose `SIMPLE`/`NAXIS` declaration or payload length is wrong still fails with
-`view_failed` exactly as before.
+dependency to be missing.

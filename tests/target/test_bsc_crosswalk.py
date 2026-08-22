@@ -18,18 +18,42 @@ def _make_hip_line(hip_id: int, hd: int) -> str:
 
 
 def test_aliases_from_bsc_name():
-    assert _aliases_from_bsc_name("Gam Cru") == ["gamma cru", "gamma crux"]
-    assert _aliases_from_bsc_name("Alp Cen") == ["alpha cen", "alpha centaurus"]
+    assert _aliases_from_bsc_name("Gam Cru") == ["gamma cru", "gamma crucis"]
+    assert _aliases_from_bsc_name("Alp Cen") == ["alpha cen", "alpha centauri"]
+    assert _aliases_from_bsc_name("9Alp CMa") == [
+        "alpha cma",
+        "alpha canis majoris",
+        "9 cma",
+        "9 canis majoris",
+    ]
+    assert _aliases_from_bsc_name("61 Cyg") == ["61 cyg", "61 cygni"]
+    assert _aliases_from_bsc_name("56Psi5Aur") == [
+        "psi5 aur",
+        "psi5 aurigae",
+        "56 aur",
+        "56 aurigae",
+    ]
 
 
-def test_update_bsc_crosswalk_with_local_sources(tmp_path, monkeypatch):
+def test_update_bsc_crosswalk_with_local_sources_is_deterministic(
+    tmp_path, monkeypatch
+):
     monkeypatch.setenv("HOME", str(tmp_path))
     hip_path = tmp_path / "hip_main.dat"
-    hip_path.write_text(_make_hip_line(61084, 108248), encoding="utf-8")
+    hip_path.write_text(
+        "\n".join(
+            [
+                _make_hip_line(104214, 201091),
+                _make_hip_line(61084, 108248),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     bsc_path = tmp_path / "bsc.tsv"
     bsc_path.write_text(
-        "# Dummy header\nName\tHD\nGam Cru\t108248\n",
+        "# Dummy header\nName\tHD\n61 Cyg\t201091\nGam Cru\t108248\nGam Cru\t108248\n",
         encoding="utf-8",
     )
 
@@ -41,9 +65,50 @@ def test_update_bsc_crosswalk_with_local_sources(tmp_path, monkeypatch):
         verify_ssl=True,
         show_progress=False,
     )
-    assert meta["aliases_written"] == 2
+    assert meta["aliases_written"] == 4
+    assert meta["source_catalog"] == "V/50"
+    assert meta["hip_source_catalog"] == "I/239"
 
     with open(output, "r", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
-    assert rows[0]["alias"] == "gamma cru"
-    assert rows[0]["hip_id"] == "61084"
+    assert [(row["alias"], row["hip_id"]) for row in rows] == [
+        ("61 cyg", "104214"),
+        ("61 cygni", "104214"),
+        ("gamma cru", "61084"),
+        ("gamma crucis", "61084"),
+    ]
+
+
+def test_load_hd_to_hip_drops_ambiguous_mapping(tmp_path):
+    source = tmp_path / "hip_main.dat"
+    source.write_text(
+        _make_hip_line(10, 20) + "\n" + _make_hip_line(11, 20) + "\n",
+        encoding="utf-8",
+    )
+    assert "20" not in _load_hd_to_hip(source)
+
+
+def test_update_bsc_crosswalk_skips_ambiguous_system_alias(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    hip_path = tmp_path / "hip_main.dat"
+    hip_path.write_text(
+        _make_hip_line(104214, 201091) + "\n" + _make_hip_line(104217, 201092) + "\n",
+        encoding="utf-8",
+    )
+    bsc_path = tmp_path / "bsc.tsv"
+    bsc_path.write_text(
+        "Name\tHD\n61 Cyg\t201091\n61 Cyg\t201092\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "bsc_crosswalk.csv"
+
+    meta = update_bsc_crosswalk(
+        source=str(bsc_path),
+        hip_source=str(hip_path),
+        output_path=str(output),
+    )
+
+    assert meta["aliases_written"] == 0
+    assert meta["ambiguous_aliases_skipped"] == 2
+    with open(output, "r", encoding="utf-8") as handle:
+        assert list(csv.DictReader(handle)) == []
