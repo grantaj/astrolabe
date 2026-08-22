@@ -1,15 +1,22 @@
-"""Build hip_subset.csv from a Hipparcos source."""
+"""Build hip_subset.csv from the archival Hipparcos I/239 source."""
 
 import argparse
 
 from astrolabe.services.target.update import update_hipparcos
+
+_DEFAULT_MAX_MAG = 7.0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(prog="build_hip_subset")
     parser.add_argument("--source", help="Hipparcos catalog source URL or path")
     parser.add_argument("--output", help="Output path for hip_subset.csv")
-    parser.add_argument("--max-mag", type=float, help="Maximum V magnitude to include")
+    parser.add_argument(
+        "--max-mag",
+        type=float,
+        default=_DEFAULT_MAX_MAG,
+        help=f"Maximum V magnitude to include (default: {_DEFAULT_MAX_MAG})",
+    )
     args = parser.parse_args()
 
     meta = update_hipparcos(
