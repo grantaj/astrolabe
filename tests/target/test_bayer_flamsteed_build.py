@@ -1,6 +1,7 @@
 import csv
-
-from scripts.catalog.build_bayer_flamsteed import build
+from pathlib import Path
+import subprocess
+import sys
 
 
 def _make_hip_line(hip_id: int, hd: int) -> str:
@@ -19,14 +20,30 @@ def test_build_bayer_flamsteed_from_local_archival_inputs(tmp_path, monkeypatch)
     bsc_source = tmp_path / "bsc.tsv"
     bsc_source.write_text("Name\tHD\n9Alp CMa\t48915\n", encoding="utf-8")
     output = tmp_path / "bayer_flamsteed.csv"
-
-    meta = build(
-        source=str(bsc_source),
-        hip_source=str(hip_source),
-        output=output,
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "catalog"
+        / "build_bayer_flamsteed.py"
     )
 
-    assert meta["aliases_written"] == 4
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            "--source",
+            str(bsc_source),
+            "--hip-source",
+            str(hip_source),
+            "--output",
+            str(output),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Aliases: 4" in result.stdout
     with open(output, "r", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     assert {(row["alias"], row["hip_id"]) for row in rows} == {
