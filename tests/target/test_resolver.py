@@ -83,6 +83,48 @@ def test_missing_alias_backing_record_is_terminal_miss():
     )
 
     assert resolver.resolve("Acrux") == []
+    assert resolver.resolve("alpha cen") == []
+
+
+def test_repo_bayer_alias_resolves_deterministically():
+    resolver = TargetResolver.from_catalog_paths(
+        core_dso_path=_data_path("catalog_curated.csv"),
+        hip_subset_path=_data_path("hip_subset.csv"),
+        star_aliases_path=_data_path("star_aliases.csv"),
+        bayer_flamsteed_path=_data_path("bayer_flamsteed.csv"),
+    )
+
+    results = resolver.resolve("beta ori")
+
+    assert results
+    assert results[0].record.id == "HIP 24436"
+    assert results[0].match_reason == "alias"
+
+
+def test_missing_lower_priority_alias_does_not_mask_core_name(tmp_path):
+    core = tmp_path / "core.csv"
+    core.write_text(
+        "id,name,ra_deg,dec_deg,type,mag\nDSO1,Shared,1.0,2.0,galaxy,\n",
+        encoding="utf-8",
+    )
+    hip = tmp_path / "hip.csv"
+    hip.write_text("hip_id,ra_deg,dec_deg,mag,name\n", encoding="utf-8")
+    common = tmp_path / "common.csv"
+    common.write_text("alias,hip_id\nShared,999\n", encoding="utf-8")
+    bayer = tmp_path / "bayer.csv"
+    bayer.write_text("alias,hip_id\n", encoding="utf-8")
+
+    resolver = TargetResolver.from_catalog_paths(
+        core_dso_path=core,
+        hip_subset_path=hip,
+        star_aliases_path=common,
+        bayer_flamsteed_path=bayer,
+        min_score=0.0,
+    )
+
+    results = resolver.resolve("Shared")
+    assert results[0].record.id == "DSO1"
+    assert results[0].match_reason == "alias"
 
 
 def test_required_alias_sources_have_deterministic_priority(tmp_path):
