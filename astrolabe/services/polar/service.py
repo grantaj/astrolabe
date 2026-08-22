@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Callable
 
@@ -56,6 +57,11 @@ class PolarAlignService:
         on_update: Callable[[PolarAdjustmentUpdate], None] | None = None,
     ) -> PolarAdjustResult:
         """Measure once, then guide AZ and ALT manual adjustment in sequence."""
+        _validate_adjustment_site(
+            site_latitude_rad=site_latitude_rad,
+            site_longitude_rad=site_longitude_rad,
+            site_elevation_m=site_elevation_m,
+        )
         workflow = _PolarAdjustmentWorkflow(
             self._mount,
             self._camera,
@@ -163,6 +169,21 @@ class PolarAlignService:
         target_ra = state.ra_rad + delta_rad
         self._mount.slew_to(target_ra, state.dec_rad)
         time.sleep(settle_time_s)
+
+
+def _validate_adjustment_site(
+    *,
+    site_latitude_rad: float,
+    site_longitude_rad: float,
+    site_elevation_m: float,
+) -> None:
+    values = (site_latitude_rad, site_longitude_rad, site_elevation_m)
+    if any(not math.isfinite(value) for value in values):
+        raise ValueError("polar adjustment site values must be finite")
+    if not -math.pi / 2.0 <= site_latitude_rad <= math.pi / 2.0:
+        raise ValueError("site_latitude_rad must be in [-π/2, π/2]")
+    if not -math.pi <= site_longitude_rad <= math.pi:
+        raise ValueError("site_longitude_rad must be in [-π, π]")
 
 
 def _fail(message: str) -> PolarResult:
