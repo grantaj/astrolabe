@@ -101,6 +101,21 @@ def test_repo_bayer_alias_resolves_deterministically():
     assert results[0].match_reason == "alias"
 
 
+def test_repo_expanded_bayer_alias_uses_genitive():
+    resolver = TargetResolver.from_catalog_paths(
+        core_dso_path=_data_path("catalog_curated.csv"),
+        hip_subset_path=_data_path("hip_subset.csv"),
+        star_aliases_path=_data_path("star_aliases.csv"),
+        bayer_flamsteed_path=_data_path("bayer_flamsteed.csv"),
+    )
+
+    results = resolver.resolve("alpha bootis")
+
+    assert results
+    assert results[0].record.id == "HIP 69673"
+    assert results[0].match_reason == "alias"
+
+
 def test_missing_lower_priority_alias_does_not_mask_core_name(tmp_path):
     core = tmp_path / "core.csv"
     core.write_text(
