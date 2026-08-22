@@ -1,5 +1,6 @@
 import datetime
 import math
+from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
 import erfa
@@ -18,6 +19,7 @@ from astrolabe.services.polar.adjustment import (
 from astrolabe.services.polar.service import PolarAlignService, _SolveHint
 from astrolabe.services.polar.types import (
     PolarAdjustConfig,
+    PolarAxis,
     PolarResult,
     PolarWorkflowState,
     _CircleFitResult,
@@ -282,13 +284,21 @@ class TestAdjustmentWorkflow:
         ]
 
         vectors = az_vectors + alt_vectors
-        timestamps = [_T0 + datetime.timedelta(seconds=i + 1) for i in range(len(vectors))]
+        timestamps = [
+            _T0 + datetime.timedelta(seconds=i + 1) for i in range(len(vectors))
+        ]
         camera.capture.side_effect = [_image(timestamp) for timestamp in timestamps]
-        solver.solve.side_effect = [
+        solve_results = [
             _solve_for_horizon(vector, timestamp)
             for vector, timestamp in zip(vectors, timestamps)
         ]
+        solver.solve.side_effect = solve_results
         updates = []
+        base_config = PolarAdjustConfig()
+        config = replace(
+            base_config,
+            feedback=replace(base_config.feedback, smoothing_alpha=1.0),
+        )
 
         with patch.object(service, "_measure", return_value=measurement) as measure:
             result = service.adjust(
@@ -296,6 +306,7 @@ class TestAdjustmentWorkflow:
                 site_latitude_rad=_SITE_LAT_RAD,
                 site_longitude_rad=_SITE_LON_RAD,
                 exposure_s=1.0,
+                config=config,
                 on_update=updates.append,
             )
 
@@ -322,11 +333,11 @@ class TestAdjustmentWorkflow:
 
         requests = [call.args[0] for call in solver.solve.call_args_list]
         assert requests[0].ra_hint_rad is None
-        assert requests[1].ra_hint_rad == solver.solve.side_effect[0].ra_rad
+        assert requests[1].ra_hint_rad == solve_results[0].ra_rad
         assert requests[1].scale_hint_arcsec == 1.5
         assert requests[1].search_radius_rad is not None
         # ALT starts from a fresh capture but may reuse the final AZ solve as a hint.
-        assert requests[5].ra_hint_rad == solver.solve.side_effect[4].ra_rad
+        assert requests[5].ra_hint_rad == solve_results[4].ra_rad
 
     def test_hinted_failure_gets_one_bounded_blind_fallback(self):
         service, _mount, camera, solver = _mock_service()
@@ -382,9 +393,7 @@ class TestAdjustmentWorkflow:
 
         stage = service._run_axis_stage(
             state=PolarWorkflowState.ADJUST_AZ,
-            axis=service_axis := __import__(
-                "astrolabe.services.polar.types", fromlist=["PolarAxis"]
-            ).PolarAxis.AZ,
+            axis=PolarAxis.AZ,
             rotation_axis=AZ_ADJUSTMENT_AXIS,
             target_correction_rad=math.radians(0.5),
             exposure_s=1.0,
@@ -397,7 +406,6 @@ class TestAdjustmentWorkflow:
             initial_hint=None,
         )
 
-        assert service_axis.value == "az"
         assert stage.success is False
         assert "rebase/retry" in (stage.message or "")
 
@@ -429,9 +437,11 @@ class TestAdjustmentWorkflow:
         solver.solve.side_effect = [
             _solve_for_horizon(reference, timestamp) for timestamp in timestamps
         ]
-        config = PolarAdjustConfig(stable_samples=3)
-
-        from astrolabe.services.polar.types import PolarAxis
+        base_config = PolarAdjustConfig(stable_samples=3)
+        config = replace(
+            base_config,
+            feedback=replace(base_config.feedback, smoothing_alpha=1.0),
+        )
 
         stage = service._run_axis_stage(
             state=PolarWorkflowState.ADJUST_AZ,
