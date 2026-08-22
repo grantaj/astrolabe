@@ -82,12 +82,22 @@ def test_astap_solve_placeholder(sample_image):
         assert result.success is True
         assert result.message is not None
         assert result.message.startswith("ASTAP solve succeeded")
+        cmd = mock_run.call_args[0][0]
+        assert cmd[:4] == [
+            "astap_cli",
+            "-f",
+            "testdata/raw/sample1.fits",
+            "-o",
+        ]
+        assert len(cmd) == 5
+        assert "-r" not in cmd
+        assert "-fov" not in cmd
 
 
 def test_astap_hint_units():
     image = Image(
         data="testdata/raw/sample1.fits",
-        width_px=1024,
+        width_px=2048,
         height_px=1024,
         timestamp_utc=datetime.datetime.now(datetime.timezone.utc),
         exposure_s=2.0,
@@ -97,6 +107,7 @@ def test_astap_hint_units():
         image=image,
         ra_hint_rad=math.radians(15.0),
         dec_hint_rad=math.radians(0.0),
+        scale_hint_arcsec=1.5,
         search_radius_rad=math.radians(5.0),
         timeout_s=TEST_TIMEOUT_S,
     )
@@ -124,7 +135,16 @@ def test_astap_hint_units():
         spd_value = float(cmd[cmd.index("-spd") + 1])
         assert ra_value == pytest.approx(1.0, rel=0, abs=1e-9)
         assert spd_value == pytest.approx(90.0, rel=0, abs=1e-9)
-        assert "-radius" in cmd
+
+        assert cmd.count("-r") == 1
+        radius_value = float(cmd[cmd.index("-r") + 1])
+        assert radius_value == pytest.approx(5.0, rel=0, abs=1e-9)
+        assert "-radius" not in cmd
+
+        assert cmd.count("-fov") == 1
+        fov_value = float(cmd[cmd.index("-fov") + 1])
+        assert fov_value == pytest.approx(1.5 * 1024 / 3600.0, rel=0, abs=1e-9)
+        assert "-scale" not in cmd
 
 
 @pytest.fixture(scope="session")
