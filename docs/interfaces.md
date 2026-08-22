@@ -70,7 +70,7 @@ set_tracking(enabled)
 pulse_guide(ra_ms, dec_ms)
 ```
 
-`slew_to` and `sync` accept canonical ICRS/radian coordinates. Mount-native epoch/unit/property conversion stays inside the mount capability. `sync` is a primitive mount capability, not part of Pointing's normal learning workflow.
+`slew_to` and `sync` accept canonical ICRS/radian coordinates. Mount-native epoch/unit/property conversion stays inside the mount capability. `slew_to` is a completion boundary: it returns only after the backend has confirmed the commanded slew is no longer in progress, and raises a backend error if completion cannot be confirmed before the backend timeout. `sync` is a primitive mount capability, not part of Pointing's normal learning workflow.
 
 ## Current service surfaces
 
@@ -85,7 +85,7 @@ solve_current(exposure_s=None, use_mount_hints=True) -> SolveResult
 point_to(ra_rad, dec_rad, exposure_s=None) -> PointingResult
 ```
 
-`point_to` owns the target-pointing lifecycle: apply the current model, slew, solve without mount-position hints, measure the residual to the requested target, and update the supplied model when the solve is trustworthy. Solver backends own ambiguity/failure detection through `SolveResult.success`; Pointing additionally rejects incomplete, non-finite, or physically impossible solved coordinates before learning.
+`point_to` owns the target-pointing lifecycle: validate and apply the current model, slew through the mount's completion boundary, solve without mount-position hints, measure the residual to the requested target, and update the supplied model when the solve is trustworthy. Solver backends own ambiguity/failure detection through `SolveResult.success`; Pointing additionally rejects incomplete, non-finite, physically impossible, or greater-than-10-degree target-separation solves before learning. The 10-degree envelope is a fixed corruption guard for the offset-only v1 model, not a centering tolerance.
 
 There is no `initial_alignment()` or Pointing-level `sync_current()` phase. Ordinary target pointing is the model-observation path.
 
