@@ -342,9 +342,7 @@ def _aliases_from_bsc_name(value: str) -> list[str]:
     return aliases
 
 
-def _write_aliases_csv(
-    aliases: list[tuple[str, str]], path: Path
-) -> tuple[int, int]:
+def _write_aliases_csv(aliases: list[tuple[str, str]], path: Path) -> tuple[int, int]:
     canonical: dict[str, tuple[str, str]] = {}
     ambiguous: set[str] = set()
     for alias, hip_id in aliases:
