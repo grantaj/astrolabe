@@ -139,7 +139,9 @@ def test_live_az_stage_is_seeded_from_initial_measurement_hint():
             "astrolabe.services.polar.workflow.altitude_adjustment_axis",
             return_value=(1.0, 0.0, 0.0),
         ),
-        patch.object(workflow, "_run_axis_stage", side_effect=stage_results) as run_stage,
+        patch.object(
+            workflow, "_run_axis_stage", side_effect=stage_results
+        ) as run_stage,
     ):
         result = workflow.run(
             ra_rotation_rad=0.1,
