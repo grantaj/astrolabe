@@ -511,7 +511,9 @@ def _resolve_pointing_target(args, config) -> tuple[float, float] | None:
             print(f"Target not found: {args.target}", file=sys.stderr)
             return None
         target = matches[0].record
-        if getattr(args, "command", None) == "goto" and not getattr(args, "json", False):
+        if getattr(args, "command", None) == "goto" and not getattr(
+            args, "json", False
+        ):
             print(
                 f"Resolved '{args.target}' -> {target.name} ({target.id})",
                 file=sys.stderr,
