@@ -69,9 +69,9 @@ class PointingService:
         self._mount.slew_to(command_ra, command_dec)
         solve = self.solve_current(exposure_s=exposure_s, use_mount_hints=False)
 
+        trustworthy = _is_trustworthy_solve(solve)
         final_error_arcsec = None
-        model_updated = False
-        if _is_trustworthy_solve(solve):
+        if trustworthy:
             d_alpha, d_delta = _tangent_plane_error(
                 ra_target=ra_rad,
                 dec_target=dec_rad,
@@ -80,17 +80,16 @@ class PointingService:
             )
             final_error_arcsec = math.degrees(math.hypot(d_alpha, d_delta)) * 3600.0
             self._model.update(d_alpha, d_delta, weight=0.1)
-            model_updated = True
 
         return PointingResult(
-            success=solve.success,
+            success=trustworthy,
             target_ra_rad=ra_rad,
             target_dec_rad=dec_rad,
             command_ra_rad=command_ra,
             command_dec_rad=command_dec,
             solve=solve,
             final_error_arcsec=final_error_arcsec,
-            model_updated=model_updated,
+            model_updated=trustworthy,
         )
 
     def apply_model(self, ra_rad: float, dec_rad: float) -> tuple[float, float]:
@@ -101,6 +100,12 @@ class PointingService:
 
 
 def _is_trustworthy_solve(result: SolveResult) -> bool:
+    """Return whether a solve can safely become a pointing-model observation.
+
+    Solver backends own ambiguity/failure detection and report it through
+    ``success``. Pointing additionally fails closed on incomplete/non-finite or
+    physically impossible solved coordinates before learning from the result.
+    """
     if not result.success or result.ra_rad is None or result.dec_rad is None:
         return False
     if not math.isfinite(result.ra_rad) or not math.isfinite(result.dec_rad):
