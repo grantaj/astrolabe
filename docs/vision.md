@@ -12,9 +12,9 @@ Astrolabe's core direction includes:
 - deterministic mount control;
 - solve-assisted pointing and centering;
 - polar-alignment measurement and guidance;
-- stable guiding;
 - focused instrument utilities such as stellar focus measurement;
-- an offline-first, observer-oriented target planner.
+- an offline-first, observer-oriented target planner;
+- stable guiding as a later capability.
 
 Some of these capabilities are intentionally post-MVP or still incomplete. Current implementation status belongs in code/tests and `README.md`, not in this vision document.
 
@@ -43,15 +43,16 @@ Scope should be judged by whether a feature materially improves Astrolabe as a c
 
 ## MVP definition
 
-The original v0 usability target remains a useful baseline:
+The v0 usability target is:
 
 1. connect to camera and mount;
 2. capture and plate-solve an image;
 3. slew and center a target via solve-based correction;
-4. perform polar alignment with actionable guidance;
-5. guide stably for a useful observing interval.
+4. perform polar alignment with actionable guidance.
 
-Implemented post-MVP capabilities do not redefine this historical baseline, and this document should not be used as a live status checklist.
+Guiding is explicitly **post-MVP**. It may be added after the first working release and must not become a release prerequisite through architecture or sequencing accident.
+
+Implemented post-MVP capabilities do not redefine this baseline, and this document should not be used as a live status checklist.
 
 ## Long-term direction
 
