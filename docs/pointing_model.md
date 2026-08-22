@@ -54,11 +54,19 @@ Pointing does not have an alignment or initialization phase. Each normal `Pointi
 apply model -> slew -> solve -> measure residual -> update model
 ```
 
-`PointingModel.update()` currently applies a bounded exponential-style update independently to both bias components:
+The solved target residual is what remains **after** the current bias estimate has already been applied. The v1 model represents the underlying mount bias, so Pointing first reconstructs the corresponding bias observation:
 
 ```text
-b_new = (1 - weight) * b_old + weight * residual
+observed_bias = predicted_bias + post_correction_residual
 ```
+
+It then passes that observation to `PointingModel.update()`, which applies a bounded exponential-style update independently to both bias components:
+
+```text
+b_new = (1 - weight) * b_old + weight * observed_bias
+```
+
+Equivalently for this offset model, `b_new = b_old + weight * residual`. Feeding the post-correction residual directly to the EMA would be wrong: under a stable mount bias it would make the estimate converge to only part of the true bias rather than cancelling the residual.
 
 `weight` is clamped to `[0, 1]`; the current service weight is `0.1`.
 
