@@ -3,10 +3,15 @@ import datetime
 import gzip
 import json
 from pathlib import Path
-from urllib.parse import urlparse
-from urllib.request import urlopen
 import socket
 import ssl
+from urllib.parse import urlparse
+from urllib.request import urlopen
+
+from .normalize import normalize_query
+
+HIPPARCOS_CATALOG_ID = "I/239"
+BSC_CATALOG_ID = "V/50"
 
 HIPPARCOS_DEFAULT_URLS = [
     "https://cdsarc.cds.unistra.fr/ftp/cats/I/239/hip_main.dat.gz",
@@ -55,6 +60,7 @@ def update_hipparcos(
 
     meta = {
         "source": source_used,
+        "source_catalog": HIPPARCOS_CATALOG_ID,
         "cache_dir": str(cache_dir),
         "output_path": str(output_file),
         "stars_written": len(records),
@@ -100,14 +106,19 @@ def update_bsc_crosswalk(
     output_path = output_path or _default_bsc_crosswalk_path()
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    _write_aliases_csv(aliases, output_file)
+    aliases_written, ambiguous_aliases_skipped = _write_aliases_csv(
+        aliases, output_file
+    )
 
     meta = {
         "source": bsc_source,
+        "source_catalog": BSC_CATALOG_ID,
         "hip_source": hip_source_used,
+        "hip_source_catalog": HIPPARCOS_CATALOG_ID,
         "cache_dir": str(cache_dir),
         "output_path": str(output_file),
-        "aliases_written": len(aliases),
+        "aliases_written": aliases_written,
+        "ambiguous_aliases_skipped": ambiguous_aliases_skipped,
         "updated_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
     _write_metadata(meta, cache_dir / "bsc_metadata.json")
@@ -180,7 +191,7 @@ def _write_hip_subset(records: list[dict], path: Path) -> None:
             handle, fieldnames=["hip_id", "ra_deg", "dec_deg", "mag", "name"]
         )
         writer.writeheader()
-        for record in records:
+        for record in sorted(records, key=lambda item: int(item["hip_id"])):
             writer.writerow(record)
 
 
@@ -286,38 +297,79 @@ def _iter_bsc_aliases(path: Path, hd_to_hip: dict[str, str]):
 
 
 def _aliases_from_bsc_name(value: str) -> list[str]:
-    value = value.strip()
-    if not value:
-        return []
-    parts = value.split()
-    if len(parts) < 2:
-        return []
-    first = parts[0].strip().lower()
-    const = parts[1].strip().lower()
-    const = "".join(ch for ch in const if ch.isalpha())
-    const_abbr = const[:3]
-    if not const_abbr:
-        return []
-    const_full = _CONSTELLATION_FULL.get(const_abbr)
+    """Expand a BSC V/50 ``Name`` field into Bayer and Flamsteed aliases.
 
-    greek_abbr = "".join(ch for ch in first if ch.isalpha())
-    greek_idx = "".join(ch for ch in first if ch.isdigit())
-    greek_full = _GREEK_ABBR.get(greek_abbr, greek_abbr)
-    if not greek_full:
+    The BSC field combines an optional Flamsteed number, optional three-letter
+    Bayer designation (plus component index), and a three-letter constellation.
+    VizieR may preserve or insert whitespace, so parse the compact form rather
+    than relying on word boundaries.
+    """
+    compact = "".join(value.strip().split())
+    if len(compact) < 4:
         return []
-    alias = f"{greek_full}{greek_idx} {const_abbr}"
-    aliases = [alias]
-    if const_full:
-        aliases.append(f"{greek_full}{greek_idx} {const_full}")
+
+    const_abbr = compact[-3:].lower()
+    const_full = _CONSTELLATION_FULL.get(const_abbr)
+    if const_full is None:
+        return []
+
+    designation = compact[:-3]
+    split = 0
+    while split < len(designation) and designation[split].isdigit():
+        split += 1
+    flamsteed = designation[:split]
+    bayer = designation[split:]
+
+    aliases: list[str] = []
+    if bayer:
+        greek_abbr = bayer[:3].lower()
+        greek_full = _GREEK_ABBR.get(greek_abbr)
+        component = bayer[3:]
+        if greek_full and (not component or component.isdigit()):
+            aliases.append(f"{greek_full}{component} {const_abbr}")
+            aliases.append(f"{greek_full}{component} {const_full}")
+
+    if flamsteed:
+        aliases.append(f"{flamsteed} {const_abbr}")
+        aliases.append(f"{flamsteed} {const_full}")
+
     return aliases
 
 
-def _write_aliases_csv(aliases: list[tuple[str, str]], path: Path) -> None:
+def _write_aliases_csv(
+    aliases: list[tuple[str, str]], path: Path
+) -> tuple[int, int]:
+    canonical: dict[str, tuple[str, str]] = {}
+    ambiguous: set[str] = set()
+    for alias, hip_id in aliases:
+        alias = " ".join(alias.strip().lower().split())
+        hip_id = hip_id.strip()
+        normalized = normalize_query(alias)
+        if not normalized or not hip_id or normalized in ambiguous:
+            continue
+
+        existing = canonical.get(normalized)
+        if existing is not None and existing[1] != hip_id:
+            # A Bayer/Flamsteed designation can name a multiple-star system rather
+            # than one unique HIP component (for example, 61 Cyg). The two input
+            # catalogues do not provide a principled system-primary choice here,
+            # so omit ambiguous aliases rather than depending on source order.
+            del canonical[normalized]
+            ambiguous.add(normalized)
+            continue
+        if existing is None or alias < existing[0]:
+            canonical[normalized] = (alias, hip_id)
+
+    rows = sorted(
+        canonical.values(),
+        key=lambda item: (normalize_query(item[0]), item[0], item[1]),
+    )
     with open(path, "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=["alias", "hip_id"])
         writer.writeheader()
-        for alias, hip_id in aliases:
+        for alias, hip_id in rows:
             writer.writerow({"alias": alias, "hip_id": hip_id})
+    return len(rows), len(ambiguous)
 
 
 def _read_with_progress(
