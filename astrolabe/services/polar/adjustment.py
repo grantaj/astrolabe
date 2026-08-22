@@ -55,7 +55,9 @@ def _sub(a: _Vec3, b: _Vec3) -> _Vec3:
 
 
 def _require_utc(timestamp_utc: datetime.datetime) -> None:
-    if timestamp_utc.tzinfo is None or timestamp_utc.utcoffset() != datetime.timedelta(0):
+    if timestamp_utc.tzinfo is None or timestamp_utc.utcoffset() != datetime.timedelta(
+        0
+    ):
         raise ValueError("observation timestamp must be timezone-aware UTC")
 
 
