@@ -16,7 +16,7 @@ from astrolabe.services.polar.adjustment import (
     radec_to_horizon_vector,
     rotate_about_axis,
 )
-from astrolabe.services.polar.service import PolarAlignService, _SolveHint
+from astrolabe.services.polar.service import PolarAlignService
 from astrolabe.services.polar.types import (
     PolarAdjustConfig,
     PolarAxis,
@@ -26,6 +26,7 @@ from astrolabe.services.polar.types import (
     _PolarMeasurement,
     _PoseObservation,
 )
+from astrolabe.services.polar.workflow import _PolarAdjustmentWorkflow, _SolveHint
 from astrolabe.solver.types import SolveResult
 
 _SITE_LAT_RAD = math.radians(45.0)
@@ -93,7 +94,7 @@ def _image(timestamp_utc):
     )
 
 
-def _solve_for_horizon(vector, timestamp_utc, *, scale=1.5):
+def _solve_for_horizon(vector, timestamp_utc, *, scale=1.5, rms=1.0):
     ra, dec = _horizon_to_icrs(vector, timestamp_utc)
     return SolveResult(
         success=True,
@@ -101,7 +102,7 @@ def _solve_for_horizon(vector, timestamp_utc, *, scale=1.5):
         dec_rad=dec,
         pixel_scale_arcsec=scale,
         rotation_rad=0.0,
-        rms_arcsec=1.0,
+        rms_arcsec=rms,
         num_stars=40,
     )
 
@@ -117,14 +118,13 @@ def _measurement_for_axis(axis_vector):
         )
         for i in range(4)
     )
-    result = PolarResult(
-        alt_correction_arcsec=0.0,
-        az_correction_arcsec=0.0,
-        residual_arcsec=0.5,
-        confidence=0.95,
-    )
     return _PolarMeasurement(
-        result=result,
+        result=PolarResult(
+            alt_correction_arcsec=0.0,
+            az_correction_arcsec=0.0,
+            residual_arcsec=0.5,
+            confidence=0.95,
+        ),
         poses=poses,
         fit=_CircleFitResult(
             pole_ra_rad=pole_ra,
@@ -132,8 +132,6 @@ def _measurement_for_axis(axis_vector):
             radius_rad=math.radians(20.0),
             residual_rad=math.radians(0.5 / 3600.0),
         ),
-        alt_correction_rad=0.0,
-        az_correction_rad=0.0,
     )
 
 
@@ -149,7 +147,12 @@ def _mock_service():
         slewing=False,
         timestamp_utc=_T0,
     )
-    return PolarAlignService(mount, camera, solver), mount, camera, solver
+    service = PolarAlignService(mount, camera, solver)
+    return service, mount, camera, solver
+
+
+def _workflow_for(service, mount, camera, solver):
+    return _PolarAdjustmentWorkflow(mount, camera, solver, service._measure)
 
 
 class TestHorizonTransform:
@@ -200,13 +203,11 @@ class TestAdjustmentGeometry:
             AZ_ADJUSTMENT_AXIS,
             math.radians(delta_deg),
         )
-
         applied, cross_track = infer_rotation_about_axis(
             reference,
             current,
             AZ_ADJUSTMENT_AXIS,
         )
-
         assert math.degrees(applied) == pytest.approx(delta_deg, abs=1e-9)
         assert cross_track < 1e-7
 
@@ -222,33 +223,27 @@ class TestAdjustmentGeometry:
             adjustment_axis,
             math.radians(delta_deg),
         )
-
         applied, cross_track = infer_rotation_about_axis(
             reference,
             current,
             adjustment_axis,
         )
-
         assert math.degrees(applied) == pytest.approx(delta_deg, abs=1e-9)
         assert cross_track < 1e-7
 
     def test_wrong_axis_motion_is_visible_as_cross_track(self):
         reference = _horizon_vector(120.0, 45.0)
-        wrong_axis = (1.0, 0.0, 0.0)
-        current = rotate_about_axis(reference, wrong_axis, math.radians(0.5))
-
+        current = rotate_about_axis(reference, (1.0, 0.0, 0.0), math.radians(0.5))
         _applied, cross_track = infer_rotation_about_axis(
             reference,
             current,
             AZ_ADJUSTMENT_AXIS,
         )
-
         assert cross_track > math.radians(1.0 / 60.0)
 
     def test_ideal_pole_covers_both_hemispheres(self):
         north = ideal_pole_horizon_vector(math.radians(35.0))
         south = ideal_pole_horizon_vector(math.radians(-35.0))
-
         assert north[1] > 0.0 and north[2] > 0.0
         assert south[1] < 0.0 and south[2] > 0.0
 
@@ -260,16 +255,10 @@ class TestAdjustmentWorkflow:
         measurement = _measurement_for_axis(initial_axis)
 
         az_reference = _horizon_vector(120.0, 45.0)
-        az_applied = [0.0, 0.3, 0.5, 0.5, 0.5]
         az_vectors = [
-            rotate_about_axis(
-                az_reference,
-                AZ_ADJUSTMENT_AXIS,
-                math.radians(value),
-            )
-            for value in az_applied
+            rotate_about_axis(az_reference, AZ_ADJUSTMENT_AXIS, math.radians(value))
+            for value in [0.0, 0.3, 0.5, 0.5, 0.5]
         ]
-
         axis_after_az = rotate_about_axis(
             initial_axis,
             AZ_ADJUSTMENT_AXIS,
@@ -277,10 +266,9 @@ class TestAdjustmentWorkflow:
         )
         alt_axis = altitude_adjustment_axis(axis_after_az)
         alt_reference = az_vectors[-1]
-        alt_applied = [0.0, 0.2, 0.4, 0.4, 0.4]
         alt_vectors = [
             rotate_about_axis(alt_reference, alt_axis, math.radians(value))
-            for value in alt_applied
+            for value in [0.0, 0.2, 0.4, 0.4, 0.4]
         ]
 
         vectors = az_vectors + alt_vectors
@@ -336,11 +324,11 @@ class TestAdjustmentWorkflow:
         assert requests[1].ra_hint_rad == solve_results[0].ra_rad
         assert requests[1].scale_hint_arcsec == 1.5
         assert requests[1].search_radius_rad is not None
-        # ALT starts from a fresh capture but may reuse the final AZ solve as a hint.
         assert requests[5].ra_hint_rad == solve_results[4].ra_rad
 
     def test_hinted_failure_gets_one_bounded_blind_fallback(self):
-        service, _mount, camera, solver = _mock_service()
+        service, mount, camera, solver = _mock_service()
+        workflow = _workflow_for(service, mount, camera, solver)
         timestamp = _T0 + datetime.timedelta(seconds=1)
         camera.capture.return_value = _image(timestamp)
         failed = SolveResult(
@@ -356,10 +344,11 @@ class TestAdjustmentWorkflow:
         recovered = _solve_for_horizon(_horizon_vector(120.0, 45.0), timestamp)
         solver.solve.side_effect = [failed, recovered]
 
-        live, message = service._capture_live_solve(
+        live, message = workflow._capture_live_solve(
             exposure_s=1.0,
             hint=_SolveHint(ra_rad=1.0, dec_rad=0.5, scale_arcsec=1.5),
             search_radius_rad=math.radians(2.0),
+            max_solve_rms_arcsec=10.0,
         )
 
         assert live is not None
@@ -373,8 +362,30 @@ class TestAdjustmentWorkflow:
         assert fallback.dec_hint_rad is None
         assert fallback.scale_hint_arcsec == 1.5
 
+    def test_high_rms_solve_is_not_used_for_guidance(self):
+        service, mount, camera, solver = _mock_service()
+        workflow = _workflow_for(service, mount, camera, solver)
+        timestamp = _T0 + datetime.timedelta(seconds=1)
+        camera.capture.return_value = _image(timestamp)
+        solver.solve.return_value = _solve_for_horizon(
+            _horizon_vector(120.0, 45.0),
+            timestamp,
+            rms=25.0,
+        )
+
+        live, message = workflow._capture_live_solve(
+            exposure_s=1.0,
+            hint=None,
+            search_radius_rad=math.radians(2.0),
+            max_solve_rms_arcsec=10.0,
+        )
+
+        assert live is None
+        assert "RMS" in (message or "")
+
     def test_large_outlier_is_rejected(self):
-        service, _mount, camera, solver = _mock_service()
+        service, mount, camera, solver = _mock_service()
+        workflow = _workflow_for(service, mount, camera, solver)
         reference = _horizon_vector(120.0, 45.0)
         jumped = rotate_about_axis(reference, AZ_ADJUSTMENT_AXIS, math.radians(2.0))
         timestamps = [
@@ -391,7 +402,7 @@ class TestAdjustmentWorkflow:
             max_consecutive_failures=1,
         )
 
-        stage = service._run_axis_stage(
+        stage = workflow._run_axis_stage(
             state=PolarWorkflowState.ADJUST_AZ,
             axis=PolarAxis.AZ,
             rotation_axis=AZ_ADJUSTMENT_AXIS,
@@ -415,7 +426,11 @@ class TestAdjustmentWorkflow:
 
         with (
             patch.object(service, "_measure", return_value=measurement),
-            patch.object(service, "_run_axis_stage", side_effect=KeyboardInterrupt),
+            patch.object(
+                _PolarAdjustmentWorkflow,
+                "_run_axis_stage",
+                side_effect=KeyboardInterrupt,
+            ),
         ):
             result = service.adjust(
                 ra_rotation_rad=math.radians(15.0),
@@ -430,7 +445,8 @@ class TestAdjustmentWorkflow:
         ]
 
     def test_axis_already_inside_tolerance_requires_stable_evidence(self):
-        service, _mount, camera, solver = _mock_service()
+        service, mount, camera, solver = _mock_service()
+        workflow = _workflow_for(service, mount, camera, solver)
         reference = _horizon_vector(120.0, 45.0)
         timestamps = [_T0 + datetime.timedelta(seconds=i + 1) for i in range(3)]
         camera.capture.side_effect = [_image(timestamp) for timestamp in timestamps]
@@ -443,7 +459,7 @@ class TestAdjustmentWorkflow:
             feedback=replace(base_config.feedback, smoothing_alpha=1.0),
         )
 
-        stage = service._run_axis_stage(
+        stage = workflow._run_axis_stage(
             state=PolarWorkflowState.ADJUST_AZ,
             axis=PolarAxis.AZ,
             rotation_axis=AZ_ADJUSTMENT_AXIS,
