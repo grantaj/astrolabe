@@ -7,7 +7,10 @@ import erfa
 
 from astrolabe.camera.types import Image
 from astrolabe.services.feedback import FeedbackDirection, FeedbackSession
-from astrolabe.services.polar.adjustment import AZ_ADJUSTMENT_AXIS
+from astrolabe.services.polar.adjustment import (
+    AZ_ADJUSTMENT_AXIS,
+    rotate_about_axis,
+)
 from astrolabe.services.polar.service import PolarAlignService
 from astrolabe.services.polar.types import (
     PolarAdjustConfig,
@@ -163,10 +166,7 @@ def test_realistic_solve_noise_does_not_false_complete_or_reverse_sign():
     camera.capture.side_effect = images
     solver.solve.side_effect = [
         _solve_for_horizon(
-            __import__(
-                "astrolabe.services.polar.adjustment",
-                fromlist=["rotate_about_axis"],
-            ).rotate_about_axis(
+            rotate_about_axis(
                 reference,
                 AZ_ADJUSTMENT_AXIS,
                 math.radians(applied),
