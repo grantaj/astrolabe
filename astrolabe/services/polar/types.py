@@ -115,6 +115,15 @@ class PolarAdjustResult:
     message: str | None = None
 
 
+@dataclass(frozen=True)
+class _SolveHint:
+    """Bounded positional/scale hint retained between successful solves."""
+
+    ra_rad: float
+    dec_rad: float
+    scale_arcsec: float | None
+
+
 @dataclass
 class _PoseObservation:
     """Result of a single capture→solve at one RA position."""
@@ -123,6 +132,7 @@ class _PoseObservation:
     dec_rad: float
     rms_arcsec: float | None
     timestamp_utc: datetime.datetime
+    scale_arcsec: float | None = None
 
 
 @dataclass
@@ -142,3 +152,4 @@ class _PolarMeasurement:
     result: PolarResult
     poses: tuple[_PoseObservation, ...]
     fit: _CircleFitResult | None
+    hint: _SolveHint | None = None
