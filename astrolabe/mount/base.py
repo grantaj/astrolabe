@@ -32,10 +32,6 @@ class MountBackend(ABC):
 
     @abstractmethod
     def slew_to(self, ra_rad: float, dec_rad: float) -> None:
-        """Slew to canonical coordinates and return after motion completes.
-
-        Backends must raise a backend error when completion cannot be confirmed.
-        """
         pass
 
     @abstractmethod
