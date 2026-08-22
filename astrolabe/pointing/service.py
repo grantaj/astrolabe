@@ -79,7 +79,11 @@ class PointingService:
                 dec_solved=solve.dec_rad,
             )
             final_error_arcsec = math.degrees(math.hypot(d_alpha, d_delta)) * 3600.0
-            self._model.update(d_alpha, d_delta, weight=0.1)
+            self.update_model_from_target(
+                ra_target=ra_rad,
+                dec_target=dec_rad,
+                result=solve,
+            )
 
         return PointingResult(
             success=trustworthy,
@@ -97,6 +101,30 @@ class PointingService:
         corrected_ra = normalize_angle_rad(ra_rad - b_alpha / math.cos(dec_rad))
         corrected_dec = dec_rad - b_delta
         return corrected_ra, corrected_dec
+
+    def update_model_from_target(
+        self,
+        *,
+        ra_target: float,
+        dec_target: float,
+        result: SolveResult,
+        weight: float = 0.1,
+    ) -> bool:
+        """Incorporate one trustworthy solved-target observation into the model.
+
+        This is the model-observation primitive used by ``point_to`` and focused
+        integration tests; it does not slew, solve, sync, or persist anything.
+        """
+        if not _is_trustworthy_solve(result):
+            return False
+        d_alpha, d_delta = _tangent_plane_error(
+            ra_target=ra_target,
+            dec_target=dec_target,
+            ra_solved=result.ra_rad,
+            dec_solved=result.dec_rad,
+        )
+        self._model.update(d_alpha, d_delta, weight=weight)
+        return True
 
 
 def _is_trustworthy_solve(result: SolveResult) -> bool:
