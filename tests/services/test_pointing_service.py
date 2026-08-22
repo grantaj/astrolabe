@@ -127,7 +127,9 @@ def test_point_to_applies_model_slews_solves_and_updates_model():
 
     expected_ra = target_ra - 0.01 / math.cos(target_dec)
     expected_dec = target_dec + 0.02
-    assert mount.slew_calls == [(pytest.approx(expected_ra), pytest.approx(expected_dec))]
+    assert len(mount.slew_calls) == 1
+    assert mount.slew_calls[0][0] == pytest.approx(expected_ra)
+    assert mount.slew_calls[0][1] == pytest.approx(expected_dec)
     assert solver.requests[0].ra_hint_rad is None
     assert solver.requests[0].dec_hint_rad is None
     assert result.success is True
@@ -159,6 +161,28 @@ def test_point_to_does_not_learn_from_incomplete_solve():
 
     result = service.point_to(0.9, 0.4)
 
+    assert result.success is False
+    assert result.model_updated is False
+    assert result.final_error_arcsec is None
+    assert model.num_samples == 0
+
+
+@pytest.mark.parametrize(
+    ("ra_rad", "dec_rad"),
+    [
+        (math.nan, 0.4),
+        (0.9, math.nan),
+        (0.9, math.pi),
+    ],
+)
+def test_point_to_does_not_learn_from_invalid_solved_coordinates(ra_rad, dec_rad):
+    model = PointingModel()
+    solver = FakeSolver(_solve_result(success=True, ra_rad=ra_rad, dec_rad=dec_rad))
+    service = PointingService(FakeMount(), FakeCamera(), solver, model=model)
+
+    result = service.point_to(0.9, 0.4)
+
+    assert result.success is False
     assert result.model_updated is False
     assert result.final_error_arcsec is None
     assert model.num_samples == 0
