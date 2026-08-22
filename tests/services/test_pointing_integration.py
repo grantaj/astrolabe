@@ -6,8 +6,14 @@ import subprocess
 import time
 from pathlib import Path
 
+import numpy as np
 import pytest
 
+from astrolabe.camera.pixels import (
+    load_fits_header_cards,
+    load_fits_pixels,
+    write_fits_image,
+)
 from astrolabe.config import Config
 from astrolabe.camera import get_camera_backend
 from astrolabe.mount import get_mount_backend
@@ -162,16 +168,44 @@ def test_pointing_integration_target_is_deterministically_visible():
     assert math.degrees(alt_rad) > 30.0
 
 
-def _blur_fits(path: Path) -> Path:
-    try:
-        import numpy as np
-        from astropy.io import fits
-    except ImportError as exc:  # noqa: BLE001 - optional dependency for integration
-        pytest.skip(f"astropy/numpy required for blur: {exc}")
+# Pointing/scale metadata ASTAP uses to narrow its search; if it does not survive
+# the blur copy, a hinted solve silently degrades to blind.
+_SOLVER_HINT_KEYWORDS = frozenset(
+    {
+        "OBJCTRA",
+        "OBJCTDEC",
+        "RA",
+        "DEC",
+        "CRVAL1",
+        "CRVAL2",
+        "CTYPE1",
+        "CTYPE2",
+        "CDELT1",
+        "CDELT2",
+        "CRPIX1",
+        "CRPIX2",
+        "DATE-OBS",
+        "EXPTIME",
+        "FOCALLEN",
+        "XPIXSZ",
+        "YPIXSZ",
+        "SCALE",
+    }
+)
 
-    with fits.open(path) as hdul:
-        data = hdul[0].data.astype("float32")
-        header = hdul[0].header.copy()
+
+def _solver_hint_cards(path: Path) -> list[str]:
+    return [
+        card
+        for card in load_fits_header_cards(path)
+        if card[:8].strip() in _SOLVER_HINT_KEYWORDS
+    ]
+
+
+def _blur_fits(path: Path) -> Path:
+    hint_cards = _solver_hint_cards(path)
+    frame = load_fits_pixels(path)
+    data = frame.pixels.astype("float32")
     median = float(np.median(data))
     resid = data - median
     sigma = 1.0
@@ -196,8 +230,7 @@ def _blur_fits(path: Path) -> Path:
     blurred += median
     blurred = np.clip(blurred, data.min(), data.max())
     out_path = path.with_name(path.stem + "_blur.fits")
-    fits.writeto(out_path, blurred, header=header, overwrite=True)
-    return out_path
+    return write_fits_image(out_path, blurred, extra_cards=hint_cards)
 
 
 class _BlurCamera:

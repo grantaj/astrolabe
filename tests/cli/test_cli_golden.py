@@ -7,9 +7,13 @@ the safety net for the CLI plumbing refactor and must not be relaxed.
 
 from __future__ import annotations
 
+import gzip
 import json
+import sys
 
 import pytest
+
+from fits_header_goldens import golden_fits_bytes, golden_header_text
 
 from astrolabe.errors import NotImplementedFeature, ServiceError
 from astrolabe.pointing import PointingResult
@@ -368,6 +372,215 @@ def test_view_failure_json(monkeypatch, capsys, tmp_path):
     assert code == 1
     assert payload["error"]["code"] == "view_failed"
     assert payload["error"]["message"].startswith("Error viewing FITS file: ")
+
+
+def _sample_fits(tmp_path):
+    import numpy as np
+
+    from astrolabe.camera.pixels import write_fits_image
+
+    pixels = (np.arange(6).reshape(2, 3) * 1000).astype(np.uint16)
+    path = write_fits_image(
+        tmp_path / "frame.fits", pixels, extra_header={"OBJECT": "M42"}
+    )
+    return path, pixels
+
+
+def test_view_reports_the_fits_header_json(monkeypatch, capsys, tmp_path):
+    path, _ = _sample_fits(tmp_path)
+    code, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(path))
+    payload = envelope(out)
+    assert code == 0
+    assert payload["data"]["path"] == str(path)
+    assert payload["data"]["show"] is False
+    header = payload["data"]["header"]
+    assert isinstance(header, str)
+    assert header.splitlines()[0] == "SIMPLE  =                    T".ljust(80)
+    assert "NAXIS1  =                    3".ljust(80) in header
+    assert "OBJECT  = 'M42     '".ljust(80) in header
+    assert header.splitlines()[-1].startswith("END")
+    assert len(header) % 2880 == 0
+
+
+def test_view_reports_the_fits_header_human(monkeypatch, capsys, tmp_path):
+    path, _ = _sample_fits(tmp_path)
+    code, out, err = run_cli(monkeypatch, capsys, "view", "--in", str(path))
+    assert code == 0
+    assert out.startswith("FITS Header:\nSIMPLE  =")
+    assert out.rstrip().endswith("END")
+
+
+def test_view_rejects_a_valid_header_with_a_truncated_payload(
+    monkeypatch, capsys, tmp_path
+):
+    """`view` decodes the data unit even without --show."""
+    import numpy as np
+
+    from astrolabe.camera.pixels import fits_image_bytes
+
+    payload = fits_image_bytes(np.zeros((40, 40), dtype=np.uint16))
+    truncated = tmp_path / "truncated.fits"
+    truncated.write_bytes(payload[: len(payload) - 2880])
+
+    code, out, err = run_cli(
+        monkeypatch, capsys, "--json", "view", "--in", str(truncated)
+    )
+    payload_json = envelope(out)
+    assert code == 1
+    assert payload_json["error"]["code"] == "view_failed"
+
+
+def test_view_rejects_a_header_block_without_simple(monkeypatch, capsys, tmp_path):
+    junk = tmp_path / "junk.fits"
+    cards = b"".join(
+        [f"JUNK{i:<4}=                    {i}".ljust(80).encode() for i in range(35)]
+    )
+    junk.write_bytes((cards + b"END".ljust(80)).ljust(2880))
+
+    code, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(junk))
+    payload_json = envelope(out)
+    assert code == 1
+    assert payload_json["error"]["code"] == "view_failed"
+
+
+def test_view_rejects_a_header_not_beginning_with_simple(monkeypatch, capsys, tmp_path):
+    misordered = tmp_path / "misordered.fits"
+    cards = [
+        "JUNK    =                    1",
+        "SIMPLE  =                    T",
+        "BITPIX  =                    8",
+        "NAXIS   =                    2",
+        "NAXIS1  =                    4",
+        "NAXIS2  =                    3",
+    ]
+    header = "".join(card.ljust(80) for card in cards) + "END".ljust(80)
+    misordered.write_bytes(header.ljust(2880).encode() + bytes(2880))
+
+    code, out, err = run_cli(
+        monkeypatch, capsys, "--json", "view", "--in", str(misordered)
+    )
+    payload_json = envelope(out)
+    assert code == 1
+    assert payload_json["error"]["code"] == "view_failed"
+
+
+@pytest.mark.parametrize("name", ["naxis0", "oned", "cube3d", "image2d", "u16"])
+def test_view_accepts_any_valid_primary_hdu(monkeypatch, capsys, tmp_path, name):
+    """Non-graphical `view` inspects headers; it does not require decodable pixels."""
+    path = tmp_path / f"{name}.fits"
+    path.write_bytes(golden_fits_bytes(name))
+
+    code, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(path))
+    payload_json = envelope(out)
+
+    assert code == 0
+    assert payload_json["data"]["header"] == golden_header_text(name)
+
+
+def test_view_show_loads_pixel_data_without_astropy(monkeypatch, capsys, tmp_path):
+    import numpy as np
+
+    path, pixels = _sample_fits(tmp_path)
+    shown = {}
+
+    class FakePlt:
+        def imshow(self, data, **kwargs):
+            shown["data"] = data
+
+        def title(self, text):
+            pass
+
+        def colorbar(self):
+            pass
+
+        def show(self):
+            shown["shown"] = True
+
+    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", FakePlt())
+    code, out, err = run_cli(
+        monkeypatch, capsys, "--json", "view", "--in", str(path), "--show"
+    )
+    payload = envelope(out)
+    assert code == 0
+    assert payload["data"]["show"] is True
+    assert shown["shown"] is True
+    assert np.array_equal(shown["data"], pixels)
+
+
+def test_view_show_loads_signed_int64_pixels(monkeypatch, capsys, tmp_path):
+    import numpy as np
+
+    from astrolabe.camera.pixels import write_fits_image
+
+    pixels = np.array([[-(2**63), -1], [0, 2**63 - 1]], dtype=np.int64)
+    path = write_fits_image(tmp_path / "i64.fits", pixels)
+    shown = {}
+
+    class FakePlt:
+        def imshow(self, data, **kwargs):
+            shown["data"] = data
+
+        def title(self, text):
+            pass
+
+        def colorbar(self):
+            pass
+
+        def show(self):
+            pass
+
+    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", FakePlt())
+    code, out, err = run_cli(
+        monkeypatch, capsys, "--json", "view", "--in", str(path), "--show"
+    )
+
+    assert code == 0
+    assert shown["data"].dtype == np.dtype(">i8")
+    np.testing.assert_array_equal(shown["data"], pixels)
+
+
+@pytest.mark.parametrize("suffix", ["frame.fits.gz", "magic-only.bin"])
+def test_view_accepts_gzip_by_magic(monkeypatch, capsys, tmp_path, suffix):
+    path = tmp_path / suffix
+    path.write_bytes(gzip.compress(golden_fits_bytes("image2d")))
+
+    code, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(path))
+    payload = envelope(out)
+
+    assert code == 0
+    assert payload["data"]["header"] == golden_header_text("image2d")
+
+
+def test_view_treats_plain_fits_with_gzip_suffix_as_plain(
+    monkeypatch, capsys, tmp_path
+):
+    path = tmp_path / "plain.fits.gz"
+    path.write_bytes(golden_fits_bytes("image2d"))
+
+    code, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(path))
+    payload = envelope(out)
+
+    assert code == 0
+    assert payload["data"]["header"] == golden_header_text("image2d")
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        b"\x1f\x8bmalformed",
+        gzip.compress(golden_fits_bytes("image2d")[:2880]),
+    ],
+    ids=["malformed", "truncated-payload"],
+)
+def test_view_maps_invalid_gzip_to_view_failed(monkeypatch, capsys, tmp_path, contents):
+    path = tmp_path / "bad.bin"
+    path.write_bytes(contents)
+
+    code, out, err = run_cli(monkeypatch, capsys, "--json", "view", "--in", str(path))
+    payload = envelope(out)
+
+    assert code == 1
+    assert payload["error"]["code"] == "view_failed"
 
 
 # --------------------------------------------------------------------------

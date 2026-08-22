@@ -87,7 +87,7 @@ The adjustment loop emits a stream of human feedback, so global `--json` is deli
 
 ### A few non-obvious current boundaries
 
-- `view` takes its FITS input via `--in` on current main.
+- `view` takes its FITS input via `--in` on current main; its `header` field is the primary header in file order, decoded by Astrolabe's own narrow FITS boundary — see `fits_boundary.md`.
 - `polar` requires an RA rotation. `polar adjust` additionally requires longitude; latitude/longitude/elevation can come from CLI overrides or configured mount/site location. Exposure/settling and pose-count controls remain shared with measurement.
 - `focus measure` accepts either `--in` FITS input or camera-capture controls. `focus monitor` consumes the camera-owned live-frame path, may be bounded with `--frames N`, and deliberately rejects global `--json` with one structured error rather than creating an NDJSON stream.
 - `pointing` exposes only `solve` and `goto`; older names such as `sync`, `init`, `where`, `calibrate`, `recover`, `status`, and `diagnose` are not part of the current parser.

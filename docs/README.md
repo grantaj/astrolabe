@@ -27,6 +27,7 @@ Core documents:
 
 Focused current references:
 
+- `fits_boundary.md` — current narrow FITS read/write boundary and its formatting contract.
 - `focus.md` — current focus-analysis behaviour.
 - `live_camera.md` — current live-camera transport behaviour.
 - `indi_mount.md` — current INDI mount interaction invariants.

@@ -62,7 +62,7 @@ ASTAP is the default plate-solver backend. Install its Linux CLI and a suitable 
 The repository uses `uv` for environment and dependency management:
 
 ```bash
-uv sync --extra dev --extra tools
+uv sync --extra dev
 ```
 
 Run the CLI and tests through the managed environment:
