@@ -63,7 +63,7 @@ The topology below reflects the current implementation. Use `--help` for exact a
 | `goto` | deprecated alias for `pointing goto` | compatibility alias |
 | `pointing` | `solve`, `goto` | implemented |
 | `align` | deprecated alias for `pointing` | compatibility alias |
-| `polar` | N-pose polar-axis measurement/correction estimate | implemented |
+| `polar` | optional `measure` (default) or interactive `adjust` | implemented |
 | `focus` | `measure` one-shot multi-star HFR; `monitor` live HFR/trend reporting | implemented |
 | `guide` | `calibrate`, `start`, `stop`, `status` | CLI present; service placeholder |
 | `plan` | offline-first target planning | implemented |
@@ -77,10 +77,18 @@ The topology below reflects the current implementation. Use `--help` for exact a
 
 Use `mount slew` when the desired operation is deliberately just an uncorrected mount slew rather than solve-assisted pointing and learning.
 
+### Polar command semantics
+
+`polar` with no action and `polar measure` both perform the established N-pose measurement and return the same `PolarResult`/JSON shape. The RA rotation remains required; observer latitude may be supplied explicitly or taken from the configured mount/site location.
+
+`polar adjust` first performs that same measurement once, then disables tracking and guides manual azimuth and altitude adjustment sequentially. Azimuth is always completed and stably confirmed before altitude is rebased and activated. Human guidance uses physical directions: AZ `east`/`west`, ALT `raise`/`lower`. Tracking is restored on completion, failure, or Ctrl-C.
+
+The adjustment loop emits a stream of human feedback, so global `--json` is deliberately rejected with one structured `interactive_json_unsupported` error rather than inventing an NDJSON protocol. The final one-shot `polar`/`polar measure` path remains JSON-compatible.
+
 ### A few non-obvious current boundaries
 
 - `view` takes its FITS input via `--in` on current main.
-- `polar` requires an RA rotation and observer latitude; it also exposes exposure/settling and pose-count controls.
+- `polar` requires an RA rotation. `polar adjust` additionally requires longitude; latitude/longitude/elevation can come from CLI overrides or configured mount/site location. Exposure/settling and pose-count controls remain shared with measurement.
 - `focus measure` accepts either `--in` FITS input or camera-capture controls. `focus monitor` consumes the camera-owned live-frame path, may be bounded with `--frames N`, and deliberately rejects global `--json` with one structured error rather than creating an NDJSON stream.
 - `pointing` exposes only `solve` and `goto`; older names such as `sync`, `init`, `where`, `calibrate`, `recover`, `status`, and `diagnose` are not part of the current parser.
 

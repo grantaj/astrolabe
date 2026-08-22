@@ -11,9 +11,9 @@ All modules must adhere to them.
 
 ## 1.1 Internal Frame
 
-Astrolabe uses **ICRS** coordinates internally.
+Astrolabe uses **ICRS** as its canonical celestial coordinate frame.
 
-All core logic — solving, goto refinement, polar alignment math, guiding math — operates in ICRS.
+Catalog positions, plate-solver results, pointing targets, mount-facing canonical coordinates, and celestial-domain service APIs use ICRS. Guiding and ordinary polar-axis fitting likewise operate on canonical ICRS inputs until a different physical frame is explicitly required by the problem.
 
 Reasons:
 
@@ -24,7 +24,11 @@ Reasons:
 
 ICRS is close to historical FK5/J2000 coordinates, but they are not identical. Do not use `J2000` as a synonym for ICRS in code that depends on frame semantics.
 
-Internal coordinates must never implicitly depend on observation time.
+Internal celestial coordinates must never implicitly depend on observation time.
+
+Some instrument-domain calculations necessarily relate ICRS observations to an Earth-fixed physical frame. The live polar-adjustment workflow is the current example: with tracking disabled, manual motion of the mount base is naturally measured in the observer's local horizon frame, so each solved ICRS field is transformed at its explicit observation timestamp and site location into a local East/North/Up direction. That transform is owned by the polar capability, uses a standards implementation, remains contained at the observational-geometry boundary, and does not change the canonical ICRS contract exposed by the solver or mount.
+
+Do not introduce arbitrary frame conversions throughout service logic merely because a standards library can provide them. A non-ICRS representation must be required by the physical domain, explicit about time/location, and contained behind an Astrolabe-owned boundary.
 
 ---
 
@@ -165,7 +169,8 @@ Accumulated rounding errors must be avoided by:
 
 The following must always be true:
 
-- Core logic uses ICRS and does not depend on mount frame conventions.
+- Canonical celestial-domain values use ICRS and do not depend on mount frame conventions.
+- Time/location-dependent observational transforms are explicit, domain-owned, and contained; they do not silently redefine canonical celestial coordinates.
 - Core logic does not implicitly depend on wall-clock time.
 - Mount-native frame conversion occurs only at the mount boundary.
 - Hardware-native unit conversion occurs inside the owning backend.

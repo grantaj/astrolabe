@@ -13,7 +13,7 @@ Current implemented capabilities include:
 - INDI mount status, slew, tracking, park, stop, sync, and pulse-guide primitives;
 - offline target resolution;
 - solve-assisted target pointing with continuous pointing-model learning;
-- N-pose solve-based polar-axis measurement and mechanical correction estimates;
+- N-pose solve-based polar-axis measurement plus interactive one-axis-at-a-time AZ/ALT correction guidance;
 - multi-star HFR focus measurement and bounded live focus monitoring;
 - an offline-first observing-target planner and catalog update tools.
 

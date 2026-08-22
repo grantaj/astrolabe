@@ -1,11 +1,24 @@
+from __future__ import annotations
+
+import math
 import time
+from collections.abc import Callable
 
 from astrolabe.errors import ServiceError
 from astrolabe.solver.types import SolveRequest
 from astrolabe.util.math import rad_to_arcsec
 
 from .math import MIN_POSES, correction_confidence, fit_polar_axis
-from .types import PolarResult, _PoseObservation
+from .types import (
+    PolarAdjustConfig,
+    PolarAdjustmentUpdate,
+    PolarAdjustResult,
+    PolarResult,
+    _PolarMeasurement,
+    _PoseObservation,
+    _SolveHint,
+)
+from .workflow import _PolarAdjustmentWorkflow
 
 
 class PolarAlignService:
@@ -22,14 +35,62 @@ class PolarAlignService:
         settle_time_s: float = 2.0,
         num_poses: int = MIN_POSES,
     ) -> PolarResult:
-        """Execute the N-pose polar alignment routine.
+        """Execute the compatibility N-pose polar-axis measurement."""
+        return self._measure(
+            ra_rotation_rad=ra_rotation_rad,
+            site_latitude_rad=site_latitude_rad,
+            exposure_s=exposure_s,
+            settle_time_s=settle_time_s,
+            num_poses=num_poses,
+        ).result
 
-        Rotates in RA ``num_poses - 1`` times, capturing and plate-solving
-        at each position.  The field centres are fitted to a small circle
-        whose pole is the mount's actual rotation axis.  A minimum of four
-        poses is required so that the fit residual is a meaningful signal
-        of pose-to-pose consistency.
-        """
+    def adjust(
+        self,
+        ra_rotation_rad: float,
+        site_latitude_rad: float,
+        site_longitude_rad: float,
+        *,
+        site_elevation_m: float = 0.0,
+        exposure_s: float = 2.0,
+        settle_time_s: float = 2.0,
+        num_poses: int = MIN_POSES,
+        config: PolarAdjustConfig | None = None,
+        on_update: Callable[[PolarAdjustmentUpdate], None] | None = None,
+    ) -> PolarAdjustResult:
+        """Measure once, then guide AZ and ALT manual adjustment in sequence."""
+        _validate_adjustment_site(
+            site_latitude_rad=site_latitude_rad,
+            site_longitude_rad=site_longitude_rad,
+            site_elevation_m=site_elevation_m,
+        )
+        workflow = _PolarAdjustmentWorkflow(
+            self._mount,
+            self._camera,
+            self._solver,
+            self._measure,
+        )
+        return workflow.run(
+            ra_rotation_rad=ra_rotation_rad,
+            site_latitude_rad=site_latitude_rad,
+            site_longitude_rad=site_longitude_rad,
+            site_elevation_m=site_elevation_m,
+            exposure_s=exposure_s,
+            settle_time_s=settle_time_s,
+            num_poses=num_poses,
+            config=config or PolarAdjustConfig(),
+            on_update=on_update,
+        )
+
+    def _measure(
+        self,
+        *,
+        ra_rotation_rad: float,
+        site_latitude_rad: float,
+        exposure_s: float,
+        settle_time_s: float,
+        num_poses: int,
+    ) -> _PolarMeasurement:
+        """Run the N-pose measurement while retaining fit geometry internally."""
         if num_poses < MIN_POSES:
             raise ServiceError(f"num_poses must be ≥{MIN_POSES}, got {num_poses}")
 
@@ -47,21 +108,38 @@ class PolarAlignService:
                 self._rotate_ra(ra_rotation_rad, settle_time_s)
             pose = self._capture_and_solve(exposure_s)
             if pose is None:
-                return _fail(f"Plate solve failed at pose {i + 1}")
+                return _PolarMeasurement(
+                    result=_fail(f"Plate solve failed at pose {i + 1}"),
+                    poses=tuple(poses),
+                    fit=None,
+                )
             poses.append(pose)
 
         try:
             alt_err, az_err, fit = fit_polar_axis(poses, site_latitude_rad)
-        except ValueError as e:
-            return _fail(f"Circle fit failed: {e}")
+        except ValueError as exc:
+            return _PolarMeasurement(
+                result=_fail(f"Circle fit failed: {exc}"),
+                poses=tuple(poses),
+                fit=None,
+            )
 
         confidence = correction_confidence(fit, poses)
-
-        return PolarResult(
-            alt_correction_arcsec=rad_to_arcsec(alt_err),
-            az_correction_arcsec=rad_to_arcsec(az_err),
-            residual_arcsec=rad_to_arcsec(fit.residual_rad),
-            confidence=confidence,
+        last_pose = poses[-1]
+        return _PolarMeasurement(
+            result=PolarResult(
+                alt_correction_arcsec=rad_to_arcsec(alt_err),
+                az_correction_arcsec=rad_to_arcsec(az_err),
+                residual_arcsec=rad_to_arcsec(fit.residual_rad),
+                confidence=confidence,
+            ),
+            poses=tuple(poses),
+            fit=fit,
+            hint=_SolveHint(
+                ra_rad=last_pose.ra_rad,
+                dec_rad=last_pose.dec_rad,
+                scale_arcsec=last_pose.scale_arcsec,
+            ),
         )
 
     def _capture_and_solve(self, exposure_s: float) -> _PoseObservation | None:
@@ -81,11 +159,15 @@ class PolarAlignService:
         if result.ra_rad is None or result.dec_rad is None:
             return None
 
+        scale = result.pixel_scale_arcsec
+        if scale is not None and (not math.isfinite(scale) or scale <= 0.0):
+            scale = None
         return _PoseObservation(
             ra_rad=result.ra_rad,
             dec_rad=result.dec_rad,
             rms_arcsec=result.rms_arcsec,
             timestamp_utc=image.timestamp_utc,
+            scale_arcsec=scale,
         )
 
     def _rotate_ra(self, delta_rad: float, settle_time_s: float) -> None:
@@ -98,6 +180,21 @@ class PolarAlignService:
         target_ra = state.ra_rad + delta_rad
         self._mount.slew_to(target_ra, state.dec_rad)
         time.sleep(settle_time_s)
+
+
+def _validate_adjustment_site(
+    *,
+    site_latitude_rad: float,
+    site_longitude_rad: float,
+    site_elevation_m: float,
+) -> None:
+    values = (site_latitude_rad, site_longitude_rad, site_elevation_m)
+    if any(not math.isfinite(value) for value in values):
+        raise ValueError("polar adjustment site values must be finite")
+    if not -math.pi / 2.0 <= site_latitude_rad <= math.pi / 2.0:
+        raise ValueError("site_latitude_rad must be in [-π/2, π/2]")
+    if not -math.pi <= site_longitude_rad <= math.pi:
+        raise ValueError("site_longitude_rad must be in [-π, π]")
 
 
 def _fail(message: str) -> PolarResult:
