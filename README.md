@@ -12,12 +12,14 @@ Current implemented capabilities include:
 - local plate solving through the solver backend abstraction (ASTAP by default);
 - INDI mount status, slew, tracking, park, stop, sync, and pulse-guide primitives;
 - offline target resolution;
-- solve/sync/initial-alignment/pointing-aware goto operations;
+- solve-assisted target pointing with continuous pointing-model learning;
 - N-pose solve-based polar-axis measurement and mechanical correction estimates;
 - multi-star HFR focus measurement and bounded live focus monitoring;
 - an offline-first observing-target planner and catalog update tools.
 
-The closed-loop `GotoService` and guiding service are still placeholders on current `main`. The top-level `goto` command currently falls back to issuing a plain mount slew when closed-loop centering is unavailable; guiding commands report `not_implemented`.
+Normal target pointing is one operation: apply the current error model, slew, solve the resulting position, measure the residual, and update the model from a trustworthy solve. There is no separate pointing initialization/alignment phase and Pointing does not sync the mount as part of learning. `pointing goto` is the canonical CLI command; `align goto` and top-level `goto` remain compatibility aliases. Use `mount slew` for a deliberately raw slew.
+
+The guiding service is still a placeholder on current `main`; guiding commands report `not_implemented`.
 
 For the exact command surface, use `astrolabe --help` and the relevant subcommand `--help`. `docs/cli.md` records the stable CLI contract without duplicating every parser flag.
 

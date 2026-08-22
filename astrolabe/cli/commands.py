@@ -28,11 +28,7 @@ from astrolabe.cli.runtime import (
     note_dry_run,
     prepare,
 )
-from astrolabe.services import (
-    GotoService,
-    PolarAlignService,
-    GuidingService,
-)
+from astrolabe.services import PolarAlignService, GuidingService
 from astrolabe.pointing import (
     PointingModel,
     PointingService,
@@ -44,7 +40,7 @@ from astrolabe.planner import Planner, ObserverLocation
 from astrolabe.planner.formatters import format_text as format_plan_text
 from astrolabe.planner.update import update_catalog
 from astrolabe.services.target.update import update_hipparcos, update_bsc_crosswalk
-from astrolabe.errors import AstrolabeError, NotImplementedFeature
+from astrolabe.errors import AstrolabeError
 from astrolabe.services.polar import MIN_POSES as _POLAR_MIN_POSES
 from astrolabe.solver.types import Image, SolveRequest
 
@@ -433,81 +429,9 @@ def run_mount(args) -> int:
 
 
 def run_goto(args) -> int:
-    config = prepare(args)
-    mount, camera, solver = mount_camera_solver(config)
-    note_dry_run(args, "goto")
-    service = GotoService(mount, camera, solver)
-
-    try:
-        if args.target:
-            from astrolabe.services.target.resolver import TargetResolver
-
-            resolver = TargetResolver.from_repo_data(
-                min_score=config.resolver_min_score
-            )
-            matches = resolver.resolve(args.target)
-            if not matches:
-                print(f"Target not found: {args.target}", file=sys.stderr)
-                return 2
-            target = matches[0].record
-            target_ra_deg = target.ra_deg
-            target_dec_deg = target.dec_deg
-            if not getattr(args, "json", False):
-                print(
-                    f"Resolved '{args.target}' -> {target.name} ({target.id})",
-                    file=sys.stderr,
-                )
-        else:
-            if args.ra_deg is None or args.dec_deg is None:
-                print(
-                    "goto requires --target or both --ra-deg and --dec-deg",
-                    file=sys.stderr,
-                )
-                return 2
-            target_ra_deg = args.ra_deg
-            target_dec_deg = args.dec_deg
-
-        try:
-            result = service.center_target(
-                target_ra_rad=math.radians(target_ra_deg),
-                target_dec_rad=math.radians(target_dec_deg),
-                tolerance_arcsec=args.tolerance_arcsec,
-                max_iterations=args.max_iterations,
-            )
-            return emit_result(
-                args,
-                "goto",
-                result,
-                failure_code="goto_failed",
-                failure_message="goto failed",
-                human="\n".join(
-                    [
-                        f"Success: {result.success}",
-                        f"Final error: {result.final_error_arcsec}",
-                        f"Iterations: {result.iterations}",
-                        f"Message: {result.message}",
-                    ]
-                ),
-            )
-        except NotImplementedFeature:
-            mount.slew_to(
-                ra_rad=math.radians(target_ra_deg),
-                dec_rad=math.radians(target_dec_deg),
-            )
-            emit(
-                args,
-                "goto",
-                ok=True,
-                data={
-                    "mode": "fallback_slew",
-                    "ra_deg": target_ra_deg,
-                    "dec_deg": target_dec_deg,
-                },
-                human="Goto fallback: mount slew issued.",
-            )
-            return 0
-    except AstrolabeError as e:
-        return handle_error(args, "goto", e)
+    """Deprecated top-level spelling for the canonical Pointing goto operation."""
+    args.mode = "goto"
+    return run_align(args)
 
 
 def run_resolve(args) -> int:
@@ -570,141 +494,123 @@ def run_resolve(args) -> int:
     return 0 if matches else 2
 
 
+def _pointing_command_name(args) -> str:
+    command = getattr(args, "command", "pointing")
+    if command == "goto":
+        return "goto"
+    return f"{command}.{args.mode}"
+
+
+def _resolve_pointing_target(args, config) -> tuple[float, float] | None:
+    if args.target:
+        from astrolabe.services.target.resolver import TargetResolver
+
+        resolver = TargetResolver.from_repo_data(min_score=config.resolver_min_score)
+        matches = resolver.resolve(args.target)
+        if not matches:
+            print(f"Target not found: {args.target}", file=sys.stderr)
+            return None
+        target = matches[0].record
+        if getattr(args, "command", None) == "goto" and not getattr(
+            args, "json", False
+        ):
+            print(
+                f"Resolved '{args.target}' -> {target.name} ({target.id})",
+                file=sys.stderr,
+            )
+        return target.ra_deg, target.dec_deg
+
+    if args.ra_deg is None or args.dec_deg is None:
+        prefix = "goto" if getattr(args, "command", None) == "goto" else "pointing goto"
+        print(
+            f"{prefix} requires --target or both --ra-deg and --dec-deg",
+            file=sys.stderr,
+        )
+        return None
+    return args.ra_deg, args.dec_deg
+
+
 def run_align(args) -> int:
     config = prepare(args)
     mount, camera, solver = mount_camera_solver(config)
-    note_dry_run(args, "align")
+    note_dry_run(args, getattr(args, "command", "pointing"))
 
     model_path = default_model_path() if args.mode == "goto" else None
     model = (
         load_pointing_model(model_path) if model_path is not None else PointingModel()
     )
     service = PointingService(mount, camera, solver, model=model)
+    command_name = _pointing_command_name(args)
 
     try:
         if args.mode == "solve":
             result = service.solve_current(exposure_s=args.exposure)
+            is_align_alias = getattr(args, "command", None) == "align"
             return emit_result(
                 args,
-                "align.solve",
+                command_name,
                 result,
-                failure_code="align_failed",
-                failure_message="align solve failed",
+                failure_code="align_failed"
+                if is_align_alias
+                else "pointing_solve_failed",
+                failure_message="align solve failed"
+                if is_align_alias
+                else "pointing solve failed",
                 human=format_solve_summary(result),
             )
 
-        if args.mode == "goto":
-            if args.target:
-                from astrolabe.services.target.resolver import TargetResolver
-
-                resolver = TargetResolver.from_repo_data(
-                    min_score=config.resolver_min_score
-                )
-                matches = resolver.resolve(args.target)
-                if not matches:
-                    print(f"Target not found: {args.target}", file=sys.stderr)
-                    return 2
-                target = matches[0].record
-                target_ra_deg = target.ra_deg
-                target_dec_deg = target.dec_deg
-            else:
-                if args.ra_deg is None or args.dec_deg is None:
-                    print(
-                        "pointing goto requires --target or both --ra-deg and --dec-deg",
-                        file=sys.stderr,
-                    )
-                    return 2
-                target_ra_deg = args.ra_deg
-                target_dec_deg = args.dec_deg
-
-            target_ra_rad = math.radians(target_ra_deg)
-            target_dec_rad = math.radians(target_dec_deg)
-            corrected_ra, corrected_dec = service.apply_model(
-                target_ra_rad, target_dec_rad
-            )
-            mount.slew_to(corrected_ra, corrected_dec)
-            result = service.solve_current(
-                exposure_s=args.exposure, use_mount_hints=False
-            )
-            if (
-                result.success
-                and result.ra_rad is not None
-                and result.dec_rad is not None
-            ):
-                service.update_model_from_target(
-                    ra_target=target_ra_rad,
-                    dec_target=target_dec_rad,
-                    result=result,
-                )
-                if model_path is not None:
-                    save_pointing_model(model, model_path)
-                d_ra = (result.ra_rad - target_ra_rad + math.pi) % (
-                    2.0 * math.pi
-                ) - math.pi
-                d_alpha = d_ra * math.cos(target_dec_rad)
-                d_delta = result.dec_rad - target_dec_rad
-                angular_err = math.hypot(d_alpha, d_delta)
-            else:
-                angular_err = None
-
-            final_error_arcsec = (
-                None if angular_err is None else math.degrees(angular_err) * 3600.0
-            )
-            if result.success:
-                human = (
-                    f"Final error: {final_error_arcsec:.1f} arcsec"
-                    if final_error_arcsec is not None
-                    else "Final error: unknown"
-                )
-            else:
-                human = f"Pointing goto failed: {result.message}"
-            return emit_result(
-                args,
-                "pointing.goto",
-                result,
-                failure_code="pointing_goto_failed",
-                failure_message="pointing goto failed",
-                data={
-                    "target_ra_deg": target_ra_deg,
-                    "target_dec_deg": target_dec_deg,
-                    "command_ra_deg": math.degrees(corrected_ra),
-                    "command_dec_deg": math.degrees(corrected_dec),
-                    "solve": result.__dict__,
-                    "final_error_arcsec": final_error_arcsec,
-                },
-                human=human,
-            )
-
-        if args.mode == "sync":
-            result = service.sync_current(exposure_s=args.exposure)
-        elif args.mode == "init":
-            result = service.initial_alignment(
-                target_count=args.target_count,
-                exposure_s=args.exposure,
-                max_attempts=args.max_attempts,
-            )
-        else:
-            print("Unknown alignment mode.", file=sys.stderr)
+        if args.mode != "goto":
+            print("Unknown pointing mode.", file=sys.stderr)
             return 2
 
+        target = _resolve_pointing_target(args, config)
+        if target is None:
+            return 2
+        target_ra_deg, target_dec_deg = target
+        result = service.point_to(
+            math.radians(target_ra_deg),
+            math.radians(target_dec_deg),
+            exposure_s=getattr(args, "exposure", None),
+        )
+        if result.model_updated and model_path is not None:
+            save_pointing_model(model, model_path)
+
+        failure_message = (
+            result.message or result.solve.message or "pointing goto failed"
+        )
+        if result.success:
+            human = (
+                f"Final error: {result.final_error_arcsec:.1f} arcsec"
+                if result.final_error_arcsec is not None
+                else "Final error: unknown"
+            )
+        else:
+            human = f"Pointing goto failed: {failure_message}"
+
+        failure_code = (
+            "goto_failed"
+            if getattr(args, "command", None) == "goto"
+            else "pointing_goto_failed"
+        )
         return emit_result(
             args,
-            f"pointing.{args.mode}",
+            command_name,
             result,
-            failure_code=f"pointing_{args.mode}_failed",
-            failure_message=f"pointing {args.mode} failed",
-            human="\n".join(
-                [
-                    f"Success: {result.success}",
-                    f"Solves attempted: {result.solves_attempted}",
-                    f"Solves succeeded: {result.solves_succeeded}",
-                    f"RMS (arcsec): {result.rms_arcsec}",
-                    f"Message: {result.message}",
-                ]
-            ),
+            ok=result.success,
+            failure_code=failure_code,
+            failure_message=failure_message,
+            data={
+                "target_ra_deg": target_ra_deg,
+                "target_dec_deg": target_dec_deg,
+                "command_ra_deg": math.degrees(result.command_ra_rad),
+                "command_dec_deg": math.degrees(result.command_dec_rad),
+                "solve": result.solve.__dict__,
+                "final_error_arcsec": result.final_error_arcsec,
+            },
+            human=human,
         )
     except AstrolabeError as e:
-        return handle_error(args, f"align.{args.mode}", e)
+        return handle_error(args, command_name, e)
 
 
 def run_polar(args) -> int:

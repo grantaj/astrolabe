@@ -44,19 +44,39 @@ dec_corrected = dec_target - b_delta
 
 The corrected RA is normalized after applying the offset.
 
-The small-angle representation is intended for ordinary pointing residuals, not arbitrary large separations or operations near the singularity at the celestial poles.
+The small-angle representation is intended for ordinary pointing residuals, not arbitrary large separations or operations near the singularity at the celestial poles. Pointing validates both the requested target and the model-corrected command before issuing hardware motion; non-finite coordinates or declinations outside the physical sky fail closed.
 
 ## Learning
 
-`PointingModel.update()` currently applies a bounded exponential-style update independently to both bias components:
+Pointing does not have an alignment or initialization phase. Each normal `PointingService.point_to()` operation follows the same cycle:
 
 ```text
-b_new = (1 - weight) * b_old + weight * residual
+apply model -> slew -> solve -> measure residual -> update model
 ```
 
-`weight` is clamped to `[0, 1]`; the current service default is `0.1`.
+After issuing the slew, Pointing waits for the mount to report a stable non-slewing state before capturing the learning exposure. If the mount does not settle within the Pointing service timeout, the operation fails rather than solving an in-flight field and learning that motion as pointing bias.
 
-The model should only be updated from a meaningful solved-target residual. A mount sync is different: sync changes the mount's own coordinate mapping, so the pre-sync discrepancy must not also be learned as a persistent Astrolabe correction.
+The solved target residual is what remains **after** the current bias estimate has already been applied. The v1 model represents the underlying mount bias, so Pointing first reconstructs the corresponding bias observation:
+
+```text
+observed_bias = predicted_bias + post_correction_residual
+```
+
+It then passes that observation to `PointingModel.update()`, which applies a bounded exponential-style update independently to both bias components:
+
+```text
+b_new = (1 - weight) * b_old + weight * observed_bias
+```
+
+Equivalently for this offset model, `b_new = b_old + weight * residual`. Feeding the post-correction residual directly to the EMA would be wrong: under a stable mount bias it would make the estimate converge to only part of the true bias rather than cancelling the residual.
+
+`weight` is clamped to `[0, 1]`; the current service weight is `0.1`.
+
+The model is updated only when the solver reports success, supplies complete finite physically valid solved coordinates, and the solved field lies within **10 degrees great-circle separation** of the requested target. The 10-degree bound is a deliberately generous safety envelope for the offset-only v1 model: it permits coarse initial pointing errors while preventing an unrelated but formally successful blind solve from becoming a catastrophic model update. It is not a centering tolerance or a claim that a 10-degree pointing error is acceptable final performance. Rejected observations do not change the model, although a geometrically valid outlier can still report its measured final error.
+
+Solver-specific ambiguity or failure belongs at the solver boundary and must be reported as an unsuccessful solve. Pointing's additional geometric trust gate is deliberately solver-independent.
+
+Mount sync is not part of this loop. Changing a mount's own coordinate mapping would create a second adaptive model and make the learned Astrolabe correction ambiguous, so ordinary pointing learns from the solved residual without syncing the mount.
 
 ## Persistence
 
@@ -70,7 +90,7 @@ load_pointing_model(path)
 save_pointing_model(model, path)
 ```
 
-The application composition layer chooses when persistence happens and which path to use. The current default path remains `~/.astrolabe/pointing.json`, preserving the existing file location while keeping storage policy out of the mathematical/service API.
+The application composition layer chooses when persistence happens and which path to use. The current CLI loads the model for a target-pointing operation and saves it only after `PointingService` accepts a residual for learning. The default path remains `~/.astrolabe/pointing.json`.
 
 ## Future model work
 
