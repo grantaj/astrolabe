@@ -18,20 +18,20 @@ def _make_hip_line(hip_id: int, hd: int) -> str:
 
 
 def test_aliases_from_bsc_name():
-    assert _aliases_from_bsc_name("Gam Cru") == ["gamma cru", "gamma crux"]
-    assert _aliases_from_bsc_name("Alp Cen") == ["alpha cen", "alpha centaurus"]
+    assert _aliases_from_bsc_name("Gam Cru") == ["gamma cru", "gamma crucis"]
+    assert _aliases_from_bsc_name("Alp Cen") == ["alpha cen", "alpha centauri"]
     assert _aliases_from_bsc_name("9Alp CMa") == [
         "alpha cma",
-        "alpha canis major",
+        "alpha canis majoris",
         "9 cma",
-        "9 canis major",
+        "9 canis majoris",
     ]
-    assert _aliases_from_bsc_name("61 Cyg") == ["61 cyg", "61 cygnus"]
+    assert _aliases_from_bsc_name("61 Cyg") == ["61 cyg", "61 cygni"]
     assert _aliases_from_bsc_name("56Psi5Aur") == [
         "psi5 aur",
-        "psi5 auriga",
+        "psi5 aurigae",
         "56 aur",
-        "56 auriga",
+        "56 aurigae",
     ]
 
 
@@ -77,9 +77,9 @@ def test_update_bsc_crosswalk_with_local_sources_is_deterministic(
         rows = list(csv.DictReader(handle))
     assert [(row["alias"], row["hip_id"]) for row in rows] == [
         ("61 cyg", "104214"),
-        ("61 cygnus", "104214"),
+        ("61 cygni", "104214"),
         ("gamma cru", "61084"),
-        ("gamma crux", "61084"),
+        ("gamma crucis", "61084"),
     ]
 
 
