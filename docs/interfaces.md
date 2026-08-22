@@ -93,9 +93,15 @@ Pointing persistence is explicit: `load_pointing_model(path)` and `save_pointing
 
 ### PolarAlignService
 
-The polar service performs a multiple-pose capture/solve sequence, fits the mount rotation axis, and returns signed mechanical altitude/azimuth correction estimates with residual/confidence information. It consumes mount/camera/solver contracts and contains no INDI/ASTAP-specific code.
+The polar service retains the existing one-shot N-pose measurement through `run(...)`: capture/solve at several RA poses, fit the mount rotation axis, and return the compatibility `PolarResult` containing signed altitude/azimuth corrections, residual and confidence.
 
-Its detailed geometry and pose-count constraints are implementation/test concerns; the CLI exposes the supported controls.
+`adjust(...)` builds on that measurement rather than performing a second circle fit. It retains the fitted axis and observation time internally, disables tracking for the manual-adjustment phase, and guides exactly one mechanical axis at a time: azimuth first, then altitude after an explicit rebase. Positive azimuth means move east; positive altitude means raise the axis.
+
+During tracking-off adjustment every successful ICRS solve is transformed at its own UTC image timestamp into a local East/North/Up frame. The transform uses the configured site latitude/longitude/elevation and the core PyERFA standards implementation; ERFA objects do not cross the service boundary. This prevents ordinary sidereal drift from being interpreted as manual motion.
+
+Each active-axis stage establishes a fresh solved-field reference, infers applied rotation around the known mechanical axis, rejects excessive cross-track or implausible jumps, and feeds only the signed remaining correction into the generic `FeedbackSession`. The feedback service therefore remains the owner of tolerance, smoothing, hysteresis, proximity, centering and stale-state semantics. Stage completion requires multiple consecutive centered samples.
+
+Live solves use the previous trustworthy position/scale as bounded hints. A failed hinted solve receives at most one fallback solve of the same frame without the positional hint; failed or geometrically inconsistent samples never become confident guidance. The workflow is bounded and restores the mount's original tracking state on success, failure, and cancellation.
 
 ### Focus
 
