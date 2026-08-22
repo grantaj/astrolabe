@@ -48,7 +48,7 @@ def test_backend_factory_astrolabe_error_is_mapped(monkeypatch, capsys):
     }
 
 
-def test_service_constructor_astrolabe_error_is_mapped(monkeypatch, capsys):
+def test_pointing_service_constructor_astrolabe_error_is_mapped(monkeypatch, capsys):
     patch_backends(
         monkeypatch,
         mount=FakeMount(),
@@ -56,8 +56,8 @@ def test_service_constructor_astrolabe_error_is_mapped(monkeypatch, capsys):
         solver=FakeSolver(),
     )
     monkeypatch.setattr(
-        "astrolabe.cli.commands.GotoService",
-        lambda *args, **kwargs: _raise(ServiceError("goto construction boom")),
+        "astrolabe.cli.commands.PointingService",
+        lambda *args, **kwargs: _raise(ServiceError("pointing construction boom")),
     )
 
     result, out, err = run_cli(
@@ -76,7 +76,7 @@ def test_service_constructor_astrolabe_error_is_mapped(monkeypatch, capsys):
     assert payload["command"] == "goto"
     assert payload["error"] == {
         "code": "service_error",
-        "message": "goto construction boom",
+        "message": "pointing construction boom",
         "details": None,
     }
 
