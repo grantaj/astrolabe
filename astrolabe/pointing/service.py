@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import math
+import time
 
 from astrolabe.errors import ServiceError
 from astrolabe.solver.types import SolveRequest, SolveResult
@@ -9,6 +10,9 @@ from .model import PointingModel
 
 
 _MAX_LEARNING_RESIDUAL_RAD = math.radians(10.0)
+_SLEW_SETTLE_TIMEOUT_S = 30.0
+_SLEW_SETTLE_POLL_S = 0.2
+_SLEW_SETTLE_STABLE_READS = 2
 
 
 @dataclass
@@ -74,6 +78,7 @@ class PointingService:
         predicted_alpha, predicted_delta = self._model.predict()
         command_ra, command_dec = self.apply_model(ra_rad, dec_rad)
         self._mount.slew_to(command_ra, command_dec)
+        self._wait_for_slew_settle()
         solve = self.solve_current(exposure_s=exposure_s, use_mount_hints=False)
 
         rejection_reason = _solve_rejection_reason(solve)
@@ -137,6 +142,23 @@ class PointingService:
         corrected_dec = dec_rad - b_delta
         _validate_command(raw_corrected_ra, corrected_dec)
         return normalize_angle_rad(raw_corrected_ra), corrected_dec
+
+    def _wait_for_slew_settle(self) -> None:
+        """Wait until the mount reports a stable non-slewing state."""
+        deadline = time.monotonic() + _SLEW_SETTLE_TIMEOUT_S
+        stable_reads = 0
+        while time.monotonic() < deadline:
+            if self._mount.get_state().slewing:
+                stable_reads = 0
+            else:
+                stable_reads += 1
+                if stable_reads >= _SLEW_SETTLE_STABLE_READS:
+                    return
+            time.sleep(_SLEW_SETTLE_POLL_S)
+        raise ServiceError(
+            "Mount did not report a settled slew within "
+            f"{_SLEW_SETTLE_TIMEOUT_S:.0f} seconds"
+        )
 
 
 def _validate_target(ra_rad: float, dec_rad: float) -> None:
