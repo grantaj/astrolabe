@@ -18,7 +18,7 @@ from astrolabe.cli.feedback import AudioCue
 from astrolabe.errors import BackendError
 
 _SAMPLE_RATE_HZ = 44_100
-_PATTERN_DURATION_S = 4.0
+_MIN_PATTERN_DURATION_S = 4.0
 _PROBE_DURATION_S = 0.02
 _ATTACK_RELEASE_S = 0.005
 _VOLUME = 0.12
@@ -81,10 +81,30 @@ class SystemTonePlayer:
         platform_name: str | None = None,
         which: Callable[[str], str | None] | None = None,
     ) -> SystemTonePlayer:
+        """Return the first installed player that can open its audio backend."""
         platform_name = platform_name or sys.platform
         which = which or shutil.which
-        command = _select_player_command(platform_name, which)
-        return cls(command)
+        candidates = _player_candidates(platform_name)
+        installed = [(name, which(name)) for name in candidates]
+        installed = [(name, command) for name, command in installed if command is not None]
+        if not installed:
+            names = ", ".join(candidates)
+            raise BackendError(f"No supported audio player found; install one of: {names}")
+
+        failures: list[str] = []
+        for name, command in installed:
+            assert command is not None
+            player = cls(command)
+            try:
+                player.probe()
+            except BackendError as exc:
+                failures.append(f"{name}: {exc}")
+                player.close()
+                continue
+            return player
+
+        detail = "; ".join(failures)
+        raise BackendError(f"No installed audio player could open an output device: {detail}")
 
     def probe(self) -> None:
         self._ensure_open()
@@ -99,6 +119,10 @@ class SystemTonePlayer:
                 process.wait(timeout=_PROCESS_STOP_TIMEOUT_S)
             except subprocess.TimeoutExpired:
                 process.kill()
+                try:
+                    process.wait(timeout=_PROCESS_STOP_TIMEOUT_S)
+                except subprocess.TimeoutExpired:
+                    pass
             raise BackendError("Audio playback probe did not complete") from exc
         if process.returncode != 0:
             detail = stderr.decode(errors="replace").strip()
@@ -142,12 +166,15 @@ class AudioSink:
     """Single-worker non-blocking sink for backend-neutral :class:`AudioCue` values."""
 
     def __init__(self, player: TonePlayer | None = None) -> None:
-        self._player = player or SystemTonePlayer.discover()
-        try:
-            self._player.probe()
-        except Exception:
-            self._player.close()
-            raise
+        if player is None:
+            self._player = SystemTonePlayer.discover()
+        else:
+            self._player = player
+            try:
+                self._player.probe()
+            except Exception:
+                self._player.close()
+                raise
         self._condition = threading.Condition()
         self._cue: AudioCue | None = None
         self._revision = 0
@@ -214,11 +241,7 @@ class AudioSink:
                     active = None
 
                 if cue is not None and active is None:
-                    try:
-                        active = self._player.start(cue)
-                    except Exception as exc:  # playback failures stay at this boundary
-                        self._record_failure(exc)
-                        break
+                    active = self._player.start(cue)
                     active_revision = revision
 
                 with self._condition:
@@ -241,16 +264,21 @@ class AudioSink:
                     continue
                 active = None
                 if returncode != 0:
-                    self._record_failure(
-                        BackendError(
-                            f"Audio player exited unexpectedly with status {returncode}"
-                        )
+                    raise BackendError(
+                        f"Audio player exited unexpectedly with status {returncode}"
                     )
-                    break
+        except Exception as exc:  # runtime playback failures stay at this boundary
+            self._record_failure(exc)
         finally:
             if active is not None:
-                active.stop()
-            self._player.close()
+                try:
+                    active.stop()
+                except Exception as exc:
+                    self._record_failure(exc)
+            try:
+                self._player.close()
+            except Exception as exc:
+                self._record_failure(exc)
 
     def _record_failure(self, exc: Exception) -> None:
         failure = (
@@ -259,7 +287,8 @@ class AudioSink:
             else BackendError(f"Audio playback failed: {exc}")
         )
         with self._condition:
-            self._failure = failure
+            if self._failure is None:
+                self._failure = failure
             self._cue = None
             self._revision += 1
             self._condition.notify_all()
@@ -269,19 +298,21 @@ class AudioSink:
             raise self._failure
 
 
+def _player_candidates(platform_name: str) -> tuple[str, ...]:
+    if platform_name == "darwin":
+        return ("afplay",)
+    if platform_name.startswith("linux"):
+        return ("pw-play", "paplay", "aplay")
+    raise BackendError(
+        f"Audio playback is unsupported on platform {platform_name!r}; "
+        "Linux and macOS are supported"
+    )
+
+
 def _select_player_command(
     platform_name: str, which: Callable[[str], str | None]
 ) -> str:
-    if platform_name == "darwin":
-        candidates = ("afplay",)
-    elif platform_name.startswith("linux"):
-        candidates = ("pw-play", "paplay", "aplay")
-    else:
-        raise BackendError(
-            f"Audio playback is unsupported on platform {platform_name!r}; "
-            "Linux and macOS are supported"
-        )
-
+    candidates = _player_candidates(platform_name)
     for candidate in candidates:
         command = which(candidate)
         if command is not None:
@@ -297,12 +328,21 @@ def _write_silence_wav(path: Path, *, duration_s: float) -> None:
 
 def _write_cue_wav(path: Path, cue: AudioCue) -> None:
     _validate_cue(cue)
+    duration_s = _pattern_duration_s(cue)
     samples = _render_cue_pcm(
         cue,
         sample_rate_hz=_SAMPLE_RATE_HZ,
-        duration_s=_PATTERN_DURATION_S,
+        duration_s=duration_s,
     )
     _write_pcm_wav(path, samples)
+
+
+def _pattern_duration_s(cue: AudioCue) -> float:
+    if cue.continuous:
+        return _MIN_PATTERN_DURATION_S
+    assert cue.interval_s is not None
+    periods = max(1, math.ceil(_MIN_PATTERN_DURATION_S / cue.interval_s))
+    return periods * cue.interval_s
 
 
 def _write_pcm_wav(path: Path, samples: array[int]) -> None:
