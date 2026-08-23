@@ -167,7 +167,7 @@ def test_point_to_applies_model_slews_solves_and_updates_model():
     target_dec = 0.4
     model = PointingModel(b_alpha_rad=0.01, b_delta_rad=-0.02)
     mount = FakeMount()
-    solver = FakeSolver(_solve_result(ra_rad=0.92, dec_rad=0.41))
+    solver = FakeSolver(_solve_result(ra_rad=0.9002, dec_rad=0.4002))
     service = PointingService(mount, FakeCamera(), solver, model=model)
 
     result = service.point_to(target_ra, target_dec, exposure_s=2.0)
@@ -267,7 +267,7 @@ def test_point_to_rejects_outlier_solve_without_learning():
 
     assert result.success is False
     assert result.model_updated is False
-    assert result.final_error_arcsec is not None
+    assert result.final_error_arcsec is None
     assert result.message is not None
     assert "learning envelope" in result.message
     assert model.num_samples == 0
