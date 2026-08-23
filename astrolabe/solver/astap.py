@@ -15,6 +15,43 @@ from astrolabe.util.math import (
 )
 
 DEFAULT_ASTAP_TIMEOUT_S = 60
+_FITS_BLOCK_BYTES = 2880
+_FITS_CARD_BYTES = 80
+
+
+def _fits_image_height_px(path: str | Path) -> int | None:
+    """Return the primary FITS image height when it can be read cheaply."""
+
+    try:
+        with Path(path).open("rb") as handle:
+            first_block = True
+            while True:
+                block = handle.read(_FITS_BLOCK_BYTES)
+                if len(block) != _FITS_BLOCK_BYTES:
+                    return None
+                if first_block:
+                    first_block = False
+                    if not block.startswith(b"SIMPLE"):
+                        return None
+                for offset in range(0, _FITS_BLOCK_BYTES, _FITS_CARD_BYTES):
+                    raw_card = block[offset : offset + _FITS_CARD_BYTES]
+                    try:
+                        card = raw_card.decode("ascii")
+                    except UnicodeDecodeError:
+                        return None
+                    key = card[:8].strip()
+                    if key == "END":
+                        return None
+                    if key != "NAXIS2" or card[8:10] != "= ":
+                        continue
+                    value = card[10:].split("/", 1)[0].strip()
+                    try:
+                        height_px = int(value)
+                    except ValueError:
+                        return None
+                    return height_px if height_px > 0 else None
+    except OSError:
+        return None
 
 
 def _summarize_astap_failure(stdout: str, stderr: str) -> str:
@@ -69,8 +106,12 @@ class AstapSolverBackend(SolverBackend):
                 spd_deg = 90.0 - dec_deg
                 cmd += ["-ra", str(ra_hours), "-spd", str(spd_deg)]
             if request.scale_hint_arcsec is not None:
-                fov_deg = request.scale_hint_arcsec * request.image.height_px / 3600.0
-                cmd += ["-fov", str(fov_deg)]
+                height_px = request.image.height_px
+                if height_px <= 0:
+                    height_px = _fits_image_height_px(fits_path) or 0
+                if height_px > 0:
+                    fov_deg = request.scale_hint_arcsec * height_px / 3600.0
+                    cmd += ["-fov", str(fov_deg)]
             if request.search_radius_rad is not None:
                 radius_deg = rad_to_degrees(request.search_radius_rad)
                 cmd += ["-r", str(radius_deg)]
