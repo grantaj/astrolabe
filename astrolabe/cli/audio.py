@@ -119,9 +119,7 @@ class SystemTonePlayer:
         self._closed = True
         self._tempdir.cleanup()
 
-    def _spawn(
-        self, path: Path, *, capture_stderr: bool
-    ) -> subprocess.Popen[bytes]:
+    def _spawn(self, path: Path, *, capture_stderr: bool) -> subprocess.Popen[bytes]:
         stderr = subprocess.PIPE if capture_stderr else subprocess.DEVNULL
         try:
             return subprocess.Popen(
@@ -355,7 +353,9 @@ def _pulse_value(cue: AudioCue, pulse_t: float, amplitude: int) -> int:
     return _tone_value(local_t, cue.frequencies_hz[segment], amplitude, segment_s)
 
 
-def _tone_value(t: float, frequency_hz: float, amplitude: int, duration_s: float) -> int:
+def _tone_value(
+    t: float, frequency_hz: float, amplitude: int, duration_s: float
+) -> int:
     ramp = min(
         1.0,
         t / _ATTACK_RELEASE_S,
