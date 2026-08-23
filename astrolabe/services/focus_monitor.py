@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import math
+import time
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
+from enum import Enum
 from typing import Literal
 
 import numpy as np
@@ -10,6 +14,25 @@ from astrolabe.camera.base import CameraBackend, LiveFrameSession
 from astrolabe.services.focus import FocusMeasurement, FocusService
 
 FocusTrend = Literal["improving", "stable", "worsening"]
+
+
+class FocusGuidanceState(str, Enum):
+    """Truthful no-look focus state inferred from HFR history only."""
+
+    UNKNOWN = "unknown"
+    IMPROVING = "improving"
+    BEST_OBSERVED = "best-observed"
+    WORSENING = "worsening"
+
+
+@dataclass(frozen=True)
+class FocusGuidance:
+    """Focus-domain guidance without pretending to know focuser direction."""
+
+    state: FocusGuidanceState
+    valid: bool
+    hfr_px: float | None
+    best_hfr_px: float | None
 
 
 class FocusTrendEstimator:
@@ -30,11 +53,14 @@ class FocusTrendEstimator:
         self._relative_deadband = relative_deadband
         self._absolute_deadband_px = absolute_deadband_px
 
+    def reset(self) -> None:
+        self._values.clear()
+
     def update(self, measurement: FocusMeasurement) -> FocusTrend | None:
         """Return a display trend without altering the raw measurement."""
 
         if not measurement.valid or measurement.hfr_px is None:
-            self._values.clear()
+            self.reset()
             return None
 
         self._values.append(measurement.hfr_px)
@@ -55,6 +81,98 @@ class FocusTrendEstimator:
         if delta > deadband:
             return "worsening"
         return "stable"
+
+
+class FocusGuidanceEstimator:
+    """Infer practical focus guidance from temporal HFR evidence only.
+
+    Manual focusing provides no focuser position or physical direction. This
+    estimator therefore never emits a signed correction. It reports whether
+    image quality is improving or worsening in the user's current motion, and
+    only calls a region ``BEST_OBSERVED`` after genuine improvement has been
+    seen and the current HFR is stably near the best value observed in this
+    fresh history.
+    """
+
+    def __init__(
+        self,
+        *,
+        window_size: int = 5,
+        relative_deadband: float = 0.03,
+        absolute_deadband_px: float = 0.05,
+        stale_after_s: float = 30.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if not math.isfinite(stale_after_s) or stale_after_s <= 0.0:
+            raise ValueError("stale_after_s must be finite and > 0")
+        self._trend = FocusTrendEstimator(
+            window_size=window_size,
+            relative_deadband=relative_deadband,
+            absolute_deadband_px=absolute_deadband_px,
+        )
+        self._relative_deadband = relative_deadband
+        self._absolute_deadband_px = absolute_deadband_px
+        self._stale_after_s = stale_after_s
+        self._clock = clock
+        self.reset()
+
+    def reset(self) -> None:
+        self._trend.reset()
+        self._best_hfr_px: float | None = None
+        self._has_improved = False
+        self._last_update_s: float | None = None
+
+    def update(self, measurement: FocusMeasurement) -> FocusGuidance:
+        now_s = self._clock()
+        if (
+            self._last_update_s is not None
+            and now_s - self._last_update_s > self._stale_after_s
+        ):
+            self.reset()
+
+        if (
+            not measurement.valid
+            or measurement.hfr_px is None
+            or not math.isfinite(measurement.hfr_px)
+        ):
+            self.reset()
+            return FocusGuidance(
+                state=FocusGuidanceState.UNKNOWN,
+                valid=False,
+                hfr_px=None,
+                best_hfr_px=None,
+            )
+
+        hfr_px = measurement.hfr_px
+        trend = self._trend.update(measurement)
+        if self._best_hfr_px is None or hfr_px < self._best_hfr_px:
+            self._best_hfr_px = hfr_px
+
+        if trend == "improving":
+            self._has_improved = True
+            state = FocusGuidanceState.IMPROVING
+        elif trend == "worsening":
+            state = FocusGuidanceState.WORSENING
+        elif trend == "stable" and self._has_improved and self._near_best(hfr_px):
+            state = FocusGuidanceState.BEST_OBSERVED
+        else:
+            state = FocusGuidanceState.UNKNOWN
+
+        self._last_update_s = now_s
+        return FocusGuidance(
+            state=state,
+            valid=True,
+            hfr_px=hfr_px,
+            best_hfr_px=self._best_hfr_px,
+        )
+
+    def _near_best(self, hfr_px: float) -> bool:
+        assert self._best_hfr_px is not None
+        deadband = max(
+            self._absolute_deadband_px,
+            abs(self._best_hfr_px) * self._relative_deadband,
+        )
+        return hfr_px <= self._best_hfr_px + deadband
 
 
 class FocusMonitorSession(Iterator[FocusMeasurement]):
