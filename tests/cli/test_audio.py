@@ -5,6 +5,7 @@ import pytest
 from astrolabe.cli.audio import (
     AudioSink,
     SystemTonePlayer,
+    _pattern_duration_s,
     _render_cue_pcm,
     _select_player_command,
 )
@@ -115,6 +116,15 @@ def test_rendered_pulse_repeats_at_requested_cadence() -> None:
     assert any(samples[405:445])
 
 
+def test_pulsed_pattern_ends_on_cadence_boundary() -> None:
+    cue = _pulse(interval_s=0.12)
+
+    duration_s = _pattern_duration_s(cue)
+
+    assert duration_s >= 4.0
+    assert duration_s / 0.12 == pytest.approx(round(duration_s / 0.12))
+
+
 def test_new_cue_supersedes_active_cue() -> None:
     player = FakePlayer()
     sink = AudioSink(player)
@@ -204,7 +214,7 @@ def test_runtime_player_exception_is_contained_and_reported() -> None:
     assert player.closed
 
 
-def test_startup_probe_failure_closes_player() -> None:
+def test_startup_probe_failure_closes_injected_player() -> None:
     class FailingProbePlayer(FakePlayer):
         def probe(self) -> None:
             raise BackendError("no output device")
@@ -215,6 +225,28 @@ def test_startup_probe_failure_closes_player() -> None:
         AudioSink(player)
 
     assert player.closed
+
+
+def test_system_discovery_falls_back_when_preferred_backend_is_unusable(monkeypatch):
+    available = {
+        "pw-play": "/usr/bin/pw-play",
+        "paplay": "/usr/bin/paplay",
+        "aplay": "/usr/bin/aplay",
+    }
+    probes: list[str] = []
+
+    def probe(player):
+        probes.append(player._command)
+        if player._command.endswith("pw-play"):
+            raise BackendError("PipeWire unavailable")
+
+    monkeypatch.setattr(SystemTonePlayer, "probe", probe)
+
+    player = SystemTonePlayer.discover(platform_name="linux", which=available.get)
+
+    assert probes == ["/usr/bin/pw-play", "/usr/bin/paplay"]
+    assert player._command == "/usr/bin/paplay"
+    player.close()
 
 
 def test_platform_player_selection_prefers_native_current_stack() -> None:
