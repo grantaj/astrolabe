@@ -109,7 +109,9 @@ Live solves use the previous trustworthy position/scale as bounded hints. A fail
 
 The focus capability exposes backend-independent multi-star HFR analysis, one-shot measurement, and a bounded live monitoring workflow over the camera-owned live-frame session. `FocusMeasurement` explicitly distinguishes valid and invalid measurements and reports HFR/scatter/star counts.
 
-The monitor may classify recent valid HFR history as `improving`, `stable`, or `worsening`, but this is descriptive image-quality trend information only. HFR/trend is not a signed focuser correction and must not be passed to manual-adjustment feedback as if direction were known. See `focus.md`.
+`FocusGuidanceEstimator` consumes only fresh valid HFR history and returns focus-owned temporal states: `unknown`, `improving`, `best-observed`, or `worsening`. These states describe image-quality evidence in the user's current motion; they are deliberately not signed focuser corrections. `best-observed` is emitted only after genuine improvement has been established and the current HFR is stably near the best value in the fresh history. Invalid measurements or stale history reset the inference state.
+
+The CLI/presentation layer maps these focus-specific states to backend-neutral `AudioCue` values and sends them through the shared `AudioSink`. Platform audio code does not enter focus analysis, and the focus layer does not misuse the generic signed-correction `FeedbackSession` when no physical focuser direction is known. See `focus.md`.
 
 ### TargetResolver
 
