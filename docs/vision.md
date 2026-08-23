@@ -16,7 +16,7 @@ Astrolabe's core direction includes:
 - an offline-first, observer-oriented target planner;
 - stable guiding as a later capability.
 
-Some of these capabilities are intentionally post-MVP or still incomplete. Current implementation status belongs in code/tests and `README.md`, not in this vision document.
+Some of these capabilities are intentionally post-MVP or still incomplete. Detailed and volatile implementation status belongs in code/tests and `README.md`, not in this vision document.
 
 ## Design character
 
@@ -67,7 +67,7 @@ This table maps the visual observing session to the small release gate. It is de
 | Observe at the eyepiece | Normal mount tracking/control; main OTA remains manually focused for visual use | None specific to MVP |
 | Guide during long observations | Camera live path and mount pulse-guide primitives exist | Guiding #8 is explicitly post-MVP |
 
-The MVP release gate is therefore **#4 + #44 + #96**. Other open work may improve Astrolabe, but it does not block the first visual-observer release unless this product definition changes deliberately.
+The MVP release gate is therefore **#4 + #44 + #96**, coordinated under programme issue #79. Other open work may improve Astrolabe, but it does not block the first visual-observer release unless this product definition changes deliberately.
 
 The main telescope remains a visual instrument: Astrolabe does not need to focus the eyepiece view, manage imaging sequences, or perform astrophotography acquisition for MVP.
 
