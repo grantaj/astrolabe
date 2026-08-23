@@ -204,35 +204,54 @@ def test_invalid_measurement_resets_focus_trend_history():
     assert estimator.update(_measurement(3.3)) is None
 
 
-def test_focus_guidance_becomes_best_observed_only_after_real_improvement():
+def test_focus_guidance_does_not_call_a_pause_best_focus():
     estimator = FocusGuidanceEstimator(window_size=3)
 
-    assert estimator.update(_measurement(3.00)).state is FocusGuidanceState.UNKNOWN
-    assert estimator.update(_measurement(3.01)).state is FocusGuidanceState.UNKNOWN
-    assert estimator.update(_measurement(2.99)).state is FocusGuidanceState.UNKNOWN
-
-    estimator.reset()
     assert estimator.update(_measurement(4.0)).state is FocusGuidanceState.UNKNOWN
     assert estimator.update(_measurement(3.7)).state is FocusGuidanceState.UNKNOWN
     assert estimator.update(_measurement(3.4)).state is FocusGuidanceState.IMPROVING
     assert estimator.update(_measurement(3.39)).state is FocusGuidanceState.IMPROVING
+
     guidance = estimator.update(_measurement(3.41))
 
-    assert guidance.state is FocusGuidanceState.BEST_OBSERVED
+    assert guidance.state is FocusGuidanceState.UNKNOWN
     assert guidance.best_hfr_px == pytest.approx(3.39)
 
 
-def test_focus_guidance_reports_crossing_and_reversal_without_physical_direction():
+def test_focus_guidance_brackets_crossing_then_recovers_best_observed_region():
     estimator = FocusGuidanceEstimator(window_size=3)
     for hfr in (4.0, 3.7, 3.4, 3.39, 3.41):
         estimator.update(_measurement(hfr))
 
     assert estimator.update(_measurement(3.6)).state is FocusGuidanceState.WORSENING
-    estimator.update(_measurement(3.3))
-    guidance = estimator.update(_measurement(3.1))
+    assert estimator.update(_measurement(3.5)).state is FocusGuidanceState.WORSENING
+    assert estimator.update(_measurement(3.42)).state is FocusGuidanceState.IMPROVING
+    guidance = estimator.update(_measurement(3.40))
 
-    assert guidance.state is FocusGuidanceState.IMPROVING
-    assert guidance.best_hfr_px == pytest.approx(3.1)
+    assert guidance.state is FocusGuidanceState.BEST_OBSERVED
+    assert guidance.best_hfr_px == pytest.approx(3.39)
+
+
+def test_significantly_better_new_best_requires_fresh_bracketing():
+    estimator = FocusGuidanceEstimator(window_size=3)
+    for hfr in (4.0, 3.7, 3.4, 3.39, 3.41, 3.6, 3.5, 3.42, 3.40):
+        estimator.update(_measurement(hfr))
+
+    assert estimator.update(_measurement(3.0)).state is FocusGuidanceState.IMPROVING
+    estimator.update(_measurement(3.01))
+    guidance = estimator.update(_measurement(3.02))
+
+    assert guidance.state is FocusGuidanceState.UNKNOWN
+    assert guidance.best_hfr_px == pytest.approx(3.0)
+
+
+def test_flat_noisy_startup_stays_unknown_without_improvement_and_crossing():
+    estimator = FocusGuidanceEstimator(window_size=3)
+
+    assert estimator.update(_measurement(3.00)).state is FocusGuidanceState.UNKNOWN
+    assert estimator.update(_measurement(3.01)).state is FocusGuidanceState.UNKNOWN
+    assert estimator.update(_measurement(2.99)).state is FocusGuidanceState.UNKNOWN
+    assert estimator.update(_measurement(3.02)).state is FocusGuidanceState.UNKNOWN
 
 
 def test_invalid_focus_frame_clears_guidance_and_requires_fresh_history():
