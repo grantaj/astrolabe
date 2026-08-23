@@ -50,7 +50,7 @@ Starting from that rig, an MVP observing session must let the observer:
 1. connect to the camera and mount and obtain reliable local plate solves;
 2. establish usable guide-camera focus manually using live **audio feedback**, without needing to watch the terminal;
 3. perform polar alignment with actionable **audio feedback**, without needing to watch the terminal;
-4. name or select a visual target and issue one solve-assisted pointing operation;
+4. provide a visual target, for example by name, and issue one solve-assisted pointing operation;
 5. have that pointing operation report success only when bounded solve-based correction has placed the target within the visual-acquisition centering tolerance.
 
 The main telescope remains a visual instrument: Astrolabe does not need to focus the eyepiece view, manage imaging sequences, or perform astrophotography acquisition for MVP.
