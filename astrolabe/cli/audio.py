@@ -87,9 +87,7 @@ class SystemTonePlayer:
         candidates = _player_candidates(platform_name)
         installed = [(name, which(name)) for name in candidates]
         installed = [
-            (name, command)
-            for name, command in installed
-            if command is not None
+            (name, command) for name, command in installed if command is not None
         ]
         if not installed:
             names = ", ".join(candidates)
