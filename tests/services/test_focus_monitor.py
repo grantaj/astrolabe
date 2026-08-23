@@ -11,6 +11,8 @@ from astrolabe.services.focus import (
     FocusService,
 )
 from astrolabe.services.focus_monitor import (
+    FocusGuidanceEstimator,
+    FocusGuidanceState,
     FocusMonitor,
     FocusMonitorSession,
     FocusTrendEstimator,
@@ -113,6 +115,19 @@ def _measurement(hfr: float) -> FocusMeasurement:
     )
 
 
+def _invalid_measurement() -> FocusMeasurement:
+    return FocusMeasurement(
+        valid=False,
+        hfr_px=None,
+        hfr_mad_px=None,
+        star_count=0,
+        rejected_star_count=0,
+        background=1000.0,
+        noise_sigma=2.0,
+        message="no usable stars",
+    )
+
+
 def test_focus_monitor_consumes_live_frames_and_closes_session():
     images = [_image(_starfield(2.5)), _image(_starfield(2.0))]
     camera = _FakeCamera(images)
@@ -184,16 +199,72 @@ def test_invalid_measurement_resets_focus_trend_history():
     estimator.update(_measurement(3.8))
     assert estimator.update(_measurement(3.5)) == "improving"
 
-    invalid = FocusMeasurement(
-        valid=False,
-        hfr_px=None,
-        hfr_mad_px=None,
-        star_count=0,
-        rejected_star_count=0,
-        background=1000.0,
-        noise_sigma=2.0,
-        message="no usable stars",
-    )
-    assert estimator.update(invalid) is None
+    assert estimator.update(_invalid_measurement()) is None
     assert estimator.update(_measurement(3.4)) is None
     assert estimator.update(_measurement(3.3)) is None
+
+
+def test_focus_guidance_becomes_best_observed_only_after_real_improvement():
+    estimator = FocusGuidanceEstimator(window_size=3)
+
+    assert estimator.update(_measurement(3.00)).state is FocusGuidanceState.UNKNOWN
+    assert estimator.update(_measurement(3.01)).state is FocusGuidanceState.UNKNOWN
+    assert estimator.update(_measurement(2.99)).state is FocusGuidanceState.UNKNOWN
+
+    estimator.reset()
+    assert estimator.update(_measurement(4.0)).state is FocusGuidanceState.UNKNOWN
+    assert estimator.update(_measurement(3.7)).state is FocusGuidanceState.UNKNOWN
+    assert estimator.update(_measurement(3.4)).state is FocusGuidanceState.IMPROVING
+    assert estimator.update(_measurement(3.39)).state is FocusGuidanceState.IMPROVING
+    guidance = estimator.update(_measurement(3.41))
+
+    assert guidance.state is FocusGuidanceState.BEST_OBSERVED
+    assert guidance.best_hfr_px == pytest.approx(3.39)
+
+
+def test_focus_guidance_reports_crossing_and_reversal_without_physical_direction():
+    estimator = FocusGuidanceEstimator(window_size=3)
+    for hfr in (4.0, 3.7, 3.4, 3.39, 3.41):
+        estimator.update(_measurement(hfr))
+
+    assert estimator.update(_measurement(3.6)).state is FocusGuidanceState.WORSENING
+    estimator.update(_measurement(3.3))
+    guidance = estimator.update(_measurement(3.1))
+
+    assert guidance.state is FocusGuidanceState.IMPROVING
+    assert guidance.best_hfr_px == pytest.approx(3.1)
+
+
+def test_invalid_focus_frame_clears_guidance_and_requires_fresh_history():
+    estimator = FocusGuidanceEstimator(window_size=3)
+    estimator.update(_measurement(4.0))
+    estimator.update(_measurement(3.7))
+    assert estimator.update(_measurement(3.4)).state is FocusGuidanceState.IMPROVING
+
+    invalid = estimator.update(_invalid_measurement())
+    assert not invalid.valid
+    assert invalid.state is FocusGuidanceState.UNKNOWN
+    assert invalid.best_hfr_px is None
+    assert estimator.update(_measurement(3.3)).state is FocusGuidanceState.UNKNOWN
+    assert estimator.update(_measurement(3.2)).state is FocusGuidanceState.UNKNOWN
+
+
+def test_stale_focus_history_is_discarded_before_new_guidance():
+    now = [0.0]
+    estimator = FocusGuidanceEstimator(
+        window_size=3,
+        stale_after_s=5.0,
+        clock=lambda: now[0],
+    )
+
+    estimator.update(_measurement(4.0))
+    now[0] = 1.0
+    estimator.update(_measurement(3.7))
+    now[0] = 2.0
+    assert estimator.update(_measurement(3.4)).state is FocusGuidanceState.IMPROVING
+
+    now[0] = 10.0
+    guidance = estimator.update(_measurement(3.3))
+
+    assert guidance.state is FocusGuidanceState.UNKNOWN
+    assert guidance.best_hfr_px == pytest.approx(3.3)
