@@ -12,7 +12,7 @@ Astrolabe's core direction includes:
 - deterministic mount control;
 - solve-assisted pointing and centering;
 - polar-alignment measurement and no-look guidance;
-- live manual focusing with no-look feedback;
+- live guide-camera manual focusing with no-look feedback;
 - an offline-first, observer-oriented target planner;
 - stable guiding as a later capability.
 
