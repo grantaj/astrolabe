@@ -1,5 +1,6 @@
 """Presentation mapping for truthful no-look focus guidance."""
 
+import math
 from dataclasses import dataclass
 
 from astrolabe.cli.feedback import AudioCue, AudioCueConfig
@@ -13,8 +14,8 @@ class FocusAudioCueConfig:
     trend_interval_s: float = 0.30
 
     def __post_init__(self) -> None:
-        if self.trend_interval_s <= 0.0:
-            raise ValueError("trend_interval_s must be > 0")
+        if not math.isfinite(self.trend_interval_s) or self.trend_interval_s <= 0.0:
+            raise ValueError("trend_interval_s must be finite and > 0")
 
 
 class FocusAudioCueMapper:
