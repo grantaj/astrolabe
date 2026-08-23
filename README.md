@@ -59,6 +59,14 @@ sudo apt install gsc gsc-data
 
 ASTAP is the default plate-solver backend. Install its Linux CLI and a suitable star database from the ASTAP project.
 
+[tetra3](https://github.com/esa/tetra3) is an optional alternative in-process backend, selected with `[solver].name = "tetra3"`. See `docs/interfaces.md` for its database, field-of-view and hint limitations.
+
+```bash
+uv sync --extra tetra3
+```
+
+Note: the current tetra3 release calls the `np.math` alias that NumPy 2.0 removed, so it only runs against NumPy < 2. Astrolabe does not pin NumPy down for it; `astrolabe doctor` reports the incompatibility instead of failing at solve time.
+
 ### Python environment
 
 The repository uses `uv` for environment and dependency management:

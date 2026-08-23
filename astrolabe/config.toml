@@ -7,6 +7,12 @@ name = "astap"
 binary = "astap_cli"
 database_path = "~/.astap"
 search_radius_deg = 5.0
+# tetra3 only (name = "tetra3"): database_path selects the tetra3 .npz database
+# (use "default_database" for tetra3's bundled 10-30 deg one). fov_deg is an
+# optional horizontal field-of-view fallback for requests without a scale hint;
+# a tetra3 solve fails explicitly if neither is available.
+# fov_deg = 2.66
+# fov_tolerance_deg = 1.0
 
 [camera]
 backend = "indi"

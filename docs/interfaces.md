@@ -55,6 +55,50 @@ is_available() -> diagnostic mapping
 
 A solver backend translates external units/formats into the common solver result. It does not control the mount or implement pointing policy.
 
+Two backends exist. `[solver].name` selects one at the solver composition boundary; pointing, polar alignment and the CLI depend only on the contract above.
+
+#### ASTAP (default)
+
+`astap` shells out to `astap_cli`, using `[solver].binary`, `[solver].database_path` and the request's position, scale and search-radius hints. It remains the default and is unaffected by the tetra3 backend.
+
+#### tetra3 (optional)
+
+`tetra3` runs [esa/tetra3](https://github.com/esa/tetra3) in-process. It is an optional dependency:
+
+```bash
+uv sync --extra tetra3
+```
+
+ASTAP-only installs do not pull tetra3 or SciPy, and `astrolabe.solver` imports without tetra3 present.
+
+Configuration reuses the existing `[solver]` section:
+
+- `database_path` — **required**: path to the tetra3 `.npz` database, or the literal `default_database` to opt in to tetra3's bundled 10–30° one. `~` is expanded.
+- `fov_deg` — optional horizontal field-of-view fallback in degrees, used when the request carries no usable scale hint. Selecting tetra3 without it is valid; an individual solve without either source fails explicitly.
+- `fov_tolerance_deg` — optional permitted FOV deviation, both for database-compatibility checking and for tetra3's own match tolerance. Default `1.0`.
+
+tetra3 databases are FOV-specific and are not shipped with Astrolabe. Generate one for a given camera/optics combination with tetra3's own tooling after downloading a star catalogue (`hip_main` for ≳3° fields, `tyc_main` below that):
+
+```python
+import tetra3
+tetra3.Tetra3().generate_database(max_fov=3.0, min_fov=2.0, save_as="guider_2to3deg")
+```
+
+Request-hint semantics:
+
+- `scale_hint_arcsec` derives the horizontal FOV estimate from the decoded frame width as `2·atan(width·scale/2)`, inverting the tangent-plane scale below; otherwise `[solver].fov_deg` is used, and a solve without either fails explicitly.
+- `timeout_s` becomes tetra3's solve timeout.
+- `ra_hint_rad`, `dec_hint_rad`, `search_radius_rad`, `parity_hint` and `extra_options` are **ignored**. `extra_options` carries ASTAP CLI flags and has no tetra3 meaning. tetra3 is blind in sky position and cannot consume them. Where a tight positional hint matters operationally, ASTAP remains preferable; Astrolabe does not fall back between backends automatically.
+
+Result conventions:
+
+- RA/Dec come from tetra3 in degrees in its database catalogue's equinox (J2000/ICRS for the supported catalogues) and become radians.
+- `rotation_rad` is the FITS `CROTA` angle in `(-180, 180]`, computed as `180° − roll`. tetra3 reports roll in a top-left-origin, y-down pixel frame while Astrolabe supplies FITS pixel data in FITS storage order; that vertical flip is what the `180° −` term expresses. The result matches the `CROTA1` value the ASTAP backend reports for the same frame.
+- `pixel_scale_arcsec` is the tangent-plane scale `2·tan(FOV/2)/width`, not `FOV/width`, so that it matches `CDELT`.
+- `rms_arcsec` is tetra3's RMSE and `num_stars` its matched-star count. Backend-specific extras such as the false-positive probability and timings appear in `raw_output` as JSON rather than as new `SolveResult` fields.
+
+Known limitations: a database only solves fields within its generated `min_fov`–`max_fov` range, and a request outside that range fails with an explicit message rather than attempting the solve. Upstream tetra3 currently calls the `np.math` alias that NumPy 2.0 removed and therefore requires NumPy < 2 at runtime; Astrolabe reports that as an unavailable backend rather than pinning NumPy down.
+
 ### MountBackend
 
 Current public operations:
