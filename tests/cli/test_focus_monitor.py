@@ -135,17 +135,19 @@ def test_focus_monitor_reports_live_hfr_and_guidance(monkeypatch, capsys):
     assert session.closed
 
 
-def test_focus_monitor_wires_guidance_to_shared_audio_sink(monkeypatch, capsys):
+def test_focus_monitor_wires_guidance_to_one_shared_audio_sink(monkeypatch, capsys):
     session = _FakeSession([_image(3.0), _image(2.5), _image(2.0)])
     camera = _FakeCamera(session)
     sink = MagicMock()
+    audio_sink = MagicMock(return_value=sink)
     monkeypatch.setattr("astrolabe.cli.runtime.load_config", lambda path: _config())
     monkeypatch.setattr("astrolabe.cli.focus.get_camera_backend", lambda config: camera)
-    monkeypatch.setattr("astrolabe.cli.focus.AudioSink", lambda: sink)
+    monkeypatch.setattr("astrolabe.cli.focus.AudioSink", audio_sink)
 
     exit_code = run_focus(_args(no_audio=False))
 
     assert exit_code == 0
+    audio_sink.assert_called_once_with()
     assert sink.play.call_count == 3
     last_cue = sink.play.call_args.args[0]
     assert last_cue is not None
