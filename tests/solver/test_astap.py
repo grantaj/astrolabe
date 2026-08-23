@@ -32,6 +32,18 @@ def sample_image(sample_fits_path):
     )
 
 
+def _write_minimal_fits(path: Path, *, width_px: int, height_px: int) -> None:
+    cards = [
+        "SIMPLE  =                    T".ljust(80),
+        "BITPIX  =                    8".ljust(80),
+        "NAXIS   =                    2".ljust(80),
+        f"NAXIS1  = {width_px:20d}".ljust(80),
+        f"NAXIS2  = {height_px:20d}".ljust(80),
+        "END".ljust(80),
+    ]
+    path.write_bytes("".join(cards).ljust(2880).encode("ascii"))
+
+
 def test_astap_is_available_success():
     backend = AstapSolverBackend(binary="astap_cli")
     with patch("subprocess.run") as mock_run:
@@ -145,6 +157,77 @@ def test_astap_hint_units():
         fov_value = float(cmd[cmd.index("-fov") + 1])
         assert fov_value == pytest.approx(1.5 * 1024 / 3600.0, rel=0, abs=1e-9)
         assert "-scale" not in cmd
+
+
+def test_astap_scale_hint_reads_height_from_file_backed_fits(tmp_path):
+    fits_path = tmp_path / "capture.fits"
+    _write_minimal_fits(fits_path, width_px=640, height_px=480)
+    image = Image(
+        data=str(fits_path),
+        width_px=0,
+        height_px=0,
+        timestamp_utc=datetime.datetime.now(datetime.timezone.utc),
+        exposure_s=2.0,
+        metadata={},
+    )
+    request = SolveRequest(image=image, scale_hint_arcsec=2.0)
+    backend = AstapSolverBackend(binary="astap_cli")
+
+    def fake_exists(path):
+        return str(path).endswith(".ini")
+
+    def fake_open(path, *args, **kwargs):
+        return io.StringIO(
+            "CRVAL1=10\nCRVAL2=20\nCDELT1=0.0002777778\nCDELT2=0.0002777778\nCROTA1=0\n"
+        )
+
+    with (
+        patch("subprocess.run") as mock_run,
+        patch("os.path.exists", side_effect=fake_exists),
+        patch("builtins.open", new=fake_open),
+    ):
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
+        backend.solve(request)
+
+    cmd = mock_run.call_args[0][0]
+    assert cmd.count("-fov") == 1
+    fov_value = float(cmd[cmd.index("-fov") + 1])
+    assert fov_value == pytest.approx(2.0 * 480 / 3600.0, rel=0, abs=1e-9)
+
+
+def test_astap_scale_hint_omits_fov_when_height_unknown(tmp_path):
+    fits_path = tmp_path / "missing.fits"
+    image = Image(
+        data=str(fits_path),
+        width_px=0,
+        height_px=0,
+        timestamp_utc=datetime.datetime.now(datetime.timezone.utc),
+        exposure_s=2.0,
+        metadata={},
+    )
+    request = SolveRequest(image=image, scale_hint_arcsec=2.0)
+    backend = AstapSolverBackend(binary="astap_cli")
+
+    def fake_exists(path):
+        return str(path).endswith(".ini")
+
+    def fake_open(path, *args, **kwargs):
+        return io.StringIO(
+            "CRVAL1=10\nCRVAL2=20\nCDELT1=0.0002777778\nCDELT2=0.0002777778\nCROTA1=0\n"
+        )
+
+    with (
+        patch("subprocess.run") as mock_run,
+        patch("os.path.exists", side_effect=fake_exists),
+        patch("builtins.open", new=fake_open),
+    ):
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = ""
+        backend.solve(request)
+
+    cmd = mock_run.call_args[0][0]
+    assert "-fov" not in cmd
 
 
 @pytest.fixture(scope="session")
