@@ -13,13 +13,13 @@ Current implemented capabilities include:
 - INDI mount status, slew, tracking, park, stop, sync, and pulse-guide primitives;
 - offline target resolution;
 - solve-assisted target pointing with continuous pointing-model learning;
-- N-pose solve-based polar-axis measurement plus interactive one-axis-at-a-time AZ/ALT correction guidance;
+- N-pose solve-based polar-axis measurement plus interactive one-axis-at-a-time AZ/ALT correction guidance with audible no-look feedback;
 - multi-star HFR focus measurement and bounded live focus monitoring;
 - an offline-first observing-target planner and catalog update tools.
 
 Normal target pointing is one operation: apply the current error model, slew, solve the resulting position, measure the residual, and update the model from a trustworthy solve. There is no separate pointing initialization/alignment phase and Pointing does not sync the mount as part of learning. `pointing goto` is the canonical CLI command; `align goto` and top-level `goto` remain compatibility aliases. Use `mount slew` for a deliberately raw slew.
 
-The live polar and focus workflows are not yet MVP-complete: real audio playback is still missing, and live focus monitoring does not yet provide a truthful no-look focus guidance policy. The v0 interaction target requires both manual focus and polar adjustment to be usable by ear without watching the terminal.
+Polar adjustment now has real audio playback on Linux and macOS. Live focus monitoring still does not provide a truthful no-look focus guidance policy; that remaining focus-domain gap must be closed before manual focusing meets the v0 by-ear interaction target.
 
 The guiding service is still a placeholder on current `main`; guiding commands report `not_implemented`. Guiding is post-MVP and does not block the first working release.
 
@@ -58,6 +58,8 @@ sudo apt install gsc gsc-data
 ```
 
 ASTAP is the default plate-solver backend. Install its Linux CLI and a suitable star database from the ASTAP project.
+
+Interactive audio feedback uses a small system player rather than a Python multimedia dependency. On Linux, Astrolabe uses the first available of `pw-play`, `paplay`, or `aplay`; install the corresponding PipeWire, PulseAudio, or ALSA utility if none is already present. On macOS, the built-in `afplay` utility is used. Audio is acquired only by interactive workflows that request it.
 
 ### Python environment
 
@@ -107,6 +109,6 @@ The documentation lifecycle is deliberately small:
 
 - current behaviour and contracts: `README.md`, `CONTRIBUTING.md`, and `docs/`;
 - planned work: open GitHub issues;
-- historical design/implementation rationale: git and merged pull requests.
+- historical design/implementation rationale: git and merged PR history.
 
 Start at `docs/README.md`.
