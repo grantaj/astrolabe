@@ -5,7 +5,9 @@ import datetime
 from pathlib import Path
 
 from astrolabe.camera import Image, get_camera_backend
+from astrolabe.cli.audio import AudioSink
 from astrolabe.cli.commands import _parse_roi
+from astrolabe.cli.focus_feedback import FocusAudioCueMapper
 from astrolabe.cli.output import emit, emit_error
 from astrolabe.cli.runtime import handle_error, note_dry_run, prepare
 from astrolabe.errors import AstrolabeError
@@ -15,7 +17,11 @@ from astrolabe.services.focus import (
     FocusMeasurement,
     FocusService,
 )
-from astrolabe.services.focus_monitor import FocusMonitor, FocusTrendEstimator
+from astrolabe.services.focus_monitor import (
+    FocusGuidance,
+    FocusGuidanceEstimator,
+    FocusMonitor,
+)
 
 
 def _focus_analyzer(args) -> FocusAnalyzer:
@@ -116,16 +122,16 @@ def _run_measure(args, config) -> int:
     return 0
 
 
-def _monitor_line(result: FocusMeasurement, trend: str | None) -> str:
+def _monitor_line(result: FocusMeasurement, guidance: FocusGuidance) -> str:
     if not result.valid or result.hfr_px is None:
         reason = result.message or "invalid measurement"
         return f"HFR --   stars {result.star_count}   invalid: {reason}"
 
     scatter = "--" if result.hfr_mad_px is None else f"{result.hfr_mad_px:.2f}"
-    line = f"HFR {result.hfr_px:.2f} px   stars {result.star_count}   scatter {scatter}"
-    if trend is not None:
-        line += f"   {trend}"
-    return line
+    return (
+        f"HFR {result.hfr_px:.2f} px   stars {result.star_count}   "
+        f"scatter {scatter}   {guidance.state.value}"
+    )
 
 
 def _run_monitor(args, config) -> int:
@@ -163,12 +169,17 @@ def _run_monitor(args, config) -> int:
             exit_code=2,
         )
 
+    audio_sink: AudioSink | None = None
     try:
         analyzer = _focus_analyzer(args)
-        camera = get_camera_backend(config)
         service = FocusService(analyzer=analyzer)
+        guidance = FocusGuidanceEstimator()
+        audio_mapper = FocusAudioCueMapper()
+        if not getattr(args, "no_audio", False):
+            audio_sink = AudioSink()
+
+        camera = get_camera_backend(config)
         monitor = FocusMonitor(camera, service)
-        trend = FocusTrendEstimator()
         roi = _parse_roi(args.roi)
 
         with monitor.open(
@@ -179,8 +190,13 @@ def _run_monitor(args, config) -> int:
             frame_count=frame_count,
         ) as measurements:
             for result in measurements:
-                current_trend = trend.update(result)
-                print(_monitor_line(result, current_trend), flush=True)
+                current_guidance = guidance.update(result)
+                print(_monitor_line(result, current_guidance), flush=True)
+                if audio_sink is not None:
+                    audio_sink.check()
+                    audio_sink.play(audio_mapper.map(current_guidance))
+        if audio_sink is not None:
+            audio_sink.check()
     except KeyboardInterrupt:
         return 0
     except (
@@ -196,6 +212,9 @@ def _run_monitor(args, config) -> int:
             code="focus_monitor_failed",
             message=f"Focus monitor failed: {exc}",
         )
+    finally:
+        if audio_sink is not None:
+            audio_sink.close()
 
     return 0
 
