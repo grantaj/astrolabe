@@ -43,11 +43,11 @@ astrolabe focus monitor --exposure 0.2 --bin 2 --roi 0,0,640,480
 - `unknown` — there is not yet enough evidence for useful guidance; an alternating two-tone cue is played;
 - `improving` — recent HFR is decreasing in the user's current motion; a repeating high tone is played;
 - `worsening` — recent HFR is increasing in the user's current motion; a repeating low tone is played;
-- `best-observed` — after genuine improvement has already been observed, HFR is stably near the best value seen in the current fresh history; a continuous middle tone is played.
+- `best-observed` — improvement followed by worsening has bracketed a local best in the observed temporal path, and HFR has returned stably near that bracketed best; a continuous middle tone is played.
 
-The user can therefore turn the focuser steadily, continue while the high cue reports improvement, reverse when the low cue reports worsening after passing the best region, and settle where the continuous best-observed cue is recovered. The audio describes image-quality evidence only: high/low tones never mean clockwise/counter-clockwise, inward/outward, or any other physical focuser direction.
+The user can therefore turn the focuser steadily, continue while the high cue reports improvement, reverse after the low cue shows that the best region has been crossed, and settle where the continuous best-observed cue is recovered. Pausing during an improving run is not enough to produce the best-observed cue. The audio describes image-quality evidence only: high/low tones never mean clockwise/counter-clockwise, inward/outward, or any other physical focuser direction.
 
-Invalid measurements silence audio immediately and clear focus guidance history. History is also discarded after a long gap so stale measurements cannot be presented as current guidance. Startup/runtime audio failures are reported explicitly rather than silently continuing as though no-look feedback were active. Stop with Ctrl-C. `--frames N` is available for a bounded run.
+Invalid measurements silence audio immediately and clear focus guidance history. History is also discarded after a long gap so stale measurements cannot be presented as current guidance. A significantly better newly observed HFR invalidates an older bracket and must itself be bracketed before `best-observed` can be emitted. Startup/runtime audio failures are reported explicitly rather than silently continuing as though no-look feedback were active. Stop with Ctrl-C. `--frames N` is available for a bounded run.
 
 The monitor also prints one concise line per frame with HFR, accepted-star count, scatter, and the current guidance state. Useful controls include `--min-stars`, `--detection-sigma`, and an optional explicit `--saturation-level`.
 
