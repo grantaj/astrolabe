@@ -23,8 +23,9 @@ class FocusAudioCueMapper:
 
     High and low pulsed tones mean improving and worsening image quality in the
     user's current motion; they do not encode a physical focuser direction.
-    The continuous middle tone means only that the current stable HFR is near
-    the best value observed after a genuine improvement run.
+    The continuous middle tone means only that the focus estimator has bracketed
+    a local best by improvement followed by worsening and has returned stably
+    near that best-observed HFR.
     """
 
     def __init__(
