@@ -64,7 +64,7 @@ The topology below reflects the current implementation. Use `--help` for exact a
 | `pointing` | `solve`, `goto` | implemented |
 | `align` | deprecated alias for `pointing` | compatibility alias |
 | `polar` | optional `measure` (default) or interactive `adjust` | implemented |
-| `focus` | `measure` one-shot multi-star HFR; `monitor` live HFR/trend reporting | implemented |
+| `focus` | `measure` one-shot multi-star HFR; `monitor` live HFR plus no-look audio guidance | implemented |
 | `guide` | `calibrate`, `start`, `stop`, `status` | CLI present; service placeholder |
 | `plan` | offline-first target planning | implemented |
 | `update catalog` | all/default catalog updates; `openngc`, `hip`, `bsc` subsets | implemented |
@@ -86,6 +86,16 @@ Use `mount slew` when the desired operation is deliberately just an uncorrected 
 Audible feedback is enabled by default for `polar adjust` and is driven from the same semantic feedback updates as the terminal presentation. On Linux Astrolabe tries `pw-play`, `paplay`, then `aplay` and uses the first installed player that can open the default output device; macOS uses `afplay`. Astrolabe generates the cue audio locally and keeps platform playback code at the CLI/presentation boundary. Startup explicitly probes the default audio output before adjustment begins. If no supported player or output device is available, the command fails rather than claiming that no-look feedback is active. `--no-audio` deliberately disables sound and avoids acquiring audio resources.
 
 The adjustment loop emits a stream of human feedback, so global `--json` is deliberately rejected with one structured `interactive_json_unsupported` error rather than inventing an NDJSON protocol. The final one-shot `polar`/`polar measure` path remains JSON-compatible.
+
+### Focus command semantics
+
+`focus measure` remains a one-shot HFR measurement. `focus monitor` consumes the camera-owned live-frame stream and provides no-look manual-focus feedback by default through the same shared `AudioSink` used by polar adjustment.
+
+Focus has no focuser-position input, so its audio deliberately does not encode a signed physical correction. Fresh HFR history is classified as `unknown`, `improving`, `best-observed`, or `worsening`. An alternating two-tone cue means unknown, a repeating high tone means HFR is improving in the user's current motion, a repeating low tone means HFR is worsening, and a continuous middle tone means the current stable HFR is near the best value observed after genuine improvement. Invalid measurements silence audio and reset the guidance history; stale history is discarded before new guidance is emitted.
+
+This makes manual focusing usable by ear without claiming clockwise/counter-clockwise or inward/outward focuser direction that Astrolabe cannot know. If the shared audio backend cannot start or fails at runtime, `focus monitor` reports the failure rather than silently continuing as though no-look guidance were active.
+
+`focus monitor` remains a human-interactive stream and rejects global `--json` with one structured error rather than inventing NDJSON. `--frames N` bounds the run when needed.
 
 ### A few non-obvious current boundaries
 
