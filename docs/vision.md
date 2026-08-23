@@ -43,13 +43,17 @@ Scope should be judged by whether a feature materially improves Astrolabe as a c
 
 ## MVP definition
 
-The v0 usability target is:
+The v0 product target is a **visual observer** using a main telescope for observation and a guide scope carrying the Astrolabe camera for astrometric assistance. For MVP, the guide scope is assumed to be mechanically co-aligned with the main telescope closely enough that centering a target in the solved guide-camera field places it within the main telescope's visual acquisition field. Software boresight calibration between the two optical axes is not an MVP requirement.
 
-1. connect to camera and mount;
-2. capture and plate-solve an image;
-3. slew and center a target via solve-based correction;
-4. focus manually using live **audio feedback**, without needing to watch the terminal;
-5. perform polar alignment with actionable **audio feedback**, without needing to watch the terminal.
+Starting from that rig, an MVP observing session must let the observer:
+
+1. connect to the camera and mount and obtain reliable local plate solves;
+2. establish usable guide-camera focus manually using live **audio feedback**, without needing to watch the terminal;
+3. perform polar alignment with actionable **audio feedback**, without needing to watch the terminal;
+4. name or select a visual target and issue one solve-assisted pointing operation;
+5. have that pointing operation report success only when bounded solve-based correction has placed the target within the visual-acquisition centering tolerance.
+
+The main telescope remains a visual instrument: Astrolabe does not need to focus the eyepiece view, manage imaging sequences, or perform astrophotography acquisition for MVP.
 
 Guiding is explicitly **post-MVP**. It may be added after the first working release and must not become a release prerequisite through architecture or sequencing accident.
 
