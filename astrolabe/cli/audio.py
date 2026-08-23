@@ -91,7 +91,9 @@ class SystemTonePlayer:
         ]
         if not installed:
             names = ", ".join(candidates)
-            raise BackendError(f"No supported audio player found; install one of: {names}")
+            raise BackendError(
+                f"No supported audio player found; install one of: {names}"
+            )
 
         failures: list[str] = []
         for name, command in installed:
