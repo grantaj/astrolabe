@@ -95,9 +95,7 @@ class PointingService:
 
         while True:
             try:
-                solve = self.solve_current(
-                    exposure_s=exposure_s, use_mount_hints=False
-                )
+                solve = self.solve_current(exposure_s=exposure_s, use_mount_hints=False)
             except AstrolabeError as exc:
                 if last_trustworthy_solve is None:
                     raise
@@ -128,8 +126,7 @@ class PointingService:
                     last_trustworthy_solve or solve,
                     last_error_arcsec,
                     model_updated,
-                    "Plate solve failed repeatedly during centering: "
-                    f"{rejection_reason}",
+                    rejection_reason,
                 )
 
             consecutive_solve_failures = 0
@@ -250,14 +247,27 @@ class PointingService:
                         "Centering correction failed to make meaningful progress",
                     )
 
-            next_command_ra, next_command_dec = _corrective_command(
-                command_ra=current_command_ra,
-                command_dec=current_command_dec,
-                target_ra=ra_rad,
-                target_dec=dec_rad,
-                solved_ra=solved_ra,
-                solved_dec=solved_dec,
-            )
+            try:
+                next_command_ra, next_command_dec = _corrective_command(
+                    command_ra=current_command_ra,
+                    command_dec=current_command_dec,
+                    target_ra=ra_rad,
+                    target_dec=dec_rad,
+                    solved_ra=solved_ra,
+                    solved_dec=solved_dec,
+                )
+            except AstrolabeError as exc:
+                return _pointing_failure(
+                    ra_rad,
+                    dec_rad,
+                    current_command_ra,
+                    current_command_dec,
+                    solve,
+                    final_error_arcsec,
+                    model_updated,
+                    f"Cannot form a safe corrective slew: {exc}",
+                )
+
             previous_error_rad = separation
             correction_count += 1
             current_command_ra = next_command_ra
