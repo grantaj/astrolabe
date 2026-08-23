@@ -53,6 +53,22 @@ Starting from that rig, an MVP observing session must let the observer:
 4. provide a visual target, for example by name, and issue one solve-assisted pointing operation;
 5. have that pointing operation report success only when bounded solve-based correction has placed the target within the visual-acquisition centering tolerance.
 
+### Observer workflow and MVP release map
+
+This table maps the visual observing session to the small release gate. It is deliberately product-oriented rather than a complete implementation-status checklist; detailed current status remains in `README.md` and the linked issues.
+
+| Observer step | Astrolabe already provides | Remaining work / issue |
+| --- | --- | --- |
+| Connect and sanity-check the rig | `doctor`, INDI camera/mount control, local solver integration | None specific to MVP |
+| Focus the guide camera | Live camera stream, HFR-based focus measurement/monitoring | Real audio playback #44 and truthful no-look guide-camera focus #96 |
+| Polar-align the mount | N-pose measurement and live signed AZ/ALT adjustment guidance | Real audible playback through #44 |
+| Provide a target | Offline target resolution; observer planner also exists | No additional planner work required for MVP |
+| Point the main telescope | Model-assisted slew, post-slew solve, residual measurement, continuous pointing-model learning | Bounded solve-assisted visual-acquisition centering #4 |
+| Observe at the eyepiece | Normal mount tracking/control; main OTA remains manually focused for visual use | None specific to MVP |
+| Guide during long observations | Camera live path and mount pulse-guide primitives exist | Guiding #8 is explicitly post-MVP |
+
+The MVP release gate is therefore **#4 + #44 + #96**. Other open work may improve Astrolabe, but it does not block the first visual-observer release unless this product definition changes deliberately.
+
 The main telescope remains a visual instrument: Astrolabe does not need to focus the eyepiece view, manage imaging sequences, or perform astrophotography acquisition for MVP.
 
 Guiding is explicitly **post-MVP**. It may be added after the first working release and must not become a release prerequisite through architecture or sequencing accident.
