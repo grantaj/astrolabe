@@ -86,7 +86,11 @@ class SystemTonePlayer:
         which = which or shutil.which
         candidates = _player_candidates(platform_name)
         installed = [(name, which(name)) for name in candidates]
-        installed = [(name, command) for name, command in installed if command is not None]
+        installed = [
+            (name, command)
+            for name, command in installed
+            if command is not None
+        ]
         if not installed:
             names = ", ".join(candidates)
             raise BackendError(f"No supported audio player found; install one of: {names}")
@@ -104,7 +108,9 @@ class SystemTonePlayer:
             return player
 
         detail = "; ".join(failures)
-        raise BackendError(f"No installed audio player could open an output device: {detail}")
+        raise BackendError(
+            f"No installed audio player could open an output device: {detail}"
+        )
 
     def probe(self) -> None:
         self._ensure_open()
