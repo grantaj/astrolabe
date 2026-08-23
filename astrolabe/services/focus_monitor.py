@@ -88,10 +88,10 @@ class FocusGuidanceEstimator:
 
     Manual focusing provides no focuser position or physical direction. This
     estimator therefore never emits a signed correction. It reports whether
-    image quality is improving or worsening in the user's current motion, and
-    only calls a region ``BEST_OBSERVED`` after genuine improvement has been
-    seen and the current HFR is stably near the best value observed in this
-    fresh history.
+    image quality is improving or worsening in the user's current motion. A
+    region is called ``BEST_OBSERVED`` only after a real improvement run has
+    been followed by worsening, which brackets a local best in the observed
+    temporal path, and the current HFR has then returned stably near that best.
     """
 
     def __init__(
@@ -120,6 +120,7 @@ class FocusGuidanceEstimator:
         self._trend.reset()
         self._best_hfr_px: float | None = None
         self._has_improved = False
+        self._best_bracketed = False
         self._last_update_s: float | None = None
 
     def update(self, measurement: FocusMeasurement) -> FocusGuidance:
@@ -145,15 +146,16 @@ class FocusGuidanceEstimator:
 
         hfr_px = measurement.hfr_px
         trend = self._trend.update(measurement)
-        if self._best_hfr_px is None or hfr_px < self._best_hfr_px:
-            self._best_hfr_px = hfr_px
+        self._record_best(hfr_px)
 
         if trend == "improving":
             self._has_improved = True
             state = FocusGuidanceState.IMPROVING
         elif trend == "worsening":
+            if self._has_improved:
+                self._best_bracketed = True
             state = FocusGuidanceState.WORSENING
-        elif trend == "stable" and self._has_improved and self._near_best(hfr_px):
+        elif trend == "stable" and self._best_bracketed and self._near_best(hfr_px):
             state = FocusGuidanceState.BEST_OBSERVED
         else:
             state = FocusGuidanceState.UNKNOWN
@@ -166,13 +168,26 @@ class FocusGuidanceEstimator:
             best_hfr_px=self._best_hfr_px,
         )
 
+    def _record_best(self, hfr_px: float) -> None:
+        if self._best_hfr_px is None:
+            self._best_hfr_px = hfr_px
+            return
+
+        previous_best = self._best_hfr_px
+        if hfr_px < previous_best - self._deadband(previous_best):
+            self._best_bracketed = False
+        if hfr_px < previous_best:
+            self._best_hfr_px = hfr_px
+
     def _near_best(self, hfr_px: float) -> bool:
         assert self._best_hfr_px is not None
-        deadband = max(
+        return hfr_px <= self._best_hfr_px + self._deadband(self._best_hfr_px)
+
+    def _deadband(self, hfr_px: float) -> float:
+        return max(
             self._absolute_deadband_px,
-            abs(self._best_hfr_px) * self._relative_deadband,
+            abs(hfr_px) * self._relative_deadband,
         )
-        return hfr_px <= self._best_hfr_px + deadband
 
 
 class FocusMonitorSession(Iterator[FocusMeasurement]):
