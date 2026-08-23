@@ -71,11 +71,15 @@ The topology below reflects the current implementation. Use `--help` for exact a
 
 ### Pointing command semantics
 
-`pointing goto` is the single normal target-pointing operation. It applies the current persisted pointing model, slews, plate-solves the resulting position, measures the target residual, and incorporates a trustworthy residual into the model. There is no separate initialization/calibration phase and no Pointing-level sync step.
+`pointing goto` is the single normal target-pointing operation. It applies the current persisted pointing model, slews, plate-solves the resulting position, measures the target residual, and incorporates the first trustworthy ordinary pointing observation into the model. If that solve is not yet within the visual-acquisition tolerance, the same operation makes bounded corrective slews and solves again. Corrective solves are used only to center the current target; they are not additional pointing-model samples.
 
-`align goto` and top-level `goto` are compatibility spellings for the same Pointing operation. They retain their own command identifiers for automation compatibility but do not own different domain behavior. The old top-level `goto` tolerance/iteration flags remain accepted but hidden as compatibility no-ops; Astrolabe does not pretend to provide a separate iterative-centering service.
+Success means a trustworthy solve has confirmed the target within 300 arcsec (5 arcmin). The MVP centering policy allows at most three corrective slews, 120 seconds of centering time, and a 5-degree single correction. Repeated solve failure, clear stagnation, unsafe correction geometry, or mount/backend failure ends the operation without claiming the target is centered.
 
-Use `mount slew` when the desired operation is deliberately just an uncorrected mount slew rather than solve-assisted pointing and learning.
+The 10-degree pointing-model learning envelope is separate from the 5-arcmin acquisition tolerance: it is a corruption guard for deciding whether an ordinary solved pointing is trustworthy enough to learn from, not a definition of pointing success.
+
+`align goto` and top-level `goto` are compatibility spellings for the same Pointing operation. They retain their own command identifiers for automation compatibility but do not own different domain behavior. Old top-level `goto` tolerance/iteration flags remain accepted but hidden as compatibility no-ops; they do not override the canonical bounded-centering policy.
+
+Use `mount slew` when the desired operation is deliberately just an uncorrected mount slew rather than solve-assisted pointing, learning, and centering.
 
 ### Polar command semantics
 
