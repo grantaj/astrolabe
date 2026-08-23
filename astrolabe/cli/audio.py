@@ -131,7 +131,9 @@ class SystemTonePlayer:
                 stderr=stderr,
             )
         except OSError as exc:
-            raise BackendError(f"Could not start audio player {self._command!r}: {exc}") from exc
+            raise BackendError(
+                f"Could not start audio player {self._command!r}: {exc}"
+            ) from exc
 
     def _ensure_open(self) -> None:
         if self._closed:
@@ -143,7 +145,11 @@ class AudioSink:
 
     def __init__(self, player: TonePlayer | None = None) -> None:
         self._player = player or SystemTonePlayer.discover()
-        self._player.probe()
+        try:
+            self._player.probe()
+        except Exception:
+            self._player.close()
+            raise
         self._condition = threading.Condition()
         self._cue: AudioCue | None = None
         self._revision = 0
@@ -154,7 +160,11 @@ class AudioSink:
             name="astrolabe-audio",
             daemon=True,
         )
-        self._thread.start()
+        try:
+            self._thread.start()
+        except Exception:
+            self._player.close()
+            raise
 
     def play(self, cue: AudioCue | None) -> None:
         """Replace the active cue without blocking the caller on playback."""
