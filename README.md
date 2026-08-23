@@ -59,7 +59,7 @@ sudo apt install gsc gsc-data
 
 ASTAP is the default plate-solver backend. Install its Linux CLI and a suitable star database from the ASTAP project.
 
-Interactive audio feedback uses a small system player rather than a Python multimedia dependency. On Linux, Astrolabe uses the first available of `pw-play`, `paplay`, or `aplay`; install the corresponding PipeWire, PulseAudio, or ALSA utility if none is already present. On macOS, the built-in `afplay` utility is used. Audio is acquired only by interactive workflows that request it.
+Interactive audio feedback uses a small system player rather than a Python multimedia dependency. On Linux, Astrolabe tries `pw-play`, `paplay`, then `aplay` and uses the first installed player that can open an output device; install the corresponding PipeWire, PulseAudio, or ALSA utility if none is available. On macOS, the built-in `afplay` utility is used. Audio is acquired only by interactive workflows that request it.
 
 ### Python environment
 
@@ -109,6 +109,6 @@ The documentation lifecycle is deliberately small:
 
 - current behaviour and contracts: `README.md`, `CONTRIBUTING.md`, and `docs/`;
 - planned work: open GitHub issues;
-- historical design/implementation rationale: git and merged PR history.
+- historical design/implementation rationale: git and merged pull requests.
 
 Start at `docs/README.md`.
