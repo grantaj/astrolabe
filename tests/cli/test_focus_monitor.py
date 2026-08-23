@@ -2,12 +2,14 @@ import datetime
 import json
 import sys
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import numpy as np
 
 from astrolabe.camera.base import CameraBackend, LiveFrameSession
 from astrolabe.cli.focus import run_focus
 from astrolabe.cli.main import main
+from astrolabe.errors import BackendError
 from astrolabe.solver.types import Image
 
 
@@ -88,7 +90,12 @@ class _FakeCamera(CameraBackend):
         return self.session
 
 
-def _args(*, json_output: bool = False, frames: int | None = 3):
+def _args(
+    *,
+    json_output: bool = False,
+    frames: int | None = 3,
+    no_audio: bool = True,
+):
     return SimpleNamespace(
         action="monitor",
         exposure=0.1,
@@ -99,6 +106,7 @@ def _args(*, json_output: bool = False, frames: int | None = 3):
         min_stars=3,
         detection_sigma=5.0,
         saturation_level=None,
+        no_audio=no_audio,
         json=json_output,
         log_level=None,
         config=None,
@@ -110,7 +118,7 @@ def _config():
     return SimpleNamespace(camera_default_exposure_s=0.5)
 
 
-def test_focus_monitor_reports_live_hfr_and_trend(monkeypatch, capsys):
+def test_focus_monitor_reports_live_hfr_and_guidance(monkeypatch, capsys):
     session = _FakeSession([_image(3.0), _image(2.5), _image(2.0)])
     camera = _FakeCamera(session)
     monkeypatch.setattr("astrolabe.cli.runtime.load_config", lambda path: _config())
@@ -125,6 +133,54 @@ def test_focus_monitor_reports_live_hfr_and_trend(monkeypatch, capsys):
     assert "improving" in output
     assert camera.calls == [(0.1, 12.0, 2, (1, 2, 64, 64), 3)]
     assert session.closed
+
+
+def test_focus_monitor_wires_guidance_to_shared_audio_sink(monkeypatch, capsys):
+    session = _FakeSession([_image(3.0), _image(2.5), _image(2.0)])
+    camera = _FakeCamera(session)
+    sink = MagicMock()
+    monkeypatch.setattr("astrolabe.cli.runtime.load_config", lambda path: _config())
+    monkeypatch.setattr("astrolabe.cli.focus.get_camera_backend", lambda config: camera)
+    monkeypatch.setattr("astrolabe.cli.focus.AudioSink", lambda: sink)
+
+    exit_code = run_focus(_args(no_audio=False))
+
+    assert exit_code == 0
+    assert sink.play.call_count == 3
+    last_cue = sink.play.call_args.args[0]
+    assert last_cue is not None
+    assert last_cue.frequencies_hz == (880.0,)
+    assert sink.check.call_count >= 3
+    sink.close.assert_called_once_with()
+    assert "improving" in capsys.readouterr().out
+
+
+def test_focus_monitor_no_audio_does_not_acquire_sink(monkeypatch):
+    session = _FakeSession([_image(2.0)])
+    camera = _FakeCamera(session)
+    audio_sink = MagicMock()
+    monkeypatch.setattr("astrolabe.cli.runtime.load_config", lambda path: _config())
+    monkeypatch.setattr("astrolabe.cli.focus.get_camera_backend", lambda config: camera)
+    monkeypatch.setattr("astrolabe.cli.focus.AudioSink", audio_sink)
+
+    assert run_focus(_args(frames=1, no_audio=True)) == 0
+    audio_sink.assert_not_called()
+
+
+def test_focus_monitor_audio_startup_failure_is_explicit(monkeypatch, capsys):
+    get_camera = MagicMock()
+    monkeypatch.setattr("astrolabe.cli.runtime.load_config", lambda path: _config())
+    monkeypatch.setattr("astrolabe.cli.focus.get_camera_backend", get_camera)
+    monkeypatch.setattr(
+        "astrolabe.cli.focus.AudioSink",
+        MagicMock(side_effect=BackendError("no audio output device")),
+    )
+
+    exit_code = run_focus(_args(no_audio=False))
+
+    assert exit_code == 1
+    assert "no audio output device" in capsys.readouterr().err
+    get_camera.assert_not_called()
 
 
 def test_focus_monitor_ctrl_c_closes_live_session(monkeypatch, capsys):
