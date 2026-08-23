@@ -84,8 +84,10 @@ jobs:
           PY
       - name: Lint
         run: uv run ruff check .
-      - name: Format check
-        run: uv run ruff format --check .
+      - name: Format diagnostic
+        run: |
+          uv run ruff format --diff astrolabe/cli/audio.py
+          exit 1
       - name: Tests
         run: uv run pytest
       - name: Live camera simulator integration
