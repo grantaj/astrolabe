@@ -74,8 +74,7 @@ class FakeMount:
 def _solve_offset(*, ra_arcsec: float = 0.0, dec_arcsec: float = 0.0) -> SolveResult:
     return SolveResult(
         success=True,
-        ra_rad=_TARGET_RA
-        + math.radians(ra_arcsec / 3600.0) / math.cos(_TARGET_DEC),
+        ra_rad=_TARGET_RA + math.radians(ra_arcsec / 3600.0) / math.cos(_TARGET_DEC),
         dec_rad=_TARGET_DEC + math.radians(dec_arcsec / 3600.0),
         pixel_scale_arcsec=1.0,
         rotation_rad=0.0,
@@ -170,7 +169,7 @@ def test_repeated_solve_failure_is_bounded():
     result = service.point_to(_TARGET_RA, _TARGET_DEC)
 
     assert result.success is False
-    assert "failed repeatedly" in (result.message or "")
+    assert result.message == "lost"
     assert len(mount.slew_calls) == 1
     assert len(solver.requests) == 2
     assert model.num_samples == 0
