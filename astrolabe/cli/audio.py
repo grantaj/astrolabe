@@ -18,7 +18,7 @@ _ATTACK_RELEASE_S = 0.005
 _VOLUME = 0.12
 
 
-class PlaybackDevice(Protocol):
+class _PlaybackDevice(Protocol):
     """Narrow streaming-device boundary used by :class:`AudioSink`."""
 
     @property
@@ -75,7 +75,7 @@ class _MiniaudioPlaybackDevice:
 class AudioSink:
     """One-session non-blocking sink for backend-neutral :class:`AudioCue` values."""
 
-    def __init__(self, device: PlaybackDevice | None = None) -> None:
+    def __init__(self, device: _PlaybackDevice | None = None) -> None:
         self._lock = threading.Lock()
         self._cue: AudioCue | None = None
         self._revision = 0
