@@ -104,6 +104,8 @@ def test_adjust_uses_configured_site_and_calls_live_service(capsys):
 def test_adjust_wires_feedback_to_real_sink_boundary(capsys):
     service = MagicMock()
     sink = MagicMock()
+    sink.__enter__.return_value = sink
+    sink.__exit__.side_effect = lambda *_args: sink.close()
     feedback = FeedbackState(
         direction=FeedbackDirection.POSITIVE,
         proximity=0.5,
