@@ -3,360 +3,210 @@
 from __future__ import annotations
 
 import math
-import shutil
-import subprocess
 import sys
-import tempfile
 import threading
-import wave
 from array import array
-from collections.abc import Callable
-from pathlib import Path
+from collections.abc import Generator
 from typing import Protocol
 
 from astrolabe.cli.feedback import AudioCue
 from astrolabe.errors import BackendError
 
 _SAMPLE_RATE_HZ = 44_100
-_MIN_PATTERN_DURATION_S = 4.0
-_PROBE_DURATION_S = 0.02
+_BUFFER_SIZE_MS = 20
 _ATTACK_RELEASE_S = 0.005
 _VOLUME = 0.12
-_WORKER_POLL_S = 0.02
-_PROCESS_STOP_TIMEOUT_S = 0.05
 
 
-class PlaybackHandle(Protocol):
-    """One active low-level playback operation."""
+class PlaybackDevice(Protocol):
+    """Narrow streaming-device boundary used by :class:`AudioSink`."""
 
-    def poll(self) -> int | None: ...
+    @property
+    def running(self) -> bool: ...
+
+    def start(self, stream: Generator[array[int], int, None]) -> None: ...
 
     def stop(self) -> None: ...
-
-
-class TonePlayer(Protocol):
-    """Small low-level boundary used by :class:`AudioSink`."""
-
-    def probe(self) -> None: ...
-
-    def start(self, cue: AudioCue) -> PlaybackHandle: ...
 
     def close(self) -> None: ...
 
 
-class _ProcessHandle:
-    def __init__(self, process: subprocess.Popen[bytes]) -> None:
-        self._process = process
+class _MiniaudioPlaybackDevice:
+    """One persistent miniaudio playback device."""
 
-    def poll(self) -> int | None:
-        return self._process.poll()
+    def __init__(self, *, platform_name: str | None = None) -> None:
+        platform_name = platform_name or sys.platform
+        backend_names = _backend_names(platform_name)
+        try:
+            import miniaudio
+
+            backends = [getattr(miniaudio.Backend, name) for name in backend_names]
+            self._device = miniaudio.PlaybackDevice(
+                output_format=miniaudio.SampleFormat.SIGNED16,
+                nchannels=1,
+                sample_rate=_SAMPLE_RATE_HZ,
+                buffersize_msec=_BUFFER_SIZE_MS,
+                backends=backends,
+                app_name="Astrolabe",
+            )
+        except Exception as exc:
+            raise BackendError(f"Could not open the default audio output: {exc}") from exc
+
+    @property
+    def running(self) -> bool:
+        return bool(self._device.running)
+
+    def start(self, stream: Generator[array[int], int, None]) -> None:
+        try:
+            self._device.start(stream)
+        except Exception as exc:
+            raise BackendError(f"Could not start audio playback: {exc}") from exc
 
     def stop(self) -> None:
-        if self._process.poll() is not None:
-            return
-        self._process.terminate()
         try:
-            self._process.wait(timeout=_PROCESS_STOP_TIMEOUT_S)
-        except subprocess.TimeoutExpired:
-            self._process.kill()
-            try:
-                self._process.wait(timeout=_PROCESS_STOP_TIMEOUT_S)
-            except subprocess.TimeoutExpired:
-                pass
-
-
-class SystemTonePlayer:
-    """Play generated WAV files with a small platform-native/system player."""
-
-    def __init__(self, command: str) -> None:
-        self._command = command
-        self._tempdir = tempfile.TemporaryDirectory(prefix="astrolabe-audio-")
-        self._directory = Path(self._tempdir.name)
-        self._closed = False
-
-    @classmethod
-    def discover(
-        cls,
-        *,
-        platform_name: str | None = None,
-        which: Callable[[str], str | None] | None = None,
-    ) -> SystemTonePlayer:
-        """Return the first installed player that can open its audio backend."""
-        platform_name = platform_name or sys.platform
-        which = which or shutil.which
-        candidates = _player_candidates(platform_name)
-        installed = [(name, which(name)) for name in candidates]
-        installed = [
-            (name, command) for name, command in installed if command is not None
-        ]
-        if not installed:
-            names = ", ".join(candidates)
-            raise BackendError(
-                f"No supported audio player found; install one of: {names}"
-            )
-
-        failures: list[str] = []
-        for name, command in installed:
-            assert command is not None
-            player = cls(command)
-            try:
-                player.probe()
-            except BackendError as exc:
-                failures.append(f"{name}: {exc}")
-                player.close()
-                continue
-            return player
-
-        detail = "; ".join(failures)
-        raise BackendError(
-            f"No installed audio player could open an output device: {detail}"
-        )
-
-    def probe(self) -> None:
-        self._ensure_open()
-        path = self._directory / "probe.wav"
-        _write_silence_wav(path, duration_s=_PROBE_DURATION_S)
-        process = self._spawn(path, capture_stderr=True)
-        try:
-            _, stderr = process.communicate(timeout=1.0)
-        except subprocess.TimeoutExpired as exc:
-            process.terminate()
-            try:
-                process.wait(timeout=_PROCESS_STOP_TIMEOUT_S)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                try:
-                    process.wait(timeout=_PROCESS_STOP_TIMEOUT_S)
-                except subprocess.TimeoutExpired:
-                    pass
-            raise BackendError("Audio playback probe did not complete") from exc
-        if process.returncode != 0:
-            detail = stderr.decode(errors="replace").strip()
-            suffix = f": {detail}" if detail else ""
-            raise BackendError(
-                f"Audio player failed to open the default output device{suffix}"
-            )
-
-    def start(self, cue: AudioCue) -> PlaybackHandle:
-        self._ensure_open()
-        path = self._directory / "cue.wav"
-        _write_cue_wav(path, cue)
-        return _ProcessHandle(self._spawn(path, capture_stderr=False))
+            self._device.stop()
+        except Exception as exc:
+            raise BackendError(f"Could not stop audio playback: {exc}") from exc
 
     def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        self._tempdir.cleanup()
-
-    def _spawn(self, path: Path, *, capture_stderr: bool) -> subprocess.Popen[bytes]:
-        stderr = subprocess.PIPE if capture_stderr else subprocess.DEVNULL
-        try:
-            return subprocess.Popen(
-                [self._command, str(path)],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=stderr,
-            )
-        except OSError as exc:
-            raise BackendError(
-                f"Could not start audio player {self._command!r}: {exc}"
-            ) from exc
-
-    def _ensure_open(self) -> None:
-        if self._closed:
-            raise BackendError("Audio player is closed")
+        self._device.close()
 
 
 class AudioSink:
-    """Single-worker non-blocking sink for backend-neutral :class:`AudioCue` values."""
+    """One-session non-blocking sink for backend-neutral :class:`AudioCue` values."""
 
-    def __init__(self, player: TonePlayer | None = None) -> None:
-        if player is None:
-            self._player = SystemTonePlayer.discover()
-        else:
-            self._player = player
-            try:
-                self._player.probe()
-            except Exception:
-                self._player.close()
-                raise
-        self._condition = threading.Condition()
+    def __init__(self, device: PlaybackDevice | None = None) -> None:
+        self._lock = threading.Lock()
         self._cue: AudioCue | None = None
         self._revision = 0
         self._closed = False
         self._failure: BackendError | None = None
-        self._thread = threading.Thread(
-            target=self._run,
-            name="astrolabe-audio",
-            daemon=True,
-        )
+        self._device = device or _MiniaudioPlaybackDevice()
+        self._stream = self._sample_stream()
+        next(self._stream)
         try:
-            self._thread.start()
-        except Exception:
-            self._player.close()
-            raise
+            self._device.start(self._stream)
+        except Exception as exc:
+            failure = _as_backend_error("Audio playback startup failed", exc)
+            try:
+                self._device.close()
+            except Exception as close_exc:
+                failure.add_note(f"Audio device cleanup also failed: {close_exc}")
+            raise failure from exc
 
     def play(self, cue: AudioCue | None) -> None:
         """Replace the active cue without blocking the caller on playback."""
-        with self._condition:
-            self._raise_if_failed_locked()
+        if cue is not None:
+            _validate_cue(cue)
+        with self._lock:
             if self._closed:
                 raise BackendError("Audio sink is closed")
+            self._raise_if_failed_locked()
+            self._check_running_locked()
             if cue == self._cue:
                 return
             self._cue = cue
             self._revision += 1
-            self._condition.notify_all()
 
     def check(self) -> None:
         """Raise a contained runtime playback failure in the calling thread."""
-        with self._condition:
+        with self._lock:
             self._raise_if_failed_locked()
+            if not self._closed:
+                self._check_running_locked()
 
     def close(self) -> None:
-        """Silence playback, stop the worker, and release player resources."""
-        with self._condition:
+        """Silence playback and release the one persistent audio session."""
+        with self._lock:
             if self._closed:
                 return
             self._closed = True
             self._cue = None
             self._revision += 1
-            self._condition.notify_all()
-        self._thread.join()
+
+        failure: BackendError | None = None
+        try:
+            self._device.stop()
+        except Exception as exc:
+            failure = _as_backend_error("Audio playback shutdown failed", exc)
+        try:
+            self._device.close()
+        except Exception as exc:
+            close_failure = _as_backend_error("Audio device cleanup failed", exc)
+            if failure is None:
+                failure = close_failure
+            else:
+                failure.add_note(str(close_failure))
+        if failure is not None:
+            with self._lock:
+                if self._failure is None:
+                    self._failure = failure
+            raise failure
 
     def __enter__(self) -> AudioSink:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        self.close()
-
-    def _run(self) -> None:
-        active: PlaybackHandle | None = None
-        active_revision = -1
         try:
-            while True:
-                with self._condition:
-                    if self._closed:
-                        break
-                    cue = self._cue
-                    revision = self._revision
+            self.close()
+        except BackendError as close_exc:
+            if exc is None:
+                raise
+            exc.add_note(f"Audio shutdown also failed: {close_exc}")
 
-                if active is not None and (cue is None or revision != active_revision):
-                    active.stop()
-                    active = None
+    def _sample_stream(self) -> Generator[array[int], int, None]:
+        required_frames = yield array("h")
+        active_revision = -1
+        frame_index = 0
+        while True:
+            with self._lock:
+                if self._closed:
+                    return
+                cue = self._cue
+                revision = self._revision
+            if revision != active_revision:
+                active_revision = revision
+                frame_index = 0
+            if cue is None:
+                samples = array("h", [0]) * required_frames
+            else:
+                samples = _render_cue_frames(
+                    cue,
+                    sample_rate_hz=_SAMPLE_RATE_HZ,
+                    start_frame=frame_index,
+                    frame_count=required_frames,
+                )
+                frame_index += required_frames
+            required_frames = yield samples
 
-                if cue is not None and active is None:
-                    active = self._player.start(cue)
-                    active_revision = revision
-
-                with self._condition:
-                    if self._closed:
-                        break
-                    if self._revision != active_revision and active is not None:
-                        continue
-                    self._condition.wait(
-                        timeout=_WORKER_POLL_S if active is not None else None
-                    )
-                    if self._closed:
-                        break
-                    if active is not None and self._revision != active_revision:
-                        continue
-
-                if active is None:
-                    continue
-                returncode = active.poll()
-                if returncode is None:
-                    continue
-                active = None
-                if returncode != 0:
-                    raise BackendError(
-                        f"Audio player exited unexpectedly with status {returncode}"
-                    )
-        except Exception as exc:  # runtime playback failures stay at this boundary
-            self._record_failure(exc)
-        finally:
-            if active is not None:
-                try:
-                    active.stop()
-                except Exception as exc:
-                    self._record_failure(exc)
-            try:
-                self._player.close()
-            except Exception as exc:
-                self._record_failure(exc)
-
-    def _record_failure(self, exc: Exception) -> None:
-        failure = (
-            exc
-            if isinstance(exc, BackendError)
-            else BackendError(f"Audio playback failed: {exc}")
-        )
-        with self._condition:
-            if self._failure is None:
-                self._failure = failure
+    def _check_running_locked(self) -> None:
+        if not self._device.running:
+            failure = BackendError("Audio playback stopped unexpectedly")
+            self._failure = failure
             self._cue = None
             self._revision += 1
-            self._condition.notify_all()
+            raise failure
 
     def _raise_if_failed_locked(self) -> None:
         if self._failure is not None:
             raise self._failure
 
 
-def _player_candidates(platform_name: str) -> tuple[str, ...]:
+def _backend_names(platform_name: str) -> tuple[str, ...]:
     if platform_name == "darwin":
-        return ("afplay",)
+        return ("COREAUDIO",)
     if platform_name.startswith("linux"):
-        return ("pw-play", "paplay", "aplay")
+        return ("PULSEAUDIO", "ALSA", "JACK")
     raise BackendError(
         f"Audio playback is unsupported on platform {platform_name!r}; "
         "Linux and macOS are supported"
     )
 
 
-def _select_player_command(
-    platform_name: str, which: Callable[[str], str | None]
-) -> str:
-    candidates = _player_candidates(platform_name)
-    for candidate in candidates:
-        command = which(candidate)
-        if command is not None:
-            return command
-    names = ", ".join(candidates)
-    raise BackendError(f"No supported audio player found; install one of: {names}")
-
-
-def _write_silence_wav(path: Path, *, duration_s: float) -> None:
-    frame_count = max(1, int(round(duration_s * _SAMPLE_RATE_HZ)))
-    _write_pcm_wav(path, array("h", [0]) * frame_count)
-
-
-def _write_cue_wav(path: Path, cue: AudioCue) -> None:
-    _validate_cue(cue)
-    duration_s = _pattern_duration_s(cue)
-    samples = _render_cue_pcm(
-        cue,
-        sample_rate_hz=_SAMPLE_RATE_HZ,
-        duration_s=duration_s,
-    )
-    _write_pcm_wav(path, samples)
-
-
-def _pattern_duration_s(cue: AudioCue) -> float:
-    if cue.continuous:
-        return _MIN_PATTERN_DURATION_S
-    assert cue.interval_s is not None
-    periods = max(1, math.ceil(_MIN_PATTERN_DURATION_S / cue.interval_s))
-    return periods * cue.interval_s
-
-
-def _write_pcm_wav(path: Path, samples: array[int]) -> None:
-    with wave.open(str(path), "wb") as stream:
-        stream.setnchannels(1)
-        stream.setsampwidth(2)
-        stream.setframerate(_SAMPLE_RATE_HZ)
-        stream.writeframes(samples.tobytes())
+def _as_backend_error(prefix: str, exc: Exception) -> BackendError:
+    if isinstance(exc, BackendError):
+        return exc
+    return BackendError(f"{prefix}: {exc}")
 
 
 def _render_cue_pcm(
@@ -365,22 +215,45 @@ def _render_cue_pcm(
     sample_rate_hz: int,
     duration_s: float,
 ) -> array[int]:
-    """Render one bounded repeating cue pattern as signed 16-bit mono PCM."""
+    """Render a bounded cue segment for deterministic tests."""
     _validate_cue(cue)
     if sample_rate_hz <= 0 or duration_s <= 0.0:
         raise ValueError("sample rate and duration must be > 0")
-
     frame_count = max(1, int(round(duration_s * sample_rate_hz)))
+    return _render_cue_frames(
+        cue,
+        sample_rate_hz=sample_rate_hz,
+        start_frame=0,
+        frame_count=frame_count,
+    )
+
+
+def _render_cue_frames(
+    cue: AudioCue,
+    *,
+    sample_rate_hz: int,
+    start_frame: int,
+    frame_count: int,
+) -> array[int]:
+    """Render one chunk while preserving phase/cadence across callback boundaries."""
+    _validate_cue(cue)
+    if sample_rate_hz <= 0:
+        raise ValueError("sample rate must be > 0")
+    if start_frame < 0 or frame_count < 0:
+        raise ValueError("start_frame and frame_count must be >= 0")
+
     amplitude = int(round(32767.0 * _VOLUME))
     samples = array("h")
-    for frame in range(frame_count):
+    for frame in range(start_frame, start_frame + frame_count):
         t = frame / sample_rate_hz
         if cue.continuous:
-            value = _tone_value(
-                t,
-                cue.frequencies_hz[0],
-                amplitude,
-                duration_s,
+            ramp = min(1.0, t / _ATTACK_RELEASE_S)
+            value = int(
+                round(
+                    amplitude
+                    * ramp
+                    * math.sin(math.tau * cue.frequencies_hz[0] * t)
+                )
             )
         else:
             assert cue.interval_s is not None
