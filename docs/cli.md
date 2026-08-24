@@ -83,12 +83,14 @@ Use `mount slew` when the desired operation is deliberately just an uncorrected 
 
 `polar adjust` first performs that same measurement once, then disables tracking and guides manual azimuth and altitude adjustment sequentially. Azimuth is always completed and stably confirmed before altitude is rebased and activated. Human guidance uses physical directions: AZ `east`/`west`, ALT `raise`/`lower`. Tracking is restored on completion, failure, or Ctrl-C.
 
+Audible feedback is enabled by default for `polar adjust` and is driven from the same semantic feedback updates as the terminal presentation. Astrolabe opens one persistent `miniaudio` playback device for the interactive session and streams generated cue samples through it; stable cues therefore remain continuous without restarting file-player processes. Linux uses miniaudio's PulseAudio/ALSA/JACK backends, while macOS uses CoreAudio. If no supported audio backend or default output device can be opened, the command fails rather than claiming that no-look feedback is active. `--no-audio` deliberately disables sound and avoids acquiring audio resources.
+
 The adjustment loop emits a stream of human feedback, so global `--json` is deliberately rejected with one structured `interactive_json_unsupported` error rather than inventing an NDJSON protocol. The final one-shot `polar`/`polar measure` path remains JSON-compatible.
 
 ### A few non-obvious current boundaries
 
 - `view` takes its FITS input via `--in` on current main; its `header` field is the primary header in file order, decoded by Astrolabe's own narrow FITS boundary — see `fits_boundary.md`.
-- `polar` requires an RA rotation. `polar adjust` additionally requires longitude; latitude/longitude/elevation can come from CLI overrides or configured mount/site location. Exposure/settling and pose-count controls remain shared with measurement.
+- `polar` requires an RA rotation. `polar adjust` additionally requires longitude; latitude/longitude/elevation can come from CLI overrides or configured mount/site location. Exposure/settling and pose-count controls remain shared with measurement. `--no-audio` is specific to the interactive adjustment path; measurement does not acquire audio.
 - `focus measure` accepts either `--in` FITS input or camera-capture controls. `focus monitor` consumes the camera-owned live-frame path, may be bounded with `--frames N`, and deliberately rejects global `--json` with one structured error rather than creating an NDJSON stream.
 - `pointing` exposes only `solve` and `goto`; older names such as `sync`, `init`, `where`, `calibrate`, `recover`, `status`, and `diagnose` are not part of the current parser.
 

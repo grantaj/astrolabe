@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import argparse
 import math
+from contextlib import nullcontext
 from dataclasses import asdict, replace
 
+from astrolabe.cli.audio import AudioSink
 from astrolabe.cli.commands import run_polar as run_polar_measure
+from astrolabe.cli.feedback import AudioCueMapper
 from astrolabe.cli.output import emit, emit_error
 from astrolabe.cli.runtime import (
     config_path,
@@ -94,6 +97,11 @@ def configure_polar_parser(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=3,
         help="Consecutive on-target solves required per axis (default: 3)",
+    )
+    parser.add_argument(
+        "--no-audio",
+        action="store_true",
+        help="Disable audible feedback during interactive polar adjustment",
     )
 
 
@@ -191,19 +199,31 @@ def _run_adjust(args) -> int:
             stable_samples=args.stable_samples,
         )
 
-        mount, camera, solver = mount_camera_solver(app_config)
-        service = PolarAlignService(mount, camera, solver)
-        result = service.adjust(
-            ra_rotation_rad=math.radians(args.ra_rotation_deg),
-            site_latitude_rad=math.radians(latitude_deg),
-            site_longitude_rad=math.radians(longitude_deg),
-            site_elevation_m=elevation_m,
-            exposure_s=args.exposure,
-            settle_time_s=args.settle_time,
-            num_poses=args.num_poses,
-            config=adjust_config,
-            on_update=_render_adjustment_update,
+        audio_context = (
+            nullcontext(None) if getattr(args, "no_audio", False) else AudioSink()
         )
+        audio_mapper = AudioCueMapper()
+
+        with audio_context as audio_sink:
+            mount, camera, solver = mount_camera_solver(app_config)
+            service = PolarAlignService(mount, camera, solver)
+            result = service.adjust(
+                ra_rotation_rad=math.radians(args.ra_rotation_deg),
+                site_latitude_rad=math.radians(latitude_deg),
+                site_longitude_rad=math.radians(longitude_deg),
+                site_elevation_m=elevation_m,
+                exposure_s=args.exposure,
+                settle_time_s=args.settle_time,
+                num_poses=args.num_poses,
+                config=adjust_config,
+                on_update=lambda update: _render_adjustment_update_with_audio(
+                    update,
+                    audio_sink=audio_sink,
+                    audio_mapper=audio_mapper,
+                ),
+            )
+            if audio_sink is not None:
+                audio_sink.check()
     except AstrolabeError as exc:
         return handle_error(args, "polar.adjust", exc)
     except ValueError as exc:
@@ -235,6 +255,20 @@ def _run_adjust(args) -> int:
         human=f"Polar adjustment stopped: {message}",
     )
     return 1
+
+
+def _render_adjustment_update_with_audio(
+    update: PolarAdjustmentUpdate,
+    *,
+    audio_sink: AudioSink | None,
+    audio_mapper: AudioCueMapper,
+) -> None:
+    _render_adjustment_update(update)
+    if audio_sink is None:
+        return
+    audio_sink.check()
+    cue = audio_mapper.map(update.feedback) if update.feedback is not None else None
+    audio_sink.play(cue)
 
 
 def _render_adjustment_update(update: PolarAdjustmentUpdate) -> None:

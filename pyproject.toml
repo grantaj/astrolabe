@@ -6,6 +6,7 @@ authors = [{name = "Astrolabe Contributors"}]
 requires-python = ">=3.11"
 dependencies = [
     "matplotlib",
+    "miniaudio>=1.71",
     "numpy",
     "pyerfa",
 ]

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from astrolabe.cli import polar as polar_cli
 from astrolabe.config import Config
+from astrolabe.errors import BackendError
 from astrolabe.services.feedback import FeedbackDirection, FeedbackState
 from astrolabe.services.polar import (
     PolarAdjustResult,
@@ -27,6 +28,7 @@ def _args(**overrides):
         num_poses=4,
         tolerance_arcsec=30.0,
         stable_samples=3,
+        no_audio=True,
         json=False,
         dry_run=False,
         log_level=None,
@@ -53,6 +55,18 @@ def _success_result():
     )
 
 
+def _site_config():
+    return Config(
+        {
+            "site": {
+                "latitude_deg": -34.9,
+                "longitude_deg": 138.6,
+                "elevation_m": 120.0,
+            }
+        }
+    )
+
+
 def test_adjust_rejects_global_json_with_one_object(capsys):
     rc = polar_cli.run_polar(_args(json=True))
 
@@ -66,18 +80,9 @@ def test_adjust_rejects_global_json_with_one_object(capsys):
 def test_adjust_uses_configured_site_and_calls_live_service(capsys):
     service = MagicMock()
     service.adjust.return_value = _success_result()
-    config = Config(
-        {
-            "site": {
-                "latitude_deg": -34.9,
-                "longitude_deg": 138.6,
-                "elevation_m": 120.0,
-            }
-        }
-    )
 
     with (
-        patch.object(polar_cli, "prepare", return_value=config),
+        patch.object(polar_cli, "prepare", return_value=_site_config()),
         patch.object(
             polar_cli,
             "mount_camera_solver",
@@ -94,6 +99,114 @@ def test_adjust_uses_configured_site_and_calls_live_service(capsys):
     assert call.kwargs["site_elevation_m"] == 120.0
     assert call.kwargs["config"].stable_samples == 3
     assert "tracking restored" in capsys.readouterr().out
+
+
+def test_adjust_wires_feedback_to_real_sink_boundary(capsys):
+    service = MagicMock()
+    sink = MagicMock()
+    sink.__enter__.return_value = sink
+    sink.__exit__.side_effect = lambda *_args: sink.close()
+    feedback = FeedbackState(
+        direction=FeedbackDirection.POSITIVE,
+        proximity=0.5,
+        valid=True,
+        guidance=math.radians(2.0 / 60.0),
+    )
+
+    def adjust(**kwargs):
+        kwargs["on_update"](
+            PolarAdjustmentUpdate(
+                state=PolarWorkflowState.ADJUST_AZ,
+                axis=PolarAxis.AZ,
+                feedback=feedback,
+            )
+        )
+        return _success_result()
+
+    service.adjust.side_effect = adjust
+    with (
+        patch.object(polar_cli, "prepare", return_value=_site_config()),
+        patch.object(
+            polar_cli,
+            "mount_camera_solver",
+            return_value=(MagicMock(), MagicMock(), MagicMock()),
+        ),
+        patch.object(polar_cli, "PolarAlignService", return_value=service),
+        patch.object(polar_cli, "AudioSink", return_value=sink) as audio_sink,
+    ):
+        rc = polar_cli.run_polar(_args(no_audio=False))
+
+    assert rc == 0
+    audio_sink.assert_called_once_with()
+    sink.check.assert_called()
+    sink.play.assert_called_once()
+    cue = sink.play.call_args.args[0]
+    assert cue is not None
+    assert cue.frequencies_hz == (880.0,)
+    sink.close.assert_called_once_with()
+    assert "AZ: east" in capsys.readouterr().out
+
+
+def test_no_audio_does_not_acquire_audio_resources():
+    service = MagicMock()
+    service.adjust.return_value = _success_result()
+
+    with (
+        patch.object(polar_cli, "prepare", return_value=_site_config()),
+        patch.object(
+            polar_cli,
+            "mount_camera_solver",
+            return_value=(MagicMock(), MagicMock(), MagicMock()),
+        ),
+        patch.object(polar_cli, "PolarAlignService", return_value=service),
+        patch.object(polar_cli, "AudioSink") as audio_sink,
+    ):
+        rc = polar_cli.run_polar(_args(no_audio=True))
+
+    assert rc == 0
+    audio_sink.assert_not_called()
+
+
+def test_audio_startup_failure_is_explicit_and_prevents_adjustment(capsys):
+    service = MagicMock()
+
+    with (
+        patch.object(polar_cli, "prepare", return_value=_site_config()),
+        patch.object(polar_cli, "PolarAlignService", return_value=service),
+        patch.object(
+            polar_cli,
+            "AudioSink",
+            side_effect=BackendError("no audio output device"),
+        ),
+    ):
+        rc = polar_cli.run_polar(_args(no_audio=False))
+
+    assert rc == 2
+    service.adjust.assert_not_called()
+    assert "no audio output device" in capsys.readouterr().err
+
+
+def test_audio_shutdown_failure_is_reported(capsys):
+    service = MagicMock()
+    service.adjust.return_value = _success_result()
+    sink = MagicMock()
+    sink.__enter__.return_value = sink
+    sink.__exit__.side_effect = BackendError("audio shutdown failed")
+
+    with (
+        patch.object(polar_cli, "prepare", return_value=_site_config()),
+        patch.object(
+            polar_cli,
+            "mount_camera_solver",
+            return_value=(MagicMock(), MagicMock(), MagicMock()),
+        ),
+        patch.object(polar_cli, "PolarAlignService", return_value=service),
+        patch.object(polar_cli, "AudioSink", return_value=sink),
+    ):
+        rc = polar_cli.run_polar(_args(no_audio=False))
+
+    assert rc == 2
+    assert "audio shutdown failed" in capsys.readouterr().err
 
 
 def test_measure_default_preserves_legacy_handler():
