@@ -50,7 +50,9 @@ class _MiniaudioPlaybackDevice:
                 app_name="Astrolabe",
             )
         except Exception as exc:
-            raise BackendError(f"Could not open the default audio output: {exc}") from exc
+            raise BackendError(
+                f"Could not open the default audio output: {exc}"
+            ) from exc
 
     @property
     def running(self) -> bool:
