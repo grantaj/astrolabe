@@ -186,6 +186,29 @@ def test_audio_startup_failure_is_explicit_and_prevents_adjustment(capsys):
     assert "no audio output device" in capsys.readouterr().err
 
 
+def test_audio_shutdown_failure_is_reported(capsys):
+    service = MagicMock()
+    service.adjust.return_value = _success_result()
+    sink = MagicMock()
+    sink.__enter__.return_value = sink
+    sink.__exit__.side_effect = BackendError("audio shutdown failed")
+
+    with (
+        patch.object(polar_cli, "prepare", return_value=_site_config()),
+        patch.object(
+            polar_cli,
+            "mount_camera_solver",
+            return_value=(MagicMock(), MagicMock(), MagicMock()),
+        ),
+        patch.object(polar_cli, "PolarAlignService", return_value=service),
+        patch.object(polar_cli, "AudioSink", return_value=sink),
+    ):
+        rc = polar_cli.run_polar(_args(no_audio=False))
+
+    assert rc == 2
+    assert "audio shutdown failed" in capsys.readouterr().err
+
+
 def test_measure_default_preserves_legacy_handler():
     args = _args(polar_action=None, latitude_deg=45.0)
     with patch.object(polar_cli, "run_polar_measure", return_value=0) as run_measure:
