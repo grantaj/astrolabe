@@ -200,9 +200,7 @@ def _run_adjust(args) -> int:
         )
 
         audio_context = (
-            nullcontext(None)
-            if getattr(args, "no_audio", False)
-            else AudioSink()
+            nullcontext(None) if getattr(args, "no_audio", False) else AudioSink()
         )
         audio_mapper = AudioCueMapper()
 
