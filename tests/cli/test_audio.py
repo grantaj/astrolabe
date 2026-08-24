@@ -1,82 +1,42 @@
-import threading
+from __future__ import annotations
+
+from array import array
 
 import pytest
 
 from astrolabe.cli.audio import (
     AudioSink,
-    SystemTonePlayer,
-    _pattern_duration_s,
+    _backend_names,
+    _render_cue_frames,
     _render_cue_pcm,
-    _select_player_command,
 )
 from astrolabe.cli.feedback import AudioCue
 from astrolabe.errors import BackendError
 
 
-class FakeHandle:
-    def __init__(self, on_stop=None) -> None:
-        self.returncode: int | None = None
-        self.stopped = threading.Event()
-        self._on_stop = on_stop
+class FakeDevice:
+    def __init__(self) -> None:
+        self.running = False
+        self.stream = None
+        self.start_calls = 0
+        self.stop_calls = 0
+        self.close_calls = 0
 
-    def poll(self) -> int | None:
-        return self.returncode
+    def start(self, stream) -> None:
+        self.stream = stream
+        self.start_calls += 1
+        self.running = True
+
+    def request(self, frame_count: int) -> array[int]:
+        assert self.stream is not None
+        return self.stream.send(frame_count)
 
     def stop(self) -> None:
-        if self.stopped.is_set():
-            return
-        self.stopped.set()
-        if self._on_stop is not None:
-            self._on_stop()
-
-
-class FakePlayer:
-    def __init__(self) -> None:
-        self.probe_calls = 0
-        self.started: list[tuple[AudioCue, FakeHandle]] = []
-        self.closed = False
-        self.active = 0
-        self.max_active = 0
-        self._condition = threading.Condition()
-
-    def probe(self) -> None:
-        self.probe_calls += 1
-
-    def start(self, cue: AudioCue) -> FakeHandle:
-        def stopped() -> None:
-            with self._condition:
-                self.active -= 1
-                self._condition.notify_all()
-
-        handle = FakeHandle(on_stop=stopped)
-        with self._condition:
-            self.active += 1
-            self.max_active = max(self.max_active, self.active)
-            self.started.append((cue, handle))
-            self._condition.notify_all()
-        return handle
+        self.stop_calls += 1
+        self.running = False
 
     def close(self) -> None:
-        with self._condition:
-            self.closed = True
-            self._condition.notify_all()
-
-    def wait_for_starts(self, count: int) -> bool:
-        with self._condition:
-            return self._condition.wait_for(
-                lambda: len(self.started) >= count,
-                timeout=1.0,
-            )
-
-
-class FailingStartPlayer(FakePlayer):
-    def __init__(self) -> None:
-        super().__init__()
-        self.start_attempted = threading.Event()
-
-    def start(self, cue: AudioCue) -> FakeHandle:
-        self.start_attempted.set()
-        raise RuntimeError("device disappeared")
+        self.close_calls += 1
 
 
 def _pulse(
@@ -116,169 +76,146 @@ def test_rendered_pulse_repeats_at_requested_cadence() -> None:
     assert any(samples[405:445])
 
 
-def test_pulsed_pattern_ends_on_cadence_boundary() -> None:
-    cue = _pulse(interval_s=0.12)
+def test_chunk_rendering_preserves_cadence_and_phase() -> None:
+    cue = _pulse(137.0, interval_s=0.12)
+    whole = _render_cue_frames(
+        cue,
+        sample_rate_hz=1000,
+        start_frame=0,
+        frame_count=500,
+    )
+    chunks = array("h")
+    for start, count in ((0, 137), (137, 89), (226, 274)):
+        chunks.extend(
+            _render_cue_frames(
+                cue,
+                sample_rate_hz=1000,
+                start_frame=start,
+                frame_count=count,
+            )
+        )
 
-    duration_s = _pattern_duration_s(cue)
-
-    assert duration_s >= 4.0
-    assert duration_s / 0.12 == pytest.approx(round(duration_s / 0.12))
+    assert chunks == whole
 
 
-def test_new_cue_supersedes_active_cue() -> None:
-    player = FakePlayer()
-    sink = AudioSink(player)
-    first = _pulse(440.0)
-    second = _pulse(880.0)
+def test_new_cue_supersedes_without_restarting_device() -> None:
+    device = FakeDevice()
+    sink = AudioSink(device)
+    sink.play(_pulse(440.0))
+    first = device.request(256)
 
-    sink.play(first)
-    assert player.wait_for_starts(1)
-    first_handle = player.started[0][1]
+    sink.play(_pulse(880.0))
+    second = device.request(256)
 
-    sink.play(second)
-    assert first_handle.stopped.wait(timeout=1.0)
-    assert player.wait_for_starts(2)
-    assert player.started[1][0] == second
-
+    assert first != second
+    assert device.start_calls == 1
+    assert device.stop_calls == 0
     sink.close()
 
 
-def test_none_silences_active_cue() -> None:
-    player = FakePlayer()
-    sink = AudioSink(player)
+def test_none_silences_without_stopping_device() -> None:
+    device = FakeDevice()
+    sink = AudioSink(device)
     sink.play(_pulse())
-    assert player.wait_for_starts(1)
-    handle = player.started[0][1]
+    assert any(device.request(256))
 
     sink.play(None)
 
-    assert handle.stopped.wait(timeout=1.0)
+    assert not any(device.request(256))
+    assert device.running
     sink.close()
 
 
-def test_continuous_cue_stays_on_one_active_playback() -> None:
-    player = FakePlayer()
-    sink = AudioSink(player)
-    cue = _continuous()
+def test_continuous_cue_remains_one_session_beyond_old_file_boundary() -> None:
+    device = FakeDevice()
+    sink = AudioSink(device)
+    sink.play(_continuous())
 
-    sink.play(cue)
-    assert player.wait_for_starts(1)
-    for _ in range(20):
-        sink.play(cue)
+    for _ in range(800):
+        samples = device.request(256)
+        assert len(samples) == 256
 
-    assert len(player.started) == 1
-    assert player.max_active == 1
+    assert device.start_calls == 1
+    assert device.stop_calls == 0
+    assert device.running
     sink.close()
 
 
-def test_repeated_cue_updates_keep_one_worker_and_one_active_playback() -> None:
-    player = FakePlayer()
-    sink = AudioSink(player)
-    worker = sink._thread
+def test_repeated_updates_do_not_restart_session() -> None:
+    device = FakeDevice()
+    sink = AudioSink(device)
 
-    for index in range(12):
+    for index in range(20):
         sink.play(_pulse(440.0 + index, interval_s=0.2 + index * 0.01))
-        assert player.wait_for_starts(index + 1)
+        device.request(64)
 
-    assert sink._thread is worker
-    assert player.max_active == 1
+    assert device.start_calls == 1
+    assert device.stop_calls == 0
     sink.close()
 
 
-def test_close_stops_playback_and_worker() -> None:
-    player = FakePlayer()
-    sink = AudioSink(player)
+def test_close_stops_and_closes_device() -> None:
+    device = FakeDevice()
+    sink = AudioSink(device)
     sink.play(_pulse())
-    assert player.wait_for_starts(1)
-    handle = player.started[0][1]
 
     sink.close()
 
-    assert handle.stopped.is_set()
-    assert player.closed
-    assert not sink._thread.is_alive()
+    assert device.stop_calls == 1
+    assert device.close_calls == 1
+    assert not device.running
 
 
-def test_runtime_player_exception_is_contained_and_reported() -> None:
-    player = FailingStartPlayer()
-    sink = AudioSink(player)
+def test_unexpected_device_stop_is_reported() -> None:
+    device = FakeDevice()
+    sink = AudioSink(device)
+    device.running = False
 
-    sink.play(_pulse())
-    assert player.start_attempted.wait(timeout=1.0)
-    with sink._condition:
-        assert sink._condition.wait_for(lambda: sink._failure is not None, timeout=1.0)
+    with pytest.raises(BackendError, match="stopped unexpectedly"):
+        sink.check()
+
+    sink.close()
+
+
+def test_startup_failure_closes_device() -> None:
+    class FailingStartDevice(FakeDevice):
+        def start(self, stream) -> None:
+            raise RuntimeError("device disappeared")
+
+    device = FailingStartDevice()
 
     with pytest.raises(BackendError, match="device disappeared"):
-        sink.check()
-    sink.close()
-    assert player.closed
+        AudioSink(device)
+
+    assert device.close_calls == 1
 
 
-def test_startup_probe_failure_closes_injected_player() -> None:
-    class FailingProbePlayer(FakePlayer):
-        def probe(self) -> None:
-            raise BackendError("no output device")
+def test_shutdown_failure_is_reported() -> None:
+    class FailingStopDevice(FakeDevice):
+        def stop(self) -> None:
+            raise RuntimeError("cannot stop")
 
-    player = FailingProbePlayer()
+    sink = AudioSink(FailingStopDevice())
 
-    with pytest.raises(BackendError, match="no output device"):
-        AudioSink(player)
-
-    assert player.closed
+    with pytest.raises(BackendError, match="cannot stop"):
+        sink.close()
 
 
-def test_system_discovery_falls_back_when_preferred_backend_is_unusable(monkeypatch):
-    available = {
-        "pw-play": "/usr/bin/pw-play",
-        "paplay": "/usr/bin/paplay",
-        "aplay": "/usr/bin/aplay",
-    }
-    probes: list[str] = []
+def test_context_shutdown_failure_does_not_mask_active_exception() -> None:
+    class FailingStopDevice(FakeDevice):
+        def stop(self) -> None:
+            raise RuntimeError("cannot stop")
 
-    def probe(player):
-        probes.append(player._command)
-        if player._command.endswith("pw-play"):
-            raise BackendError("PipeWire unavailable")
+    with pytest.raises(ValueError, match="primary") as caught:
+        with AudioSink(FailingStopDevice()):
+            raise ValueError("primary")
 
-    monkeypatch.setattr(SystemTonePlayer, "probe", probe)
-
-    player = SystemTonePlayer.discover(platform_name="linux", which=available.get)
-
-    assert probes == ["/usr/bin/pw-play", "/usr/bin/paplay"]
-    assert player._command == "/usr/bin/paplay"
-    player.close()
+    notes = getattr(caught.value, "__notes__", [])
+    assert any("Audio shutdown also failed" in note for note in notes)
 
 
-def test_platform_player_selection_prefers_native_current_stack() -> None:
-    available = {
-        "afplay": "/usr/bin/afplay",
-        "pw-play": "/usr/bin/pw-play",
-        "paplay": "/usr/bin/paplay",
-        "aplay": "/usr/bin/aplay",
-    }
-
-    assert _select_player_command("darwin", available.get) == "/usr/bin/afplay"
-    assert _select_player_command("linux", available.get) == "/usr/bin/pw-play"
-
-
-def test_linux_player_selection_falls_back_without_pipewire_tool() -> None:
-    available = {"paplay": "/usr/bin/paplay", "aplay": "/usr/bin/aplay"}
-
-    assert _select_player_command("linux", available.get) == "/usr/bin/paplay"
-
-
-def test_unsupported_or_missing_player_is_explicit() -> None:
+def test_supported_platform_backends_are_explicit() -> None:
+    assert _backend_names("darwin") == ("COREAUDIO",)
+    assert _backend_names("linux") == ("PULSEAUDIO", "ALSA", "JACK")
     with pytest.raises(BackendError, match="unsupported"):
-        _select_player_command("win32", lambda _name: None)
-    with pytest.raises(BackendError, match="No supported audio player"):
-        _select_player_command("linux", lambda _name: None)
-
-
-def test_system_player_close_removes_temporary_audio_files() -> None:
-    player = SystemTonePlayer("unused")
-    directory = player._directory
-    assert directory.exists()
-
-    player.close()
-
-    assert not directory.exists()
+        _backend_names("win32")
