@@ -1,0 +1,37 @@
+name: Format audio implementation
+
+on:
+  push:
+    branches:
+      - issue-44-audio-sink
+    paths:
+      - .github/workflows/format-audio.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: issue-44-audio-sink
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install uv
+        run: python -m pip install uv
+      - name: Install locked development environment
+        run: uv sync --frozen --all-extras
+      - name: Apply repository formatter
+        run: uv run ruff format astrolabe/cli/audio.py
+      - name: Commit formatting
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add astrolabe/cli/audio.py
+          if ! git diff --cached --quiet; then
+            git commit -m "Format audio implementation"
+            git push origin HEAD:issue-44-audio-sink
+          fi
