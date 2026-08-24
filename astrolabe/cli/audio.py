@@ -251,11 +251,7 @@ def _render_cue_frames(
         if cue.continuous:
             ramp = min(1.0, t / _ATTACK_RELEASE_S)
             value = int(
-                round(
-                    amplitude
-                    * ramp
-                    * math.sin(math.tau * cue.frequencies_hz[0] * t)
-                )
+                round(amplitude * ramp * math.sin(math.tau * cue.frequencies_hz[0] * t))
             )
         else:
             assert cue.interval_s is not None
