@@ -36,6 +36,10 @@ class PointingResult:
     message: str | None = None
 
 
+class _CenteringDeadlineExceeded(Exception):
+    pass
+
+
 class PointingService:
     def __init__(
         self,
@@ -52,23 +56,47 @@ class PointingService:
     def solve_current(
         self, exposure_s: float | None = None, *, use_mount_hints: bool = True
     ) -> SolveResult:
+        return self._solve_current(
+            exposure_s=exposure_s,
+            use_mount_hints=use_mount_hints,
+            deadline=None,
+        )
+
+    def _solve_current(
+        self,
+        exposure_s: float | None,
+        *,
+        use_mount_hints: bool,
+        deadline: float | None,
+    ) -> SolveResult:
         needs_disconnect = False
         if not self._camera.is_connected():
+            _ensure_before_deadline(deadline)
             self._camera.connect()
+            _ensure_before_deadline(deadline)
             needs_disconnect = True
         try:
-            image = self._camera.capture(exposure_s=exposure_s or 1.0)
+            capture_exposure_s = exposure_s or 1.0
+            remaining_s = _remaining_time_s(deadline)
+            if remaining_s is not None and capture_exposure_s >= remaining_s:
+                raise _CenteringDeadlineExceeded
+            image = self._camera.capture(exposure_s=capture_exposure_s)
+            _ensure_before_deadline(deadline)
         finally:
             if needs_disconnect:
                 self._camera.disconnect()
 
         state = self._mount.get_state() if use_mount_hints else None
+        _ensure_before_deadline(deadline)
         request = SolveRequest(
             image=image,
             ra_hint_rad=state.ra_rad if state else None,
             dec_hint_rad=state.dec_rad if state else None,
+            timeout_s=_remaining_time_s(deadline),
         )
-        return self._solver.solve(request)
+        result = self._solver.solve(request)
+        _ensure_before_deadline(deadline)
+        return result
 
     def point_to(
         self,
@@ -82,7 +110,7 @@ class PointingService:
         self._mount.slew_to(command_ra, command_dec)
         self._wait_for_slew_settle()
 
-        centering_started = time.monotonic()
+        centering_deadline = time.monotonic() + _MAX_CENTERING_TIME_S
         current_command_ra = command_ra
         current_command_dec = command_dec
         model_updated = False
@@ -95,7 +123,21 @@ class PointingService:
 
         while True:
             try:
-                solve = self.solve_current(exposure_s=exposure_s, use_mount_hints=False)
+                solve = self._solve_current(
+                    exposure_s=exposure_s,
+                    use_mount_hints=False,
+                    deadline=centering_deadline,
+                )
+            except _CenteringDeadlineExceeded:
+                return _centering_timeout_failure(
+                    ra_rad,
+                    dec_rad,
+                    current_command_ra,
+                    current_command_dec,
+                    last_trustworthy_solve,
+                    last_error_arcsec,
+                    model_updated,
+                )
             except AstrolabeError as exc:
                 if last_trustworthy_solve is None:
                     raise
@@ -113,10 +155,7 @@ class PointingService:
             rejection_reason = _solve_rejection_reason(solve)
             if rejection_reason is not None:
                 consecutive_solve_failures += 1
-                if (
-                    consecutive_solve_failures < _MAX_CONSECUTIVE_SOLVE_FAILURES
-                    and not _centering_time_expired(centering_started)
-                ):
+                if consecutive_solve_failures < _MAX_CONSECUTIVE_SOLVE_FAILURES:
                     continue
                 return _pointing_failure(
                     ra_rad,
@@ -189,34 +228,6 @@ class PointingService:
                     model_updated=model_updated,
                 )
 
-            if separation > _MAX_SINGLE_CORRECTION_RAD:
-                return _pointing_failure(
-                    ra_rad,
-                    dec_rad,
-                    current_command_ra,
-                    current_command_dec,
-                    solve,
-                    final_error_arcsec,
-                    model_updated,
-                    f"Required centering correction is "
-                    f"{math.degrees(separation):.2f} deg, exceeding the "
-                    f"{math.degrees(_MAX_SINGLE_CORRECTION_RAD):.1f} deg "
-                    "single-correction bound",
-                )
-
-            if _centering_time_expired(centering_started):
-                return _pointing_failure(
-                    ra_rad,
-                    dec_rad,
-                    current_command_ra,
-                    current_command_dec,
-                    solve,
-                    final_error_arcsec,
-                    model_updated,
-                    "Target remained outside the 300 arcsec centering tolerance "
-                    f"after {_MAX_CENTERING_TIME_S:.0f} seconds",
-                )
-
             if correction_count >= _MAX_CORRECTION_ITERATIONS:
                 return _pointing_failure(
                     ra_rad,
@@ -268,14 +279,47 @@ class PointingService:
                     f"Cannot form a safe corrective slew: {exc}",
                 )
 
+            correction_magnitude_rad = angular_separation_rad(
+                current_command_ra,
+                current_command_dec,
+                next_command_ra,
+                next_command_dec,
+            )
+            if correction_magnitude_rad > _MAX_SINGLE_CORRECTION_RAD:
+                return _pointing_failure(
+                    ra_rad,
+                    dec_rad,
+                    current_command_ra,
+                    current_command_dec,
+                    solve,
+                    final_error_arcsec,
+                    model_updated,
+                    "Required centering correction is "
+                    f"{math.degrees(correction_magnitude_rad):.2f} deg, exceeding the "
+                    f"{math.degrees(_MAX_SINGLE_CORRECTION_RAD):.1f} deg "
+                    "single-correction bound",
+                )
+
             previous_error_rad = separation
             correction_count += 1
+
             current_command_ra = next_command_ra
             current_command_dec = next_command_dec
-
             try:
+                _ensure_before_deadline(centering_deadline)
                 self._mount.slew_to(current_command_ra, current_command_dec)
-                self._wait_for_slew_settle()
+                _ensure_before_deadline(centering_deadline)
+                self._wait_for_slew_settle(deadline=centering_deadline)
+            except _CenteringDeadlineExceeded:
+                return _centering_timeout_failure(
+                    ra_rad,
+                    dec_rad,
+                    current_command_ra,
+                    current_command_dec,
+                    last_trustworthy_solve,
+                    last_error_arcsec,
+                    model_updated,
+                )
             except AstrolabeError as exc:
                 return _pointing_failure(
                     ra_rad,
@@ -299,18 +343,27 @@ class PointingService:
         _validate_command(raw_corrected_ra, corrected_dec)
         return normalize_angle_rad(raw_corrected_ra), corrected_dec
 
-    def _wait_for_slew_settle(self) -> None:
+    def _wait_for_slew_settle(self, *, deadline: float | None = None) -> None:
         """Wait until the mount reports a stable non-slewing state."""
-        deadline = time.monotonic() + _SLEW_SETTLE_TIMEOUT_S
+        settle_deadline = time.monotonic() + _SLEW_SETTLE_TIMEOUT_S
+        if deadline is not None:
+            settle_deadline = min(settle_deadline, deadline)
         stable_reads = 0
-        while time.monotonic() < deadline:
+        while True:
+            now = time.monotonic()
+            if now >= settle_deadline:
+                if deadline is not None and now >= deadline:
+                    raise _CenteringDeadlineExceeded
+                break
             if self._mount.get_state().slewing:
                 stable_reads = 0
             else:
                 stable_reads += 1
                 if stable_reads >= _SLEW_SETTLE_STABLE_READS:
                     return
-            time.sleep(_SLEW_SETTLE_POLL_S)
+            sleep_s = min(_SLEW_SETTLE_POLL_S, settle_deadline - time.monotonic())
+            if sleep_s > 0.0:
+                time.sleep(sleep_s)
         raise ServiceError(
             "Mount did not report a settled slew within "
             f"{_SLEW_SETTLE_TIMEOUT_S:.0f} seconds"
@@ -340,8 +393,54 @@ def _pointing_failure(
     )
 
 
-def _centering_time_expired(started_at: float) -> bool:
-    return time.monotonic() - started_at >= _MAX_CENTERING_TIME_S
+def _centering_timeout_failure(
+    target_ra_rad: float,
+    target_dec_rad: float,
+    command_ra_rad: float,
+    command_dec_rad: float,
+    solve: SolveResult | None,
+    final_error_arcsec: float | None,
+    model_updated: bool,
+) -> PointingResult:
+    message = (
+        "Target remained outside the 300 arcsec centering tolerance "
+        f"after {_MAX_CENTERING_TIME_S:.0f} seconds"
+    )
+    return _pointing_failure(
+        target_ra_rad,
+        target_dec_rad,
+        command_ra_rad,
+        command_dec_rad,
+        solve or _failed_solve_result(message),
+        final_error_arcsec,
+        model_updated,
+        message,
+    )
+
+
+def _failed_solve_result(message: str) -> SolveResult:
+    return SolveResult(
+        success=False,
+        ra_rad=None,
+        dec_rad=None,
+        pixel_scale_arcsec=None,
+        rotation_rad=None,
+        rms_arcsec=None,
+        num_stars=None,
+        message=message,
+    )
+
+
+def _remaining_time_s(deadline: float | None) -> float | None:
+    if deadline is None:
+        return None
+    return max(0.0, deadline - time.monotonic())
+
+
+def _ensure_before_deadline(deadline: float | None) -> None:
+    remaining_s = _remaining_time_s(deadline)
+    if remaining_s is not None and remaining_s <= 0.0:
+        raise _CenteringDeadlineExceeded
 
 
 def _corrective_command(
