@@ -14,12 +14,12 @@ Current implemented capabilities include:
 - offline target resolution;
 - solve-assisted target pointing with continuous pointing-model learning;
 - N-pose solve-based polar-axis measurement plus interactive one-axis-at-a-time AZ/ALT correction guidance with audible no-look feedback;
-- multi-star HFR focus measurement and bounded live focus monitoring;
+- multi-star HFR focus measurement and bounded live focus monitoring with truthful no-look audio guidance;
 - an offline-first observing-target planner and catalog update tools.
 
 Normal target pointing is one operation: apply the current error model, slew, solve the resulting position, measure the residual, and update the model from a trustworthy solve. There is no separate pointing initialization/alignment phase and Pointing does not sync the mount as part of learning. `pointing goto` is the canonical CLI command; `align goto` and top-level `goto` remain compatibility aliases. Use `mount slew` for a deliberately raw slew.
 
-Polar adjustment now has real audio playback on Linux and macOS. Live focus monitoring still does not provide a truthful no-look focus guidance policy; that remaining focus-domain gap must be closed before manual focusing meets the v0 by-ear interaction target.
+Polar adjustment and live manual focusing both provide real no-look audio feedback on Linux and macOS. Focus audio reports only evidence available from HFR history—improving, worsening, best-observed, or unknown—and never pretends to know a physical focuser direction without position information.
 
 The guiding service is still a placeholder on current `main`; guiding commands report `not_implemented`. Guiding is post-MVP and does not block the first working release.
 

@@ -64,7 +64,7 @@ The topology below reflects the current implementation. Use `--help` for exact a
 | `pointing` | `solve`, `goto` | implemented |
 | `align` | deprecated alias for `pointing` | compatibility alias |
 | `polar` | optional `measure` (default) or interactive `adjust` | implemented |
-| `focus` | `measure` one-shot multi-star HFR; `monitor` live HFR/trend reporting | implemented |
+| `focus` | `measure` one-shot multi-star HFR; `monitor` live HFR plus no-look audio guidance | implemented |
 | `guide` | `calibrate`, `start`, `stop`, `status` | CLI present; service placeholder |
 | `plan` | offline-first target planning | implemented |
 | `update catalog` | all/default catalog updates; `openngc`, `hip`, `bsc` subsets | implemented |
@@ -91,11 +91,21 @@ Audible feedback is enabled by default for `polar adjust` and is driven from the
 
 The adjustment loop emits a stream of human feedback, so global `--json` is deliberately rejected with one structured `interactive_json_unsupported` error rather than inventing an NDJSON protocol. The final one-shot `polar`/`polar measure` path remains JSON-compatible.
 
+### Focus command semantics
+
+`focus measure` remains a one-shot HFR measurement. `focus monitor` consumes the camera-owned live-frame stream and provides no-look manual-focus feedback by default through the same shared `AudioSink` used by polar adjustment. `--no-audio` deliberately disables sound and avoids acquiring the sink.
+
+Focus has no focuser-position input, so its audio deliberately does not encode a signed physical correction. Fresh HFR history is classified as `unknown`, `improving`, `best-observed`, or `worsening`. An alternating two-tone cue means unknown, a repeating high tone means HFR is improving in the user's current motion, and a repeating low tone means HFR is worsening. The continuous middle tone is reserved for a bracketed best region: improvement followed by worsening must first demonstrate that a local best has been crossed, then HFR must return stably near that best. A pause during an improving run is therefore not presented as best focus, and a substantially better newly observed HFR requires a fresh bracket.
+
+This makes manual focusing usable by ear without claiming clockwise/counter-clockwise or inward/outward focuser direction that Astrolabe cannot know. Invalid measurements silence audio and reset the guidance history; stale history is discarded before new guidance is emitted. If the shared audio backend cannot start or fails at runtime, `focus monitor` reports the failure rather than silently continuing as though no-look guidance were active.
+
+`focus monitor` remains a human-interactive stream and rejects global `--json` with one structured error rather than inventing NDJSON. `--frames N` bounds the run when needed.
+
 ### A few non-obvious current boundaries
 
 - `view` takes its FITS input via `--in` on current main; its `header` field is the primary header in file order, decoded by Astrolabe's own narrow FITS boundary — see `fits_boundary.md`.
 - `polar` requires an RA rotation. `polar adjust` additionally requires longitude; latitude/longitude/elevation can come from CLI overrides or configured mount/site location. Exposure/settling and pose-count controls remain shared with measurement. `--no-audio` is specific to the interactive adjustment path; measurement does not acquire audio.
-- `focus measure` accepts either `--in` FITS input or camera-capture controls. `focus monitor` consumes the camera-owned live-frame path, may be bounded with `--frames N`, and deliberately rejects global `--json` with one structured error rather than creating an NDJSON stream.
+- `focus measure` accepts either `--in` FITS input or camera-capture controls. `focus monitor` consumes the camera-owned live-frame path, may be bounded with `--frames N`, supports `--no-audio` for deliberate silent operation, and deliberately rejects global `--json` with one structured error rather than creating an NDJSON stream.
 - `pointing` exposes only `solve` and `goto`; older names such as `sync`, `init`, `where`, `calibrate`, `recover`, `status`, and `diagnose` are not part of the current parser.
 
 ## Stability rule
