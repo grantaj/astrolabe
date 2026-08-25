@@ -56,6 +56,11 @@ class FocusTrendEstimator:
     def reset(self) -> None:
         self._values.clear()
 
+    def recent_min(self) -> float | None:
+        """Return the lowest HFR in the active trend window."""
+
+        return min(self._values) if self._values else None
+
     def update(self, measurement: FocusMeasurement) -> FocusTrend | None:
         """Return a display trend without altering the raw measurement."""
 
@@ -90,8 +95,9 @@ class FocusGuidanceEstimator:
     estimator therefore never emits a signed correction. It reports whether
     image quality is improving or worsening in the user's current motion. A
     region is called ``BEST_OBSERVED`` only after a real improvement run has
-    been followed by worsening, which brackets a local best in the observed
-    temporal path, and the current HFR has then returned stably near that best.
+    been followed by worsening across that run's candidate minimum, which
+    brackets the best observed region, and the current HFR has then returned
+    stably near that bracketed best.
     """
 
     def __init__(
@@ -119,8 +125,8 @@ class FocusGuidanceEstimator:
     def reset(self) -> None:
         self._trend.reset()
         self._best_hfr_px: float | None = None
-        self._has_improved = False
-        self._best_bracketed = False
+        self._improving_candidate_hfr_px: float | None = None
+        self._bracketed_best_hfr_px: float | None = None
         self._last_update_s: float | None = None
 
     def update(self, measurement: FocusMeasurement) -> FocusGuidance:
@@ -149,14 +155,21 @@ class FocusGuidanceEstimator:
         self._record_best(hfr_px)
 
         if trend == "improving":
-            self._has_improved = True
+            recent_min = self._trend.recent_min()
+            assert recent_min is not None
+            self._record_improving_candidate(recent_min)
             state = FocusGuidanceState.IMPROVING
         elif trend == "worsening":
-            if self._has_improved:
-                self._best_bracketed = True
+            self._bracket_candidate_if_crossed(hfr_px)
+            self._improving_candidate_hfr_px = None
             state = FocusGuidanceState.WORSENING
-        elif trend == "stable" and self._best_bracketed and self._near_best(hfr_px):
-            state = FocusGuidanceState.BEST_OBSERVED
+        elif trend == "stable":
+            if self._improving_candidate_hfr_px is not None:
+                self._record_improving_candidate(hfr_px)
+            if self._is_at_bracketed_best(hfr_px):
+                state = FocusGuidanceState.BEST_OBSERVED
+            else:
+                state = FocusGuidanceState.UNKNOWN
         else:
             state = FocusGuidanceState.UNKNOWN
 
@@ -175,13 +188,36 @@ class FocusGuidanceEstimator:
 
         previous_best = self._best_hfr_px
         if hfr_px < previous_best - self._deadband(previous_best):
-            self._best_bracketed = False
+            self._bracketed_best_hfr_px = None
         if hfr_px < previous_best:
             self._best_hfr_px = hfr_px
 
-    def _near_best(self, hfr_px: float) -> bool:
-        assert self._best_hfr_px is not None
-        return hfr_px <= self._best_hfr_px + self._deadband(self._best_hfr_px)
+    def _record_improving_candidate(self, hfr_px: float) -> None:
+        if (
+            self._improving_candidate_hfr_px is None
+            or hfr_px < self._improving_candidate_hfr_px
+        ):
+            self._improving_candidate_hfr_px = hfr_px
+
+    def _bracket_candidate_if_crossed(self, hfr_px: float) -> None:
+        candidate = self._improving_candidate_hfr_px
+        if candidate is None or self._best_hfr_px is None:
+            return
+        if hfr_px <= candidate + self._deadband(candidate):
+            return
+        if candidate > self._best_hfr_px + self._deadband(self._best_hfr_px):
+            return
+        self._bracketed_best_hfr_px = candidate
+
+    def _is_at_bracketed_best(self, hfr_px: float) -> bool:
+        if self._best_hfr_px is None or self._bracketed_best_hfr_px is None:
+            return False
+        if hfr_px > self._best_hfr_px + self._deadband(self._best_hfr_px):
+            return False
+        return (
+            abs(hfr_px - self._bracketed_best_hfr_px)
+            <= self._deadband(self._bracketed_best_hfr_px)
+        )
 
     def _deadband(self, hfr_px: float) -> float:
         return max(
