@@ -89,7 +89,7 @@ The adjustment loop emits a stream of human feedback, so global `--json` is deli
 
 ### Focus command semantics
 
-`focus measure` remains a one-shot HFR measurement. `focus monitor` consumes the camera-owned live-frame stream and provides no-look manual-focus feedback by default through the same shared `AudioSink` used by polar adjustment.
+`focus measure` remains a one-shot HFR measurement. `focus monitor` consumes the camera-owned live-frame stream and provides no-look manual-focus feedback by default through the same shared `AudioSink` used by polar adjustment. `--no-audio` deliberately disables sound and avoids acquiring the sink.
 
 Focus has no focuser-position input, so its audio deliberately does not encode a signed physical correction. Fresh HFR history is classified as `unknown`, `improving`, `best-observed`, or `worsening`. An alternating two-tone cue means unknown, a repeating high tone means HFR is improving in the user's current motion, and a repeating low tone means HFR is worsening. The continuous middle tone is reserved for a bracketed best region: improvement followed by worsening must first demonstrate that a local best has been crossed, then HFR must return stably near that best. A pause during an improving run is therefore not presented as best focus, and a substantially better newly observed HFR requires a fresh bracket.
 
@@ -101,7 +101,7 @@ This makes manual focusing usable by ear without claiming clockwise/counter-cloc
 
 - `view` takes its FITS input via `--in` on current main; its `header` field is the primary header in file order, decoded by Astrolabe's own narrow FITS boundary — see `fits_boundary.md`.
 - `polar` requires an RA rotation. `polar adjust` additionally requires longitude; latitude/longitude/elevation can come from CLI overrides or configured mount/site location. Exposure/settling and pose-count controls remain shared with measurement. `--no-audio` is specific to the interactive adjustment path; measurement does not acquire audio.
-- `focus measure` accepts either `--in` FITS input or camera-capture controls. `focus monitor` consumes the camera-owned live-frame path, may be bounded with `--frames N`, and deliberately rejects global `--json` with one structured error rather than creating an NDJSON stream.
+- `focus measure` accepts either `--in` FITS input or camera-capture controls. `focus monitor` consumes the camera-owned live-frame path, may be bounded with `--frames N`, supports `--no-audio` for deliberate silent operation, and deliberately rejects global `--json` with one structured error rather than creating an NDJSON stream.
 - `pointing` exposes only `solve` and `goto`; older names such as `sync`, `init`, `where`, `calibrate`, `recover`, `status`, and `diagnose` are not part of the current parser.
 
 ## Stability rule
