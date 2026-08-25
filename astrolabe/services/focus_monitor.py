@@ -56,9 +56,7 @@ class FocusTrendEstimator:
     def reset(self) -> None:
         self._values.clear()
 
-    def recent_min(self) -> float | None:
-        """Return the lowest HFR in the active trend window."""
-
+    def _recent_min(self) -> float | None:
         return min(self._values) if self._values else None
 
     def update(self, measurement: FocusMeasurement) -> FocusTrend | None:
@@ -155,7 +153,7 @@ class FocusGuidanceEstimator:
         self._record_best(hfr_px)
 
         if trend == "improving":
-            recent_min = self._trend.recent_min()
+            recent_min = self._trend._recent_min()
             assert recent_min is not None
             self._record_improving_candidate(recent_min)
             state = FocusGuidanceState.IMPROVING
@@ -214,9 +212,8 @@ class FocusGuidanceEstimator:
             return False
         if hfr_px > self._best_hfr_px + self._deadband(self._best_hfr_px):
             return False
-        return (
-            abs(hfr_px - self._bracketed_best_hfr_px)
-            <= self._deadband(self._bracketed_best_hfr_px)
+        return abs(hfr_px - self._bracketed_best_hfr_px) <= self._deadband(
+            self._bracketed_best_hfr_px
         )
 
     def _deadband(self, hfr_px: float) -> float:
