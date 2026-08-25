@@ -169,6 +169,33 @@ def test_focus_monitor_no_audio_does_not_acquire_sink(monkeypatch):
     audio_sink.assert_not_called()
 
 
+def test_main_focus_monitor_no_audio_does_not_acquire_sink(monkeypatch, capsys):
+    session = _FakeSession([_image(2.0)])
+    camera = _FakeCamera(session)
+    audio_sink = MagicMock()
+    monkeypatch.setattr("astrolabe.cli.runtime.load_config", lambda path: _config())
+    monkeypatch.setattr("astrolabe.cli.focus.get_camera_backend", lambda config: camera)
+    monkeypatch.setattr("astrolabe.cli.focus.AudioSink", audio_sink)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "astrolabe",
+            "focus",
+            "monitor",
+            "--exposure",
+            "0.1",
+            "--frames",
+            "1",
+            "--no-audio",
+        ],
+    )
+
+    assert main() == 0
+    audio_sink.assert_not_called()
+    assert "HFR " in capsys.readouterr().out
+
+
 def test_focus_monitor_audio_startup_failure_is_explicit(monkeypatch, capsys):
     get_camera = MagicMock()
     monkeypatch.setattr("astrolabe.cli.runtime.load_config", lambda path: _config())
