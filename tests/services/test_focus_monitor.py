@@ -232,6 +232,18 @@ def test_focus_guidance_brackets_crossing_then_recovers_best_observed_region():
     assert guidance.best_hfr_px == pytest.approx(3.39)
 
 
+def test_unrelated_later_wobble_does_not_bracket_earlier_global_best():
+    estimator = FocusGuidanceEstimator(window_size=3)
+
+    for hfr in (2.0, 4.0, 4.0, 3.0, 4.0, 5.0, 2.02, 2.01):
+        estimator.update(_measurement(hfr))
+
+    guidance = estimator.update(_measurement(2.0))
+
+    assert guidance.state is FocusGuidanceState.UNKNOWN
+    assert guidance.best_hfr_px == pytest.approx(2.0)
+
+
 def test_significantly_better_new_best_requires_fresh_bracketing():
     estimator = FocusGuidanceEstimator(window_size=3)
     for hfr in (4.0, 3.7, 3.4, 3.39, 3.41, 3.6, 3.5, 3.42, 3.40):
