@@ -268,6 +268,11 @@ def main():
     )
     _add_focus_frame_args(focus_monitor)
     focus_monitor.add_argument(
+        "--no-audio",
+        action="store_true",
+        help="Disable audible focus guidance",
+    )
+    focus_monitor.add_argument(
         "--frames",
         type=int,
         help="Stop after N frames instead of running until interrupted",
