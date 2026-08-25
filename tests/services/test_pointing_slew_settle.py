@@ -104,9 +104,11 @@ def test_point_to_fails_before_capture_when_slew_does_not_settle(monkeypatch):
     camera = FakeCamera()
     solver = FakeSolver(_solve_result())
     service = PointingService(mount, camera, solver, model=PointingModel())
-    monotonic_values = iter([0.0, 0.0, 31.0])
+    monotonic_values = iter([0.0, 0.0])
     monkeypatch.setattr(
-        pointing_service_module.time, "monotonic", lambda: next(monotonic_values)
+        pointing_service_module.time,
+        "monotonic",
+        lambda: next(monotonic_values, 31.0),
     )
     monkeypatch.setattr(pointing_service_module.time, "sleep", lambda _seconds: None)
 

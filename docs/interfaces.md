@@ -87,9 +87,13 @@ solve_current(exposure_s=None, use_mount_hints=True) -> SolveResult
 point_to(ra_rad, dec_rad, exposure_s=None) -> PointingResult
 ```
 
-`point_to` owns the target-pointing lifecycle: validate and apply the current model, issue the slew, wait for a stable non-slewing mount state, solve without mount-position hints, measure the residual to the requested target, and update the supplied model when the solve is trustworthy. Solver backends own ambiguity/failure detection through `SolveResult.success`; Pointing additionally rejects incomplete, non-finite, physically impossible, or greater-than-10-degree target-separation solves before learning. The 10-degree envelope is a fixed corruption guard for the offset-only v1 model, not a centering tolerance.
+`point_to` owns the complete target-pointing lifecycle: validate and apply the current model, issue the initial slew, wait for a stable non-slewing mount state, solve without mount-position hints, measure the residual, learn from that first trustworthy ordinary pointing observation, and then make bounded solve-assisted corrective slews until the target is centered or the operation fails safely.
 
-There is no `initial_alignment()` or Pointing-level `sync_current()` phase. Ordinary target pointing is the model-observation path.
+For the MVP the fixed visual-acquisition tolerance is 300 arcsec (5 arcmin). Centering is limited to three corrective slews, 120 seconds of centering time, and a 5-degree maximum single correction. Repeated solve failures and clear lack of progress also terminate the operation. These are centering policy bounds, not pointing-model parameters.
+
+Solver backends own ambiguity/failure detection through `SolveResult.success`; Pointing additionally rejects incomplete, non-finite, physically impossible, or greater-than-10-degree target-separation solves as untrustworthy. Such solves neither drive motion nor update the model. The 10-degree envelope is a corruption guard for the offset-only v1 model and is deliberately much broader than the 5-arcmin acquisition tolerance. Corrective solves are current-operation feedback and never become additional model-learning samples.
+
+There is no `initial_alignment()` or Pointing-level `sync_current()` phase. Ordinary target pointing remains the model-observation path, with centering as part of the same operation.
 
 Pointing persistence is explicit: `load_pointing_model(path)` and `save_pointing_model(model, path)` are separate pointing-owned helpers, while the application composition layer chooses the path (including the default `~/.astrolabe/pointing.json`) and saves only accepted updates. Ordinary model/service use does not implicitly read or write the filesystem.
 
