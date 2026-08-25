@@ -38,7 +38,7 @@ For manual focusing, consume the low-latency live camera path continuously:
 astrolabe focus monitor --exposure 0.2 --bin 2 --roi 0,0,640,480
 ```
 
-`focus monitor` provides audible guidance by default through the shared Linux/macOS audio sink. The focus layer deliberately does not claim a physical focuser direction because manual focusing supplies no focuser position. Instead it classifies fresh HFR history into four truthful states:
+`focus monitor` provides audible guidance by default through the shared Linux/macOS audio sink. Use `--no-audio` to deliberately disable sound without acquiring audio resources. The focus layer deliberately does not claim a physical focuser direction because manual focusing supplies no focuser position. Instead it classifies fresh HFR history into four truthful states:
 
 - `unknown` — there is not yet enough evidence for useful guidance; an alternating two-tone cue is played;
 - `improving` — recent HFR is decreasing in the user's current motion; a repeating high tone is played;
