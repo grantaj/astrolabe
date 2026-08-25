@@ -56,9 +56,6 @@ class FocusTrendEstimator:
     def reset(self) -> None:
         self._values.clear()
 
-    def _recent_min(self) -> float | None:
-        return min(self._values) if self._values else None
-
     def update(self, measurement: FocusMeasurement) -> FocusTrend | None:
         """Return a display trend without altering the raw measurement."""
 
@@ -153,9 +150,7 @@ class FocusGuidanceEstimator:
         self._record_best(hfr_px)
 
         if trend == "improving":
-            recent_min = self._trend._recent_min()
-            assert recent_min is not None
-            self._record_improving_candidate(recent_min)
+            self._record_improving_candidate(hfr_px)
             state = FocusGuidanceState.IMPROVING
         elif trend == "worsening":
             self._bracket_candidate_if_crossed(hfr_px)
